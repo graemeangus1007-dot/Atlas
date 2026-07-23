@@ -1,0 +1,11 @@
+export { default as PreviewAbout } from "@/components/preview/preview-about";
+export { default as PreviewActions } from "@/components/preview/preview-actions";
+export { default as PreviewContact } from "@/components/preview/preview-contact";
+export { default as PreviewFeatures } from "@/components/preview/preview-features";
+export { default as PreviewGallery } from "@/components/preview/preview-gallery";
+export { default as PreviewHero } from "@/components/preview/preview-hero";
+export { default as PreviewNav } from "@/components/preview/preview-nav";
+export { default as PreviewServices } from "@/components/preview/preview-services";
+export { default as PreviewSection } from "@/components/preview/section";
+export { default as SectionHeading } from "@/components/preview/section-heading";
+export { default as WebsitePreview } from "@/components/preview/website-preview";

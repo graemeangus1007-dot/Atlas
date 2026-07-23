@@ -1,0 +1,182 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Atlas design tokens — dark premium SaaS foundation.
+   --------------------------------------------------------------------------- */
+:root {
+  --background: #07090d;
+  --foreground: #f2f4f7;
+  --muted: #9aa3b2;
+  --surface: #0e1218;
+  --border: rgba(255, 255, 255, 0.08);
+  --accent: #3db8a8;
+  --accent-hover: #4ecfbe;
+  --accent-soft: rgba(61, 184, 168, 0.14);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --font-sans: var(--font-atlas-sans);
+  --font-display: var(--font-atlas-display);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-atlas-sans), system-ui, sans-serif;
+}
+
+/* Subtle hero grid — CSS only, no images. */
+.atlas-hero-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, black, transparent);
+}
+
+/* Entrance motion for hero content. */
+@keyframes atlas-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: atlas-fade-up 0.7s ease-out both;
+}
+
+.animate-fade-up-delay-1 {
+  animation: atlas-fade-up 0.7s ease-out 0.12s both;
+}
+
+.animate-fade-up-delay-2 {
+  animation: atlas-fade-up 0.7s ease-out 0.24s both;
+}
+
+.animate-fade-up-delay-3 {
+  animation: atlas-fade-up 0.7s ease-out 0.36s both;
+}
+
+/* Short transition when moving between onboarding steps. */
+@keyframes atlas-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-step-in {
+  animation: atlas-step-in 0.35s ease-out both;
+}
+
+/* Soft pulse for the active generation checklist item. */
+@keyframes atlas-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.96);
+  }
+}
+
+.atlas-pulse {
+  animation: atlas-pulse 1.4s ease-in-out infinite;
+}
+
+/* Slow atmosphere breathe behind the generating screen. */
+@keyframes atlas-breathe {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.06);
+  }
+}
+
+.atlas-breathe {
+  animation: atlas-breathe 4.5s ease-in-out infinite;
+}
+
+/* Subtle shimmer along the progress fill. */
+.atlas-progress-glow {
+  box-shadow: 0 0 18px rgba(61, 184, 168, 0.45);
+}
+
+/*
+  Syne display headings clip descenders (g, y, p) with default line boxes.
+  Extra leading + padding keeps the full glyph visible.
+*/
+.atlas-display-text {
+  line-height: 1.35;
+  overflow: visible;
+  padding-bottom: 0.12em;
+}
+
+/* Generated-site canvas — branding tokens applied via inline CSS variables. */
+.site-canvas {
+  background: var(--site-bg, var(--background));
+  color: var(--site-fg, var(--foreground));
+  font-family: var(--site-body-font, var(--font-atlas-sans));
+}
+
+.site-canvas .site-heading {
+  font-family: var(--site-heading-font, var(--font-atlas-display));
+}
+
+.site-canvas .site-button {
+  border-radius: var(--site-button-radius, 0.75rem);
+}
+
+.site-canvas .site-shell {
+  width: 100%;
+  max-width: var(--site-content-max, 72rem);
+  margin-inline: auto;
+}
+
+.site-canvas .site-link {
+  color: inherit;
+  transition: color 160ms ease;
+}
+
+.site-canvas .site-link:hover,
+.site-canvas .site-link:focus-visible {
+  color: var(--site-accent, var(--accent));
+}
+
+.site-canvas .site-card {
+  background: color-mix(in srgb, var(--site-surface, var(--surface)) 88%, var(--site-primary, transparent) 12%);
+  border-color: var(--site-border, var(--border));
+}
+
+.site-canvas .site-hero-overlay {
+  background-color: var(--site-bg, #07090d);
+  opacity: var(--site-hero-overlay, 0.5);
+}
+
+/* Smooth in-page anchor scrolling for nav links. */
+html {
+  scroll-behavior: smooth;
+}
