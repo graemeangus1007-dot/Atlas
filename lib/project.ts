@@ -72,7 +72,7 @@ export function projectFromOnboarding(
     mediaLibrary: base.mediaLibrary ?? [...DEFAULT_MEDIA.mediaLibrary],
     heroImageId: base.heroImageId ?? DEFAULT_MEDIA.heroImageId,
     galleryImageIds: base.galleryImageIds ?? [...DEFAULT_MEDIA.galleryImageIds],
-    status: "generating",
+    status: "draft",
     publish: base.publish ?? null,
   };
 

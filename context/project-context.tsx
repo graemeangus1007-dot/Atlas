@@ -15,10 +15,10 @@ import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
 import {
   createProject as createProjectRow,
   deleteProject as deleteProjectRow,
-  getProject,
-  listProjects,
-  renameProject as renameProjectRow,
-  updateProjectRecord,
+  getProjectById,
+  getProjects,
+  rowToBusinessProject,
+  updateProject as updateProjectRow,
   type ProjectListItem,
 } from "@/lib/supabase";
 import type { BusinessProject } from "@/types/business-project";
@@ -111,16 +111,18 @@ export function ProjectProvider({
       setProjects([]);
       return;
     }
-    const items = await listProjects();
-    setProjects(items);
+    const result = await getProjects();
+    if (!result.ok) throw new Error(result.error);
+    setProjects(result.data);
   }, [user, isConfigured]);
 
   const openProject = useCallback(async (id: string) => {
     skipAutosaveRef.current = true;
-    const row = await getProject(id);
-    setProjectState(row.data);
-    setProjectId(row.id);
-    writeStoredActiveId(row.id);
+    const result = await getProjectById(id);
+    if (!result.ok) throw new Error(result.error);
+    setProjectState(rowToBusinessProject(result.data));
+    setProjectId(result.data.id);
+    writeStoredActiveId(result.data.id);
     setSaveStatus("idle");
     setSaveError(null);
     window.setTimeout(() => {
@@ -146,23 +148,33 @@ export function ProjectProvider({
     async function bootstrap() {
       setIsLoading(true);
       try {
-        const items = await listProjects();
+        const listResult = await getProjects();
         if (cancelled) return;
-        setProjects(items);
+        if (!listResult.ok) {
+          setProjects([]);
+          return;
+        }
+        setProjects(listResult.data);
 
         const preferred = readStoredActiveId();
         const targetId =
-          (preferred && items.some((item) => item.id === preferred)
+          (preferred && listResult.data.some((item) => item.id === preferred)
             ? preferred
-            : null) ?? items[0]?.id ?? null;
+            : null) ?? listResult.data[0]?.id ?? null;
 
         if (targetId) {
-          const row = await getProject(targetId);
+          const projectResult = await getProjectById(targetId);
           if (cancelled) return;
+          if (!projectResult.ok) {
+            setProjectId(null);
+            writeStoredActiveId(null);
+            setProjectState(initialProject);
+            return;
+          }
           skipAutosaveRef.current = true;
-          setProjectState(row.data);
-          setProjectId(row.id);
-          writeStoredActiveId(row.id);
+          setProjectState(rowToBusinessProject(projectResult.data));
+          setProjectId(projectResult.data.id);
+          writeStoredActiveId(projectResult.data.id);
           window.setTimeout(() => {
             skipAutosaveRef.current = false;
           }, 0);
@@ -195,12 +207,18 @@ export function ProjectProvider({
     setSaveError(null);
 
     try {
-      const row = await updateProjectRecord({
+      const result = await updateProjectRow({
         id,
-        data: projectRef.current,
+        project: projectRef.current,
         name: projectRef.current.businessName || "Untitled project",
         status: projectRef.current.status,
       });
+      if (!result.ok) {
+        setSaveStatus("error");
+        setSaveError(result.error);
+        return;
+      }
+      const row = result.data;
       setProjects((current) =>
         current
           .map((item) =>
@@ -209,7 +227,7 @@ export function ProjectProvider({
                   id: row.id,
                   name: row.name,
                   status: row.status,
-                  businessType: row.data?.businessType || "",
+                  businessType: row.business_type || "",
                   updatedAt: row.updated_at,
                   createdAt: row.created_at,
                 }
@@ -271,31 +289,34 @@ export function ProjectProvider({
 
   const createProject = useCallback(
     async (name: string, data: BusinessProject = MOCK_BUSINESS_PROJECT) => {
-      if (!user) throw new Error("You must be signed in to create a project.");
+      if (!user) {
+        throw new Error("Please sign in to save your project, then try again.");
+      }
 
       const seeded: BusinessProject = {
         ...data,
         businessName: name.trim() || data.businessName || "Untitled project",
       };
 
-      const row = await createProjectRow({
-        userId: user.id,
+      const result = await createProjectRow({
         name: seeded.businessName,
-        data: seeded,
+        project: seeded,
       });
+      if (!result.ok) throw new Error(result.error);
 
+      const row = result.data;
       const item: ProjectListItem = {
         id: row.id,
         name: row.name,
         status: row.status,
-        businessType: row.data?.businessType || "",
+        businessType: row.business_type || "",
         updatedAt: row.updated_at,
         createdAt: row.created_at,
       };
 
       skipAutosaveRef.current = true;
       setProjects((current) => [item, ...current.filter((p) => p.id !== item.id)]);
-      setProjectState(row.data);
+      setProjectState(rowToBusinessProject(row));
       setProjectId(row.id);
       writeStoredActiveId(row.id);
       setSaveStatus("saved");
@@ -312,7 +333,14 @@ export function ProjectProvider({
     const trimmed = name.trim();
     if (!trimmed) throw new Error("Project name cannot be empty.");
 
-    const row = await renameProjectRow(id, trimmed);
+    const result = await updateProjectRow({
+      id,
+      name: trimmed,
+      businessName: trimmed,
+    });
+    if (!result.ok) throw new Error(result.error);
+
+    const row = result.data;
     setProjects((current) =>
       current.map((item) =>
         item.id === id
@@ -335,7 +363,9 @@ export function ProjectProvider({
 
   const deleteProject = useCallback(
     async (id: string) => {
-      await deleteProjectRow(id);
+      const result = await deleteProjectRow(id);
+      if (!result.ok) throw new Error(result.error);
+
       const remaining = projects.filter((item) => item.id !== id);
       setProjects(remaining);
 

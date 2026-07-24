@@ -29,7 +29,7 @@ function ReviewRow({ label, value }: ReviewRowProps) {
 }
 
 /**
- * Final review — persist project then trigger website generation.
+ * Final review — create a real Supabase project, then open the dashboard.
  */
 export default function ReviewStep({
   data,
@@ -43,10 +43,10 @@ export default function ReviewStep({
     : "—";
 
   return (
-    <div className="mx-auto w-full max-w-xl">
+    <div className="mx-auto w-full max-w-xl" aria-busy={isSubmitting}>
       <StepHeader
         title="Review your details"
-        description="Make sure everything looks right. You can go back to edit any step before generating."
+        description="Make sure everything looks right. We will save your project and take you to the dashboard."
       />
 
       <dl className="rounded-2xl border border-border bg-surface/60 px-5 sm:px-6">
@@ -60,6 +60,19 @@ export default function ReviewStep({
         <ReviewRow label="Style" value={styleLabel} />
       </dl>
 
+      {isSubmitting ? (
+        <div
+          className="mt-4 flex items-center gap-3 rounded-xl border border-border/80 bg-surface/40 px-4 py-3 text-sm text-muted"
+          role="status"
+        >
+          <span
+            className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent"
+            aria-hidden="true"
+          />
+          Creating your project…
+        </div>
+      ) : null}
+
       {error ? (
         <p className="mt-4 text-sm text-red-400" role="alert">
           {error}
@@ -67,9 +80,10 @@ export default function ReviewStep({
       ) : null}
 
       <StepNav
-        onBack={onBack}
+        onBack={isSubmitting ? undefined : onBack}
+        showBack={!isSubmitting}
         onNext={onGenerate}
-        nextLabel={isSubmitting ? "Saving…" : "Generate My Website"}
+        nextLabel={isSubmitting ? "Creating project…" : "Create My Website"}
         nextDisabled={isSubmitting}
       />
     </div>

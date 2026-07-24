@@ -1,14 +1,68 @@
-import type { BusinessProject, ProjectStatus } from "@/types/business-project";
+import type { BusinessType, WebsiteGoal } from "@/types/business";
+import type { ProjectStatus } from "@/types/business-project";
+import type { MediaAsset } from "@/types/media";
+
+/** JSON object stored in public.projects.content */
+export type ProjectContentJson = Record<string, unknown>;
+
+/** JSON object stored in public.projects.branding */
+export type ProjectBrandingJson = Record<string, unknown>;
 
 /** Row shape for public.projects (matches the SQL migration). */
 export type ProjectRow = {
   id: string;
-  user_id: string;
+  owner_id: string;
   name: string;
-  data: BusinessProject;
+  business_name: string;
+  business_type: string | null;
+  description: string | null;
+  goals: WebsiteGoal[];
+  content: ProjectContentJson;
+  branding: ProjectBrandingJson;
+  template: string | null;
+  media: MediaAsset[];
   status: ProjectStatus;
+  published_url: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** Fields accepted when inserting a project row. */
+export type ProjectInsert = {
+  id?: string;
+  owner_id: string;
+  name: string;
+  business_name: string;
+  business_type?: string | null;
+  description?: string | null;
+  goals?: WebsiteGoal[];
+  content?: ProjectContentJson;
+  branding?: ProjectBrandingJson;
+  template?: string | null;
+  media?: MediaAsset[];
+  status?: ProjectStatus;
+  published_url?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+/** Fields accepted when updating a project row. */
+export type ProjectUpdate = {
+  id?: string;
+  owner_id?: string;
+  name?: string;
+  business_name?: string;
+  business_type?: string | null;
+  description?: string | null;
+  goals?: WebsiteGoal[];
+  content?: ProjectContentJson;
+  branding?: ProjectBrandingJson;
+  template?: string | null;
+  media?: MediaAsset[];
+  status?: ProjectStatus;
+  published_url?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 /** Lightweight list item for dashboard project cards. */
@@ -16,35 +70,32 @@ export type ProjectListItem = {
   id: string;
   name: string;
   status: ProjectStatus;
-  businessType: string;
+  businessType: BusinessType | string;
   updatedAt: string;
   createdAt: string;
 };
+
+/** Typed success / failure wrapper for project data-access calls. */
+export type ProjectResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
 
 export type Database = {
   public: {
     Tables: {
       projects: {
         Row: ProjectRow;
-        Insert: {
-          id?: string;
-          user_id: string;
-          name: string;
-          data?: BusinessProject;
-          status?: ProjectStatus;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          name?: string;
-          data?: BusinessProject;
-          status?: ProjectStatus;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [];
+        Insert: ProjectInsert;
+        Update: ProjectUpdate;
+        Relationships: [
+          {
+            foreignKeyName: "projects_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: Record<string, never>;

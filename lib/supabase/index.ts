@@ -7,12 +7,13 @@ export {
   getSessionUser,
 } from "@/lib/auth";
 export {
-  listProjects,
-  getProject,
   createProject,
-  updateProjectRecord,
-  renameProject,
+  getProjects,
+  getProjectById,
+  updateProject,
   deleteProject,
+  businessProjectToColumns,
+  rowToBusinessProject,
 } from "@/lib/supabase/projects";
 export { getAuthErrorMessage } from "@/lib/auth";
 export {
@@ -21,5 +22,10 @@ export {
   type Database,
   type ProjectRow,
   type ProjectListItem,
+  type ProjectInsert,
+  type ProjectUpdate,
+  type ProjectResult,
+  type ProjectContentJson,
+  type ProjectBrandingJson,
   type SupabasePublicEnv,
 } from "@/lib/supabase/types";

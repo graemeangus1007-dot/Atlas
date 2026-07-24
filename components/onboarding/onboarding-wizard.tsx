@@ -25,11 +25,11 @@ import "@/lib/templates";
 
 /**
  * Multi-step onboarding wizard.
- * Local form state during the wizard; commits into BusinessProject Context on generate.
+ * Local form state during the wizard; creates a real Supabase project on finish.
  */
 export default function OnboardingWizard() {
   const router = useRouter();
-  const { project, setProject, createProject, projectId } = useProject();
+  const { project, createProject } = useProject();
   const [currentStep, setCurrentStep] = useState(1);
   const [data, setData] = useState<OnboardingData>(INITIAL_ONBOARDING_DATA);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -43,7 +43,7 @@ export default function OnboardingWizard() {
     setCurrentStep((step) => Math.max(step - 1, 1));
   }
 
-  async function handleGenerate() {
+  async function handleCreateProject() {
     setSubmitError(null);
     setIsSubmitting(true);
 
@@ -57,20 +57,20 @@ export default function OnboardingWizard() {
     );
 
     try {
-      if (projectId) {
-        setProject({ ...nextProject, status: "generating" });
-      } else {
-        await createProject(nextProject.businessName, {
-          ...nextProject,
-          status: "generating",
-        });
-      }
-      router.push("/generating");
+      // Context.createProject → lib/supabase/projects.createProject
+      // Sets owner_id from the signed-in user, stores the returned id, and
+      // syncs BusinessProject Context with the persisted row.
+      await createProject(nextProject.businessName, {
+        ...nextProject,
+        status: "draft",
+      });
+      router.push("/dashboard");
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Could not save your project.",
+        err instanceof Error
+          ? err.message
+          : "Could not save your project. Please try again.",
       );
-    } finally {
       setIsSubmitting(false);
     }
   }
@@ -173,7 +173,7 @@ export default function OnboardingWizard() {
               <ReviewStep
                 data={data}
                 onBack={goBack}
-                onGenerate={() => void handleGenerate()}
+                onGenerate={() => void handleCreateProject()}
                 isSubmitting={isSubmitting}
                 error={submitError}
               />
