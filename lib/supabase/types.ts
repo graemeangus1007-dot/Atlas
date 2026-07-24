@@ -65,12 +65,14 @@ export type ProjectUpdate = {
   updated_at?: string;
 };
 
-/** Lightweight list item for dashboard project cards. */
+/** Lightweight list item for dashboard / projects cards. */
 export type ProjectListItem = {
   id: string;
   name: string;
-  status: ProjectStatus;
+  businessName: string;
   businessType: BusinessType | string;
+  status: ProjectStatus;
+  publishedUrl: string | null;
   updatedAt: string;
   createdAt: string;
 };

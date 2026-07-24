@@ -58,7 +58,7 @@ function getProjectErrorMessage(error: unknown): string {
     return "Project saving isn't configured yet. Add your Supabase keys to .env.local.";
   }
 
-  return message || "Could not save your project. Please try again.";
+  return message || "Something went wrong with your project. Please try again.";
 }
 
 function fail<T>(error: unknown): ProjectResult<T> {
@@ -84,12 +84,15 @@ function asNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function toListItem(row: ProjectRow): ProjectListItem {
+/** Map a projects row to the dashboard / projects list card shape. */
+export function toProjectListItem(row: ProjectRow): ProjectListItem {
   return {
     id: row.id,
     name: row.name,
-    status: row.status,
+    businessName: row.business_name,
     businessType: row.business_type ?? "",
+    status: row.status,
+    publishedUrl: row.published_url,
     updatedAt: row.updated_at,
     createdAt: row.created_at,
   };
@@ -331,7 +334,7 @@ export async function getProjects(): Promise<ProjectResult<ProjectListItem[]>> {
       .order("updated_at", { ascending: false });
 
     if (error) return fail(error);
-    return ok((data as ProjectRow[]).map(toListItem));
+    return ok((data as ProjectRow[]).map(toProjectListItem));
   } catch (error) {
     return fail(error);
   }

@@ -14,6 +14,7 @@ export {
   deleteProject,
   businessProjectToColumns,
   rowToBusinessProject,
+  toProjectListItem,
 } from "@/lib/supabase/projects";
 export { getAuthErrorMessage } from "@/lib/auth";
 export {

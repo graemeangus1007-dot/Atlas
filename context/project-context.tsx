@@ -18,6 +18,7 @@ import {
   getProjectById,
   getProjects,
   rowToBusinessProject,
+  toProjectListItem,
   updateProject as updateProjectRow,
   type ProjectListItem,
 } from "@/lib/supabase";
@@ -33,17 +34,20 @@ type ProjectContextValue = {
   projectId: string | null;
   projects: ProjectListItem[];
   isLoading: boolean;
+  listError: string | null;
   isSaving: boolean;
   saveStatus: SaveStatus;
   saveError: string | null;
   setProject: (project: BusinessProject) => void;
   updateProject: (partial: Partial<BusinessProject>) => void;
   resetProject: () => void;
+  /** Reload the project list via getProjects(). */
   refreshProjects: () => Promise<void>;
   createProject: (
     name: string,
     data?: BusinessProject,
   ) => Promise<ProjectListItem>;
+  /** Load a project with getProjectById() into Context and store the active id. */
   openProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
@@ -89,6 +93,7 @@ export function ProjectProvider({
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -109,10 +114,16 @@ export function ProjectProvider({
   const refreshProjects = useCallback(async () => {
     if (!user || !isConfigured) {
       setProjects([]);
+      setListError(null);
       return;
     }
+
+    setListError(null);
     const result = await getProjects();
-    if (!result.ok) throw new Error(result.error);
+    if (!result.ok) {
+      setListError(result.error);
+      throw new Error(result.error);
+    }
     setProjects(result.data);
   }, [user, isConfigured]);
 
@@ -136,6 +147,7 @@ export function ProjectProvider({
 
     if (!user || !isConfigured) {
       setProjects([]);
+      setListError(null);
       setProjectId(null);
       writeStoredActiveId(null);
       setProjectState(initialProject);
@@ -147,11 +159,13 @@ export function ProjectProvider({
 
     async function bootstrap() {
       setIsLoading(true);
+      setListError(null);
       try {
         const listResult = await getProjects();
         if (cancelled) return;
         if (!listResult.ok) {
           setProjects([]);
+          setListError(listResult.error);
           return;
         }
         setProjects(listResult.data);
@@ -183,9 +197,14 @@ export function ProjectProvider({
           writeStoredActiveId(null);
           setProjectState(initialProject);
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setProjects([]);
+          setListError(
+            err instanceof Error
+              ? err.message
+              : "Could not load your projects. Please try again.",
+          );
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -222,16 +241,7 @@ export function ProjectProvider({
       setProjects((current) =>
         current
           .map((item) =>
-            item.id === row.id
-              ? {
-                  id: row.id,
-                  name: row.name,
-                  status: row.status,
-                  businessType: row.business_type || "",
-                  updatedAt: row.updated_at,
-                  createdAt: row.created_at,
-                }
-              : item,
+            item.id === row.id ? toProjectListItem(row) : item,
           )
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
       );
@@ -305,16 +315,10 @@ export function ProjectProvider({
       if (!result.ok) throw new Error(result.error);
 
       const row = result.data;
-      const item: ProjectListItem = {
-        id: row.id,
-        name: row.name,
-        status: row.status,
-        businessType: row.business_type || "",
-        updatedAt: row.updated_at,
-        createdAt: row.created_at,
-      };
+      const item = toProjectListItem(row);
 
       skipAutosaveRef.current = true;
+      setListError(null);
       setProjects((current) => [item, ...current.filter((p) => p.id !== item.id)]);
       setProjectState(rowToBusinessProject(row));
       setProjectId(row.id);
@@ -343,9 +347,7 @@ export function ProjectProvider({
     const row = result.data;
     setProjects((current) =>
       current.map((item) =>
-        item.id === id
-          ? { ...item, name: row.name, updatedAt: row.updated_at }
-          : item,
+        item.id === id ? toProjectListItem(row) : item,
       ),
     );
 
@@ -394,6 +396,7 @@ export function ProjectProvider({
       projectId,
       projects,
       isLoading,
+      listError,
       isSaving: saveStatus === "saving",
       saveStatus,
       saveError,
@@ -412,6 +415,7 @@ export function ProjectProvider({
       projectId,
       projects,
       isLoading,
+      listError,
       saveStatus,
       saveError,
       setProject,
