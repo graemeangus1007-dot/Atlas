@@ -12,6 +12,7 @@ export {
   getProjectById,
   updateProject,
   deleteProject,
+  duplicateProject,
   businessProjectToColumns,
   rowToBusinessProject,
   toProjectListItem,

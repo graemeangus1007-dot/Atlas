@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import Button from "@/components/ui/button";
 import { useProjects } from "@/hooks/use-projects";
 import { formatProjectStatus } from "@/lib/project";
 import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
+
+type BusyAction = "open" | "duplicate" | "delete" | "rename";
 
 function formatUpdatedAt(iso: string): string {
   try {
@@ -21,8 +23,21 @@ function formatUpdatedAt(iso: string): string {
   }
 }
 
+function confirmDelete(projectName: string): boolean {
+  return window.confirm(
+    [
+      `Delete “${projectName}”?`,
+      "",
+      "This permanently removes the project from your account.",
+      "This action cannot be undone.",
+      "",
+      "Click OK to delete, or Cancel to keep the project.",
+    ].join("\n"),
+  );
+}
+
 /**
- * Real Supabase project list — create, open, rename, delete.
+ * Real Supabase project list — open, duplicate, delete (also create/rename).
  * Used on /dashboard and /projects.
  */
 export default function ProjectList() {
@@ -33,17 +48,40 @@ export default function ProjectList() {
     isLoading,
     error,
     retry,
+    refreshProjects,
     createProject,
     openProject,
     renameProject,
+    duplicateProject,
     deleteProject,
   } = useProjects();
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const successTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) {
+        window.clearTimeout(successTimerRef.current);
+      }
+    };
+  }, []);
+
+  function showSuccess(message: string) {
+    setSuccessMessage(message);
+    if (successTimerRef.current) {
+      window.clearTimeout(successTimerRef.current);
+    }
+    successTimerRef.current = window.setTimeout(() => {
+      setSuccessMessage(null);
+    }, 4000);
+  }
 
   async function handleCreate() {
     setActionError(null);
@@ -67,6 +105,7 @@ export default function ProjectList() {
   async function handleOpen(id: string) {
     setActionError(null);
     setBusyId(id);
+    setBusyAction("open");
     try {
       await openProject(id);
       router.push("/editor");
@@ -76,44 +115,70 @@ export default function ProjectList() {
       );
     } finally {
       setBusyId(null);
+      setBusyAction(null);
+    }
+  }
+
+  async function handleDuplicate(id: string, name: string) {
+    setActionError(null);
+    setBusyId(id);
+    setBusyAction("duplicate");
+    try {
+      const copy = await duplicateProject(id);
+      await refreshProjects().catch(() => {
+        // List already includes the optimistic copy from Context.
+      });
+      showSuccess(`Duplicated “${name}” as “${copy.name}”.`);
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Could not duplicate project.",
+      );
+    } finally {
+      setBusyId(null);
+      setBusyAction(null);
     }
   }
 
   async function handleRename(id: string) {
     setActionError(null);
     setBusyId(id);
+    setBusyAction("rename");
     try {
       await renameProject(id, renameValue);
       setRenamingId(null);
+      showSuccess("Project renamed.");
     } catch (err) {
       setActionError(
         err instanceof Error ? err.message : "Could not rename project.",
       );
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   }
 
   async function handleDelete(id: string, name: string) {
-    const confirmed = window.confirm(
-      `Delete “${name}”? This cannot be undone.`,
-    );
-    if (!confirmed) return;
+    if (!confirmDelete(name)) return;
 
     setActionError(null);
     setBusyId(id);
+    setBusyAction("delete");
     try {
       await deleteProject(id);
+      showSuccess(`Deleted “${name}”.`);
     } catch (err) {
+      // Card stays in the list — Context only removes after success.
       setActionError(
         err instanceof Error ? err.message : "Could not delete project.",
       );
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   }
 
   const displayError = actionError || error;
+  const anyBusy = busyId !== null || creating;
 
   return (
     <section
@@ -141,6 +206,15 @@ export default function ProjectList() {
           {creating ? "Creating…" : "Create Project"}
         </Button>
       </div>
+
+      {successMessage ? (
+        <div
+          className="mt-4 rounded-xl border border-accent/30 bg-accent-soft/40 px-4 py-3 text-sm text-foreground"
+          role="status"
+        >
+          {successMessage}
+        </div>
+      ) : null}
 
       {isLoading ? (
         <div
@@ -209,6 +283,14 @@ export default function ProjectList() {
               const isActive = item.id === activeProjectId;
               const isBusy = busyId === item.id;
               const isRenaming = renamingId === item.id;
+              const openLabel =
+                isBusy && busyAction === "open" ? "Opening…" : "Open Project";
+              const duplicateLabel =
+                isBusy && busyAction === "duplicate"
+                  ? "Duplicating..."
+                  : "Duplicate";
+              const deleteLabel =
+                isBusy && busyAction === "delete" ? "Deleting..." : "Delete";
 
               return (
                 <li
@@ -273,12 +355,15 @@ export default function ProjectList() {
                             disabled={isBusy}
                             onClick={() => void handleRename(item.id)}
                           >
-                            Save
+                            {isBusy && busyAction === "rename"
+                              ? "Saving…"
+                              : "Save"}
                           </Button>
                           <Button
                             type="button"
                             variant="ghost"
                             className="px-3 py-1.5 text-xs"
+                            disabled={isBusy}
                             onClick={() => setRenamingId(null)}
                           >
                             Cancel
@@ -289,16 +374,27 @@ export default function ProjectList() {
                           <Button
                             type="button"
                             className="px-3 py-1.5 text-xs"
-                            disabled={isBusy}
+                            disabled={anyBusy}
                             onClick={() => void handleOpen(item.id)}
                           >
-                            {isBusy ? "Opening…" : "Open Project"}
+                            {openLabel}
                           </Button>
                           <Button
                             type="button"
                             variant="secondary"
                             className="px-3 py-1.5 text-xs"
-                            disabled={isBusy}
+                            disabled={anyBusy}
+                            onClick={() =>
+                              void handleDuplicate(item.id, item.name)
+                            }
+                          >
+                            {duplicateLabel}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="px-3 py-1.5 text-xs"
+                            disabled={anyBusy}
                             onClick={() => {
                               setRenamingId(item.id);
                               setRenameValue(item.name);
@@ -310,12 +406,12 @@ export default function ProjectList() {
                             type="button"
                             variant="ghost"
                             className="px-3 py-1.5 text-xs"
-                            disabled={isBusy}
+                            disabled={anyBusy}
                             onClick={() =>
                               void handleDelete(item.id, item.name)
                             }
                           >
-                            Delete
+                            {deleteLabel}
                           </Button>
                         </>
                       )}

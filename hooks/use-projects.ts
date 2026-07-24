@@ -6,9 +6,8 @@ import { useProject } from "@/context/project-context";
 /**
  * Dedicated projects hook for dashboard /projects UI.
  *
- * List + open go through Context, which calls getProjects() /
- * getProjectById() in lib/supabase/projects.ts — presentation
- * components never query Supabase directly.
+ * List + mutations go through Context, which calls helpers in
+ * lib/supabase/projects.ts — presentation components never query Supabase.
  */
 export function useProjects() {
   const {
@@ -20,6 +19,7 @@ export function useProjects() {
     createProject,
     openProject,
     renameProject,
+    duplicateProject,
     deleteProject,
   } = useProject();
 
@@ -46,6 +46,7 @@ export function useProjects() {
     createProject,
     openProject,
     renameProject,
+    duplicateProject,
     deleteProject,
   };
 }

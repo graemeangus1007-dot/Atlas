@@ -432,14 +432,107 @@ export async function updateProject(
   }
 }
 
+/**
+ * Permanently delete a project owned by the signed-in user (hard delete).
+ * RLS enforces ownership; the service-role key is never used.
+ */
 export async function deleteProject(
   id: string,
 ): Promise<ProjectResult<{ id: string }>> {
   try {
     const supabase = createClient();
-    const { error } = await supabase.from("projects").delete().eq("id", id);
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) return fail(userError);
+    if (!user) {
+      return {
+        ok: false,
+        error: "Please sign in to delete a project, then try again.",
+      };
+    }
+
+    const { data, error } = await supabase
+      .from("projects")
+      .delete()
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+
     if (error) return fail(error);
-    return ok({ id });
+    if (!data) {
+      return {
+        ok: false,
+        error:
+          "Project not found or you don't have permission to delete it.",
+      };
+    }
+
+    return ok({ id: data.id });
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/**
+ * Duplicate a project for the signed-in user.
+ * Copies editable data into a new draft row with a fresh id.
+ * Does not copy created_at, updated_at, or published_url.
+ */
+export async function duplicateProject(
+  id: string,
+): Promise<ProjectResult<ProjectRow>> {
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) return fail(userError);
+    if (!user) {
+      return {
+        ok: false,
+        error: "Please sign in to duplicate a project, then try again.",
+      };
+    }
+
+    const sourceResult = await getProjectById(id);
+    if (!sourceResult.ok) return sourceResult;
+
+    const source = sourceResult.data;
+    const content: ProjectContentJson = isRecord(source.content)
+      ? { ...source.content }
+      : {};
+    // Duplicates start unpublished — drop publish snapshot from content.
+    delete content.publish;
+
+    const baseName = source.name.trim() || "Untitled project";
+    const insert: ProjectInsert = {
+      owner_id: user.id,
+      name: `${baseName} Copy`,
+      business_name: source.business_name,
+      business_type: source.business_type,
+      description: source.description,
+      goals: Array.isArray(source.goals) ? [...source.goals] : [],
+      content,
+      branding: isRecord(source.branding) ? { ...source.branding } : {},
+      template: source.template,
+      media: Array.isArray(source.media) ? [...source.media] : [],
+      status: "draft",
+      published_url: null,
+    };
+
+    const { data, error } = await supabase
+      .from("projects")
+      .insert(insert)
+      .select("*")
+      .single();
+
+    if (error) return fail(error);
+    return ok(data as ProjectRow);
   } catch (error) {
     return fail(error);
   }

@@ -15,6 +15,7 @@ import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
 import {
   createProject as createProjectRow,
   deleteProject as deleteProjectRow,
+  duplicateProject as duplicateProjectRow,
   getProjectById,
   getProjects,
   rowToBusinessProject,
@@ -51,6 +52,8 @@ type ProjectContextValue = {
   /** Load a project with getProjectById() into Context and store the active id. */
   openProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
+  /** Copy a project into a new draft; does not open the copy. */
+  duplicateProject: (id: string) => Promise<ProjectListItem>;
   deleteProject: (id: string) => Promise<void>;
   /** Persist the active project immediately (manual Save / Retry). */
   saveNow: () => Promise<void>;
@@ -436,23 +439,34 @@ export function ProjectProvider({
     }
   }, []);
 
+  const duplicateProject = useCallback(async (id: string) => {
+    const result = await duplicateProjectRow(id);
+    if (!result.ok) throw new Error(result.error);
+
+    const item = toProjectListItem(result.data);
+    // Show the copy immediately; do not activate / open it.
+    setProjects((current) => [
+      item,
+      ...current.filter((project) => project.id !== item.id),
+    ]);
+
+    return item;
+  }, []);
+
   const deleteProject = useCallback(
     async (id: string) => {
       const result = await deleteProjectRow(id);
       if (!result.ok) throw new Error(result.error);
 
-      const remaining = projects.filter((item) => item.id !== id);
-      setProjects(remaining);
+      // Only remove from UI after a successful hard delete.
+      setProjects((current) => current.filter((item) => item.id !== id));
 
       if (projectIdRef.current === id) {
-        if (remaining[0]) {
-          await openProject(remaining[0].id);
-        } else {
-          resetProject();
-        }
+        // Clear active project id + local Context (do not auto-open another).
+        resetProject();
       }
     },
-    [projects, openProject, resetProject],
+    [resetProject],
   );
 
   const saveNow = useCallback(async () => {
@@ -480,6 +494,7 @@ export function ProjectProvider({
       createProject,
       openProject,
       renameProject,
+      duplicateProject,
       deleteProject,
       saveNow,
     }),
@@ -498,6 +513,7 @@ export function ProjectProvider({
       createProject,
       openProject,
       renameProject,
+      duplicateProject,
       deleteProject,
       saveNow,
     ],
