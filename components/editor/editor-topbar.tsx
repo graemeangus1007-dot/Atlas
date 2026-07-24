@@ -11,8 +11,23 @@ type EditorTopBarProps = {
   onPublish: () => void;
 };
 
+function statusClass(label: string): string {
+  switch (label) {
+    case "Saving...":
+      return "text-muted";
+    case "Unsaved changes":
+      return "text-amber-300";
+    case "Save failed":
+      return "text-red-400";
+    case "Saved":
+      return "text-accent";
+    default:
+      return "text-muted";
+  }
+}
+
 /**
- * Editor top navigation — Atlas brand, project name, autosave, and actions.
+ * Editor top navigation — Atlas brand, project name, autosave status, and actions.
  */
 export default function EditorTopBar({
   businessName,
@@ -20,14 +35,17 @@ export default function EditorTopBar({
   onMenuClick,
   onPublish,
 }: EditorTopBarProps) {
-  const { label, saveStatus, canSave } = useAutosave();
+  const { label, saveStatus, canSave, showRetry, retry, saveError } =
+    useAutosave();
 
   const saveButtonLabel =
     saveStatus === "saving"
       ? "Saving..."
-      : saveStatus === "saved"
-        ? "Saved ✓"
-        : "Save Changes";
+      : saveStatus === "saved" || saveStatus === "idle"
+        ? "Saved"
+        : saveStatus === "error"
+          ? "Retry save"
+          : "Save Changes";
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/90 px-3 backdrop-blur-xl sm:px-5">
@@ -53,16 +71,35 @@ export default function EditorTopBar({
         <p className="truncate text-sm font-medium text-foreground">
           {businessName}
         </p>
-        <p className="truncate text-xs text-muted" aria-live="polite">
-          {canSave ? label : "Create or open a project to autosave"}
-        </p>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <p
+            className={`truncate text-xs ${statusClass(label)}`}
+            aria-live="polite"
+          >
+            {label}
+          </p>
+          {showRetry ? (
+            <button
+              type="button"
+              onClick={() => void retry()}
+              className="text-xs font-medium text-accent underline-offset-2 hover:underline"
+            >
+              Retry
+            </button>
+          ) : null}
+        </div>
+        {showRetry && saveError ? (
+          <p className="truncate text-[11px] text-red-400/80" title={saveError}>
+            {saveError}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
         <Button
           type="button"
           variant="secondary"
-          onClick={onSave}
+          onClick={showRetry ? () => void retry() : onSave}
           disabled={!canSave || saveStatus === "saving"}
           className="px-3 py-2 text-xs transition-all sm:px-4 sm:text-sm"
         >

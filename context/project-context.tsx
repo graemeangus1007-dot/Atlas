@@ -25,9 +25,10 @@ import {
 import type { BusinessProject } from "@/types/business-project";
 
 const ACTIVE_PROJECT_KEY = "atlas:activeProjectId";
-const AUTOSAVE_DELAY_MS = 900;
+/** Wait ~1s after the last edit before persisting (never save every keystroke). */
+const AUTOSAVE_DELAY_MS = 1000;
 
-export type SaveStatus = "idle" | "saving" | "saved" | "error";
+export type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
 
 type ProjectContextValue = {
   project: BusinessProject;
@@ -51,7 +52,7 @@ type ProjectContextValue = {
   openProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
-  /** Persist current in-memory project immediately (also used by manual Save). */
+  /** Persist the active project immediately (manual Save / Retry). */
   saveNow: () => Promise<void>;
 };
 
@@ -102,6 +103,10 @@ export function ProjectProvider({
   const skipAutosaveRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
   const savedResetTimerRef = useRef<number | null>(null);
+  /** Bumps on every local edit; compared after save so mid-save typing isn't lost. */
+  const dirtyVersionRef = useRef(0);
+  const inFlightSaveRef = useRef(false);
+  const pendingResaveRef = useRef(false);
 
   useEffect(() => {
     projectRef.current = project;
@@ -129,12 +134,18 @@ export function ProjectProvider({
 
   const openProject = useCallback(async (id: string) => {
     skipAutosaveRef.current = true;
+    dirtyVersionRef.current = 0;
+    pendingResaveRef.current = false;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     const result = await getProjectById(id);
     if (!result.ok) throw new Error(result.error);
     setProjectState(rowToBusinessProject(result.data));
     setProjectId(result.data.id);
     writeStoredActiveId(result.data.id);
-    setSaveStatus("idle");
+    setSaveStatus("saved");
     setSaveError(null);
     window.setTimeout(() => {
       skipAutosaveRef.current = false;
@@ -186,9 +197,12 @@ export function ProjectProvider({
             return;
           }
           skipAutosaveRef.current = true;
+          dirtyVersionRef.current = 0;
+          pendingResaveRef.current = false;
           setProjectState(rowToBusinessProject(projectResult.data));
           setProjectId(projectResult.data.id);
           writeStoredActiveId(projectResult.data.id);
+          setSaveStatus("saved");
           window.setTimeout(() => {
             skipAutosaveRef.current = false;
           }, 0);
@@ -222,21 +236,34 @@ export function ProjectProvider({
     const id = projectIdRef.current;
     if (!id || !user || !isConfigured) return;
 
+    if (inFlightSaveRef.current) {
+      pendingResaveRef.current = true;
+      return;
+    }
+
+    const versionAtSave = dirtyVersionRef.current;
+    const snapshot = projectRef.current;
+
+    inFlightSaveRef.current = true;
     setSaveStatus("saving");
     setSaveError(null);
 
     try {
+      // Always update the active project — never insert a duplicate.
       const result = await updateProjectRow({
         id,
-        project: projectRef.current,
-        name: projectRef.current.businessName || "Untitled project",
-        status: projectRef.current.status,
+        project: snapshot,
+        name: snapshot.businessName || "Untitled project",
+        status: snapshot.status,
       });
+
       if (!result.ok) {
+        // Keep local edits; surface failure for Retry.
         setSaveStatus("error");
         setSaveError(result.error);
         return;
       }
+
       const row = result.data;
       setProjects((current) =>
         current
@@ -245,16 +272,48 @@ export function ProjectProvider({
           )
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
       );
+
+      if (
+        dirtyVersionRef.current !== versionAtSave ||
+        pendingResaveRef.current
+      ) {
+        // User kept editing during the request — leave unsaved; resave below.
+        setSaveStatus("unsaved");
+        return;
+      }
+
       setSaveStatus("saved");
       if (savedResetTimerRef.current) {
         window.clearTimeout(savedResetTimerRef.current);
       }
       savedResetTimerRef.current = window.setTimeout(() => {
-        setSaveStatus((status) => (status === "saved" ? "idle" : status));
-      }, 1800);
+        setSaveStatus((status) =>
+          status === "saved" && dirtyVersionRef.current === versionAtSave
+            ? "idle"
+            : status,
+        );
+      }, 2500);
     } catch (err) {
       setSaveStatus("error");
-      setSaveError(err instanceof Error ? err.message : "Failed to save");
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      inFlightSaveRef.current = false;
+
+      const needsResave =
+        pendingResaveRef.current ||
+        dirtyVersionRef.current !== versionAtSave;
+
+      if (needsResave && projectIdRef.current && !skipAutosaveRef.current) {
+        pendingResaveRef.current = false;
+        if (saveTimerRef.current) {
+          window.clearTimeout(saveTimerRef.current);
+        }
+        saveTimerRef.current = window.setTimeout(() => {
+          void persistProject();
+        }, AUTOSAVE_DELAY_MS);
+      } else {
+        pendingResaveRef.current = false;
+      }
     }
   }, [user, isConfigured]);
 
@@ -262,6 +321,10 @@ export function ProjectProvider({
   useEffect(() => {
     if (!projectId || !user || !isConfigured) return;
     if (skipAutosaveRef.current) return;
+
+    dirtyVersionRef.current += 1;
+    setSaveStatus("unsaved");
+    setSaveError(null);
 
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
@@ -288,10 +351,17 @@ export function ProjectProvider({
 
   const resetProject = useCallback(() => {
     skipAutosaveRef.current = true;
+    dirtyVersionRef.current = 0;
+    pendingResaveRef.current = false;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     setProjectState(MOCK_BUSINESS_PROJECT);
     setProjectId(null);
     writeStoredActiveId(null);
     setSaveStatus("idle");
+    setSaveError(null);
     window.setTimeout(() => {
       skipAutosaveRef.current = false;
     }, 0);
@@ -318,12 +388,15 @@ export function ProjectProvider({
       const item = toProjectListItem(row);
 
       skipAutosaveRef.current = true;
+      dirtyVersionRef.current = 0;
+      pendingResaveRef.current = false;
       setListError(null);
       setProjects((current) => [item, ...current.filter((p) => p.id !== item.id)]);
       setProjectState(rowToBusinessProject(row));
       setProjectId(row.id);
       writeStoredActiveId(row.id);
       setSaveStatus("saved");
+      setSaveError(null);
       window.setTimeout(() => {
         skipAutosaveRef.current = false;
       }, 0);
