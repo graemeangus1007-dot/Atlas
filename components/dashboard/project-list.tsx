@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import EditProjectDetailsModal from "@/components/dashboard/edit-project-details-modal";
+import ProjectListControls from "@/components/dashboard/project-list-controls";
 import Button from "@/components/ui/button";
+import { useProjectListQuery } from "@/hooks/use-project-list-query";
 import { useProjects } from "@/hooks/use-projects";
 import { formatProjectStatus } from "@/lib/project";
 import type { ProjectMetadataFields } from "@/lib/project-metadata";
@@ -41,6 +43,7 @@ function confirmDelete(projectName: string): boolean {
 
 /**
  * Real Supabase project list — open, edit details, duplicate, delete.
+ * Search / filter / sort run client-side on already-loaded projects.
  * Used on /dashboard and /projects.
  */
 export default function ProjectList() {
@@ -58,6 +61,18 @@ export default function ProjectList() {
     duplicateProject,
     deleteProject,
   } = useProjects();
+
+  const {
+    query,
+    visibleProjects,
+    resultsLabel,
+    controlsActive,
+    setSearch,
+    setStatus,
+    setSort,
+    clearFilters,
+    clearSearch,
+  } = useProjectListQuery(projects);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
@@ -253,6 +268,15 @@ export default function ProjectList() {
         </div>
       ) : (
         <>
+          <ProjectListControls
+            query={query}
+            resultsLabel={resultsLabel}
+            onSearchChange={setSearch}
+            onClearSearch={clearSearch}
+            onStatusChange={setStatus}
+            onSortChange={setSort}
+          />
+
           {displayError ? (
             <div
               className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3"
@@ -272,104 +296,127 @@ export default function ProjectList() {
             </div>
           ) : null}
 
-          <ul className="mt-5 space-y-3">
-            {projects.map((item) => {
-              const isActive = item.id === activeProjectId;
-              const isBusy = busyId === item.id;
-              const openLabel =
-                isBusy && busyAction === "open" ? "Opening…" : "Open Project";
-              const duplicateLabel =
-                isBusy && busyAction === "duplicate"
-                  ? "Duplicating..."
-                  : "Duplicate";
-              const deleteLabel =
-                isBusy && busyAction === "delete" ? "Deleting..." : "Delete";
+          {visibleProjects.length === 0 ? (
+            <div className="mt-5 rounded-xl border border-dashed border-border px-4 py-10 text-center">
+              <p className="text-sm font-medium text-foreground">
+                No matching projects
+              </p>
+              <p className="mt-1 text-sm text-muted">
+                {controlsActive
+                  ? "No projects match your current search, status filter, or sort controls."
+                  : "No projects to show."}
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-4 px-4 py-2 text-sm"
+                onClick={clearFilters}
+              >
+                Clear filters
+              </Button>
+            </div>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {visibleProjects.map((item) => {
+                const isActive = item.id === activeProjectId;
+                const isBusy = busyId === item.id;
+                const openLabel =
+                  isBusy && busyAction === "open" ? "Opening…" : "Open Project";
+                const duplicateLabel =
+                  isBusy && busyAction === "duplicate"
+                    ? "Duplicating..."
+                    : "Duplicate";
+                const deleteLabel =
+                  isBusy && busyAction === "delete" ? "Deleting..." : "Delete";
 
-              return (
-                <li
-                  key={item.id}
-                  className={`rounded-xl border p-4 transition-colors ${
-                    isActive
-                      ? "border-accent/50 bg-accent-soft/40"
-                      : "border-border bg-background/40"
-                  }`}
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1">
-                      <p className="truncate font-medium text-foreground">
-                        {item.name}
-                        {isActive ? (
-                          <span className="ml-2 text-xs font-normal text-accent">
-                            Active
-                          </span>
+                return (
+                  <li
+                    key={item.id}
+                    className={`rounded-xl border p-4 transition-colors ${
+                      isActive
+                        ? "border-accent/50 bg-accent-soft/40"
+                        : "border-border bg-background/40"
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <p className="truncate font-medium text-foreground">
+                          {item.name}
+                          {isActive ? (
+                            <span className="ml-2 text-xs font-normal text-accent">
+                              Active
+                            </span>
+                          ) : null}
+                        </p>
+
+                        <p className="truncate text-sm text-foreground/80">
+                          {item.businessName || "Untitled business"}
+                        </p>
+
+                        <p className="text-xs text-muted">
+                          {item.businessType ? `${item.businessType} · ` : ""}
+                          {formatProjectStatus(item.status)}
+                          {" · Updated "}
+                          {formatUpdatedAt(item.updatedAt)}
+                        </p>
+
+                        {item.publishedUrl ? (
+                          <a
+                            href={item.publishedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block truncate text-xs text-accent hover:underline"
+                          >
+                            {item.publishedUrl}
+                          </a>
                         ) : null}
-                      </p>
+                      </div>
 
-                      <p className="truncate text-sm text-foreground/80">
-                        {item.businessName || "Untitled business"}
-                      </p>
-
-                      <p className="text-xs text-muted">
-                        {item.businessType ? `${item.businessType} · ` : ""}
-                        {formatProjectStatus(item.status)}
-                        {" · Updated "}
-                        {formatUpdatedAt(item.updatedAt)}
-                      </p>
-
-                      {item.publishedUrl ? (
-                        <a
-                          href={item.publishedUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-block truncate text-xs text-accent hover:underline"
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          className="px-3 py-1.5 text-xs"
+                          disabled={anyBusy}
+                          onClick={() => void handleOpen(item.id)}
                         >
-                          {item.publishedUrl}
-                        </a>
-                      ) : null}
+                          {openLabel}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="px-3 py-1.5 text-xs"
+                          disabled={anyBusy}
+                          onClick={() => setEditingProject(item)}
+                        >
+                          Edit Details
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="px-3 py-1.5 text-xs"
+                          disabled={anyBusy}
+                          onClick={() =>
+                            void handleDuplicate(item.id, item.name)
+                          }
+                        >
+                          {duplicateLabel}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="px-3 py-1.5 text-xs"
+                          disabled={anyBusy}
+                          onClick={() => void handleDelete(item.id, item.name)}
+                        >
+                          {deleteLabel}
+                        </Button>
+                      </div>
                     </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        className="px-3 py-1.5 text-xs"
-                        disabled={anyBusy}
-                        onClick={() => void handleOpen(item.id)}
-                      >
-                        {openLabel}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="px-3 py-1.5 text-xs"
-                        disabled={anyBusy}
-                        onClick={() => setEditingProject(item)}
-                      >
-                        Edit Details
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="px-3 py-1.5 text-xs"
-                        disabled={anyBusy}
-                        onClick={() => void handleDuplicate(item.id, item.name)}
-                      >
-                        {duplicateLabel}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="px-3 py-1.5 text-xs"
-                        disabled={anyBusy}
-                        onClick={() => void handleDelete(item.id, item.name)}
-                      >
-                        {deleteLabel}
-                      </Button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </>
       )}
 
