@@ -91,12 +91,22 @@ export function toProjectListItem(row: ProjectRow): ProjectListItem {
     name: row.name,
     businessName: row.business_name,
     businessType: row.business_type ?? "",
+    description: row.description ?? "",
     status: row.status,
     publishedUrl: row.published_url,
     updatedAt: row.updated_at,
     createdAt: row.created_at,
   };
 }
+
+/** Metadata-only fields — never touch content, branding, media, template, or publish. */
+export type ProjectMetadataInput = {
+  id: string;
+  name: string;
+  businessName: string;
+  businessType: string;
+  description?: string | null;
+};
 
 /**
  * Split a BusinessProject into structured DB columns.
@@ -430,6 +440,22 @@ export async function updateProject(
   } catch (error) {
     return fail(error);
   }
+}
+
+/**
+ * Update project name / business metadata only.
+ * Does not overwrite generated content, branding, media, template, or publish state.
+ */
+export async function updateProjectMetadata(
+  input: ProjectMetadataInput,
+): Promise<ProjectResult<ProjectRow>> {
+  return updateProject({
+    id: input.id,
+    name: input.name,
+    businessName: input.businessName,
+    businessType: input.businessType,
+    description: input.description ?? null,
+  });
 }
 
 /**

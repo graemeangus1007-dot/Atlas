@@ -71,6 +71,7 @@ export type ProjectListItem = {
   name: string;
   businessName: string;
   businessType: BusinessType | string;
+  description: string;
   status: ProjectStatus;
   publishedUrl: string | null;
   updatedAt: string;

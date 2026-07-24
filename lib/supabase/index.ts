@@ -11,6 +11,7 @@ export {
   getProjects,
   getProjectById,
   updateProject,
+  updateProjectMetadata,
   deleteProject,
   duplicateProject,
   businessProjectToColumns,

@@ -21,9 +21,11 @@ import {
   rowToBusinessProject,
   toProjectListItem,
   updateProject as updateProjectRow,
+  updateProjectMetadata,
   type ProjectListItem,
 } from "@/lib/supabase";
 import type { BusinessProject } from "@/types/business-project";
+import type { BusinessType } from "@/types/business";
 
 const ACTIVE_PROJECT_KEY = "atlas:activeProjectId";
 /** Wait ~1s after the last edit before persisting (never save every keystroke). */
@@ -52,6 +54,16 @@ type ProjectContextValue = {
   /** Load a project with getProjectById() into Context and store the active id. */
   openProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
+  /** Update name / business metadata only (no content/branding/media overwrite). */
+  updateProjectDetails: (
+    id: string,
+    details: {
+      name: string;
+      businessName: string;
+      businessType: string;
+      description: string;
+    },
+  ) => Promise<ProjectListItem>;
   /** Copy a project into a new draft; does not open the copy. */
   duplicateProject: (id: string) => Promise<ProjectListItem>;
   deleteProject: (id: string) => Promise<void>;
@@ -413,6 +425,7 @@ export function ProjectProvider({
     const trimmed = name.trim();
     if (!trimmed) throw new Error("Project name cannot be empty.");
 
+    // Name fields only — leave type, description, content, branding untouched.
     const result = await updateProjectRow({
       id,
       name: trimmed,
@@ -428,16 +441,67 @@ export function ProjectProvider({
     );
 
     if (projectIdRef.current === id) {
-      skipAutosaveRef.current = true;
       setProjectState((current) => ({
         ...current,
         businessName: trimmed,
       }));
-      window.setTimeout(() => {
-        skipAutosaveRef.current = false;
-      }, 0);
     }
   }, []);
+
+  const updateProjectDetails = useCallback(
+    async (
+      id: string,
+      details: {
+        name: string;
+        businessName: string;
+        businessType: string;
+        description: string;
+      },
+    ) => {
+      const result = await updateProjectMetadata({
+        id,
+        name: details.name,
+        businessName: details.businessName,
+        businessType: details.businessType,
+        description: details.description,
+      });
+      if (!result.ok) throw new Error(result.error);
+
+      const item = toProjectListItem(result.data);
+      setProjects((current) =>
+        current.map((project) => (project.id === id ? item : project)),
+      );
+
+      if (projectIdRef.current === id) {
+        // Metadata is already persisted. Merge into Context without a full
+        // reload, keep any unsaved editor fields, and restore a pending
+        // autosave timer if the user was mid-edit.
+        const hadPendingEdits = dirtyVersionRef.current > 0;
+        skipAutosaveRef.current = true;
+        setProjectState((current) => ({
+          ...current,
+          businessName: details.businessName,
+          businessType: (details.businessType || "") as BusinessType | "",
+          description: details.description,
+        }));
+        window.setTimeout(() => {
+          skipAutosaveRef.current = false;
+          if (hadPendingEdits) {
+            setSaveStatus("unsaved");
+            if (saveTimerRef.current) {
+              window.clearTimeout(saveTimerRef.current);
+            }
+            saveTimerRef.current = window.setTimeout(() => {
+              void persistProject();
+            }, AUTOSAVE_DELAY_MS);
+          }
+        }, 0);
+      }
+
+      return item;
+    },
+    [persistProject],
+  );
 
   const duplicateProject = useCallback(async (id: string) => {
     const result = await duplicateProjectRow(id);
@@ -494,6 +558,7 @@ export function ProjectProvider({
       createProject,
       openProject,
       renameProject,
+      updateProjectDetails,
       duplicateProject,
       deleteProject,
       saveNow,
@@ -513,6 +578,7 @@ export function ProjectProvider({
       createProject,
       openProject,
       renameProject,
+      updateProjectDetails,
       duplicateProject,
       deleteProject,
       saveNow,

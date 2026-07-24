@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import EditProjectDetailsModal from "@/components/dashboard/edit-project-details-modal";
 import Button from "@/components/ui/button";
 import { useProjects } from "@/hooks/use-projects";
 import { formatProjectStatus } from "@/lib/project";
+import type { ProjectMetadataFields } from "@/lib/project-metadata";
 import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
+import type { ProjectListItem } from "@/lib/supabase/types";
 
-type BusyAction = "open" | "duplicate" | "delete" | "rename";
+type BusyAction = "open" | "duplicate" | "delete";
 
 function formatUpdatedAt(iso: string): string {
   try {
@@ -37,7 +40,7 @@ function confirmDelete(projectName: string): boolean {
 }
 
 /**
- * Real Supabase project list — open, duplicate, delete (also create/rename).
+ * Real Supabase project list — open, edit details, duplicate, delete.
  * Used on /dashboard and /projects.
  */
 export default function ProjectList() {
@@ -51,7 +54,7 @@ export default function ProjectList() {
     refreshProjects,
     createProject,
     openProject,
-    renameProject,
+    updateProjectDetails,
     duplicateProject,
     deleteProject,
   } = useProjects();
@@ -61,8 +64,9 @@ export default function ProjectList() {
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const [editingProject, setEditingProject] = useState<ProjectListItem | null>(
+    null,
+  );
   const successTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -139,22 +143,12 @@ export default function ProjectList() {
     }
   }
 
-  async function handleRename(id: string) {
-    setActionError(null);
-    setBusyId(id);
-    setBusyAction("rename");
-    try {
-      await renameProject(id, renameValue);
-      setRenamingId(null);
-      showSuccess("Project renamed.");
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not rename project.",
-      );
-    } finally {
-      setBusyId(null);
-      setBusyAction(null);
-    }
+  async function handleSaveDetails(details: ProjectMetadataFields) {
+    if (!editingProject) return;
+
+    await updateProjectDetails(editingProject.id, details);
+    setEditingProject(null);
+    showSuccess("Project details updated.");
   }
 
   async function handleDelete(id: string, name: string) {
@@ -282,7 +276,6 @@ export default function ProjectList() {
             {projects.map((item) => {
               const isActive = item.id === activeProjectId;
               const isBusy = busyId === item.id;
-              const isRenaming = renamingId === item.id;
               const openLabel =
                 isBusy && busyAction === "open" ? "Opening…" : "Open Project";
               const duplicateLabel =
@@ -303,25 +296,14 @@ export default function ProjectList() {
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-1">
-                      {isRenaming ? (
-                        <input
-                          value={renameValue}
-                          onChange={(event) =>
-                            setRenameValue(event.target.value)
-                          }
-                          className="w-full max-w-sm rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
-                          aria-label="Project name"
-                        />
-                      ) : (
-                        <p className="truncate font-medium text-foreground">
-                          {item.name}
-                          {isActive ? (
-                            <span className="ml-2 text-xs font-normal text-accent">
-                              Active
-                            </span>
-                          ) : null}
-                        </p>
-                      )}
+                      <p className="truncate font-medium text-foreground">
+                        {item.name}
+                        {isActive ? (
+                          <span className="ml-2 text-xs font-normal text-accent">
+                            Active
+                          </span>
+                        ) : null}
+                      </p>
 
                       <p className="truncate text-sm text-foreground/80">
                         {item.businessName || "Untitled business"}
@@ -347,74 +329,41 @@ export default function ProjectList() {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      {isRenaming ? (
-                        <>
-                          <Button
-                            type="button"
-                            className="px-3 py-1.5 text-xs"
-                            disabled={isBusy}
-                            onClick={() => void handleRename(item.id)}
-                          >
-                            {isBusy && busyAction === "rename"
-                              ? "Saving…"
-                              : "Save"}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="px-3 py-1.5 text-xs"
-                            disabled={isBusy}
-                            onClick={() => setRenamingId(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            type="button"
-                            className="px-3 py-1.5 text-xs"
-                            disabled={anyBusy}
-                            onClick={() => void handleOpen(item.id)}
-                          >
-                            {openLabel}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            className="px-3 py-1.5 text-xs"
-                            disabled={anyBusy}
-                            onClick={() =>
-                              void handleDuplicate(item.id, item.name)
-                            }
-                          >
-                            {duplicateLabel}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            className="px-3 py-1.5 text-xs"
-                            disabled={anyBusy}
-                            onClick={() => {
-                              setRenamingId(item.id);
-                              setRenameValue(item.name);
-                            }}
-                          >
-                            Rename
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="px-3 py-1.5 text-xs"
-                            disabled={anyBusy}
-                            onClick={() =>
-                              void handleDelete(item.id, item.name)
-                            }
-                          >
-                            {deleteLabel}
-                          </Button>
-                        </>
-                      )}
+                      <Button
+                        type="button"
+                        className="px-3 py-1.5 text-xs"
+                        disabled={anyBusy}
+                        onClick={() => void handleOpen(item.id)}
+                      >
+                        {openLabel}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="px-3 py-1.5 text-xs"
+                        disabled={anyBusy}
+                        onClick={() => setEditingProject(item)}
+                      >
+                        Edit Details
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="px-3 py-1.5 text-xs"
+                        disabled={anyBusy}
+                        onClick={() => void handleDuplicate(item.id, item.name)}
+                      >
+                        {duplicateLabel}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="px-3 py-1.5 text-xs"
+                        disabled={anyBusy}
+                        onClick={() => void handleDelete(item.id, item.name)}
+                      >
+                        {deleteLabel}
+                      </Button>
                     </div>
                   </div>
                 </li>
@@ -423,6 +372,13 @@ export default function ProjectList() {
           </ul>
         </>
       )}
+
+      <EditProjectDetailsModal
+        project={editingProject}
+        open={editingProject !== null}
+        onClose={() => setEditingProject(null)}
+        onSave={handleSaveDetails}
+      />
     </section>
   );
 }

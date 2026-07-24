@@ -19,6 +19,7 @@ export function useProjects() {
     createProject,
     openProject,
     renameProject,
+    updateProjectDetails,
     duplicateProject,
     deleteProject,
   } = useProject();
@@ -46,6 +47,7 @@ export function useProjects() {
     createProject,
     openProject,
     renameProject,
+    updateProjectDetails,
     duplicateProject,
     deleteProject,
   };
