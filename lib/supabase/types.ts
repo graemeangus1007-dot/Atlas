@@ -332,7 +332,16 @@ export type Database = {
           p_language?: string;
           p_duration_seconds?: number;
         };
-        Returns: Record<string, unknown>;
+        Returns: {
+          ok?: boolean;
+          error?: string;
+          visit_id?: string | null;
+          created_visit?: boolean;
+          created_page_view?: boolean;
+          duration_seconds?: number;
+          bounced?: boolean;
+          skipped?: boolean;
+        };
       };
     };
     Enums: Record<string, never>;

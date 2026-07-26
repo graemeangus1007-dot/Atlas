@@ -96,6 +96,28 @@ export function createMediaAssetFromFile(file: File): MediaAsset {
   return createTemporaryPreviewAsset(file);
 }
 
+/**
+ * Local preview upload with progress ticks (legacy media panel / demos).
+ * Prefer `uploadProjectMedia` for durable storage.
+ */
+export async function mockUploadImage(
+  file: File,
+  onProgress?: (progress: number) => void,
+): Promise<MediaAsset> {
+  if (!isFileWithinMediaLimit(file)) {
+    throw new Error("Image must be 5 MB or smaller.");
+  }
+
+  for (const step of [15, 40, 70, 100]) {
+    onProgress?.(step);
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 40);
+    });
+  }
+
+  return createTemporaryPreviewAsset(file);
+}
+
 /** Normalize persisted media (marks legacy blob-only records unavailable). */
 export function normalizeMediaAsset(raw: unknown): MediaAsset | null {
   if (typeof raw !== "object" || raw === null) return null;

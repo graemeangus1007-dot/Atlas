@@ -3,7 +3,7 @@
 import MediaGrid from "@/components/media/media-grid";
 import MediaUploadZone from "@/components/media/media-upload-zone";
 import type { BusinessProject } from "@/types/business-project";
-import type { GalleryImageUrls, MediaAsset } from "@/types/media";
+import type { MediaAsset } from "@/types/media";
 import { GALLERY_SLOT_COUNT } from "@/types/media";
 
 type MediaPanelProps = {
@@ -11,57 +11,52 @@ type MediaPanelProps = {
   onChange: (partial: Partial<BusinessProject>) => void;
 };
 
+function padGallerySlots(ids: string[]): string[] {
+  const next = ids.slice(0, GALLERY_SLOT_COUNT);
+  while (next.length < GALLERY_SLOT_COUNT) next.push("");
+  return next;
+}
+
 /**
  * Media Library — upload, browse, and assign images to hero / gallery.
  */
 export default function MediaPanel({ project, onChange }: MediaPanelProps) {
+  const gallerySlots = padGallerySlots(project.galleryImageIds);
+  const heroAsset = project.mediaLibrary.find(
+    (asset) => asset.id === project.heroImageId,
+  );
+
   function handleUploaded(asset: MediaAsset) {
     onChange({ mediaLibrary: [asset, ...project.mediaLibrary] });
   }
 
-  function handleSetHero(url: string) {
-    onChange({ heroImageUrl: url });
+  function handleSetHero(id: string) {
+    onChange({ heroImageId: id });
   }
 
   function handleClearHero() {
-    onChange({ heroImageUrl: null });
+    onChange({ heroImageId: null });
   }
 
-  function handleSetGallery(slotIndex: number, url: string) {
-    const next = [...project.galleryImageUrls] as GalleryImageUrls;
-    next[slotIndex] = url;
-    onChange({ galleryImageUrls: next });
+  function handleSetGallery(slotIndex: number, id: string) {
+    const next = padGallerySlots(project.galleryImageIds);
+    next[slotIndex] = id;
+    onChange({ galleryImageIds: next.filter(Boolean) });
   }
 
   function handleClearGallery(slotIndex: number) {
-    const next = [...project.galleryImageUrls] as GalleryImageUrls;
-    next[slotIndex] = null;
-    onChange({ galleryImageUrls: next });
+    const next = padGallerySlots(project.galleryImageIds);
+    next[slotIndex] = "";
+    onChange({ galleryImageIds: next.filter(Boolean) });
   }
 
   function handleRemove(id: string) {
-    const removed = project.mediaLibrary.find((asset) => asset.id === id);
     const mediaLibrary = project.mediaLibrary.filter((asset) => asset.id !== id);
-
-    const partial: Partial<BusinessProject> = { mediaLibrary };
-
-    if (removed && project.heroImageUrl === removed.url) {
-      partial.heroImageUrl = null;
-    }
-
-    if (removed) {
-      const next = [...project.galleryImageUrls] as GalleryImageUrls;
-      let changed = false;
-      for (let i = 0; i < GALLERY_SLOT_COUNT; i += 1) {
-        if (next[i] === removed.url) {
-          next[i] = null;
-          changed = true;
-        }
-      }
-      if (changed) partial.galleryImageUrls = next;
-    }
-
-    onChange(partial);
+    onChange({
+      mediaLibrary,
+      heroImageId: project.heroImageId === id ? null : project.heroImageId,
+      galleryImageIds: project.galleryImageIds.filter((item) => item !== id),
+    });
   }
 
   return (
@@ -92,7 +87,7 @@ export default function MediaPanel({ project, onChange }: MediaPanelProps) {
             <p className="text-xs font-medium uppercase tracking-wide text-muted">
               Hero image
             </p>
-            {project.heroImageUrl ? (
+            {project.heroImageId ? (
               <button
                 type="button"
                 onClick={handleClearHero}
@@ -104,10 +99,10 @@ export default function MediaPanel({ project, onChange }: MediaPanelProps) {
           </div>
           <div className="overflow-hidden rounded-xl border border-border bg-background/40">
             <div className="relative aspect-[16/9] bg-surface">
-              {project.heroImageUrl ? (
+              {heroAsset?.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={project.heroImageUrl}
+                  src={heroAsset.url}
                   alt="Current hero"
                   className="h-full w-full object-cover"
                 />
@@ -126,17 +121,20 @@ export default function MediaPanel({ project, onChange }: MediaPanelProps) {
           </p>
           <ul className="grid grid-cols-2 gap-2">
             {Array.from({ length: GALLERY_SLOT_COUNT }, (_, index) => {
-              const url = project.galleryImageUrls[index];
+              const id = gallerySlots[index];
+              const asset = id
+                ? project.mediaLibrary.find((item) => item.id === id)
+                : undefined;
               return (
                 <li
                   key={index}
                   className="overflow-hidden rounded-xl border border-border bg-background/40"
                 >
                   <div className="relative aspect-square bg-surface">
-                    {url ? (
+                    {asset?.url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={url}
+                        src={asset.url}
                         alt={`Gallery slot ${index + 1}`}
                         className="h-full w-full object-cover"
                       />
@@ -148,7 +146,7 @@ export default function MediaPanel({ project, onChange }: MediaPanelProps) {
                   </div>
                   <div className="flex items-center justify-between px-2 py-1.5">
                     <span className="text-[10px] text-muted">G{index + 1}</span>
-                    {url ? (
+                    {id ? (
                       <button
                         type="button"
                         onClick={() => handleClearGallery(index)}
@@ -172,8 +170,8 @@ export default function MediaPanel({ project, onChange }: MediaPanelProps) {
           </p>
           <MediaGrid
             assets={project.mediaLibrary}
-            heroImageUrl={project.heroImageUrl}
-            galleryImageUrls={project.galleryImageUrls}
+            heroImageId={project.heroImageId}
+            galleryImageIds={project.galleryImageIds}
             onSetHero={handleSetHero}
             onSetGallery={handleSetGallery}
             onRemove={handleRemove}

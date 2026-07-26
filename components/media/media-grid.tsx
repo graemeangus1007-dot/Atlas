@@ -5,10 +5,10 @@ import { GALLERY_SLOT_COUNT } from "@/types/media";
 
 type MediaGridProps = {
   assets: MediaAsset[];
-  heroImageUrl: string | null;
-  galleryImageUrls: (string | null)[];
-  onSetHero: (url: string) => void;
-  onSetGallery: (slotIndex: number, url: string) => void;
+  heroImageId: string | null;
+  galleryImageIds: string[];
+  onSetHero: (id: string) => void;
+  onSetGallery: (slotIndex: number, id: string) => void;
   onRemove: (id: string) => void;
 };
 
@@ -17,8 +17,8 @@ type MediaGridProps = {
  */
 export default function MediaGrid({
   assets,
-  heroImageUrl,
-  galleryImageUrls,
+  heroImageId,
+  galleryImageIds,
   onSetHero,
   onSetGallery,
   onRemove,
@@ -37,10 +37,8 @@ export default function MediaGrid({
   return (
     <ul className="grid grid-cols-2 gap-2 sm:grid-cols-2">
       {assets.map((asset) => {
-        const isHero = heroImageUrl === asset.url;
-        const gallerySlot = galleryImageUrls.findIndex(
-          (url) => url === asset.url,
-        );
+        const isHero = heroImageId === asset.id;
+        const gallerySlot = galleryImageIds.findIndex((id) => id === asset.id);
 
         return (
           <li
@@ -77,7 +75,7 @@ export default function MediaGrid({
               <div className="flex flex-col gap-1">
                 <button
                   type="button"
-                  onClick={() => onSetHero(asset.url)}
+                  onClick={() => onSetHero(asset.id)}
                   className="rounded-md border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:border-accent/40 hover:text-foreground"
                 >
                   {isHero ? "Hero selected" : "Use as hero"}
@@ -89,7 +87,7 @@ export default function MediaGrid({
                       key={index}
                       type="button"
                       title={`Gallery slot ${index + 1}`}
-                      onClick={() => onSetGallery(index, asset.url)}
+                      onClick={() => onSetGallery(index, asset.id)}
                       className={`rounded-md border px-1 py-1 text-[10px] transition-colors ${
                         gallerySlot === index
                           ? "border-accent bg-accent-soft text-foreground"

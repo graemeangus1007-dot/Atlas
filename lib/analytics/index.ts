@@ -39,6 +39,7 @@ export {
 export {
   recordAnalyticsEvent,
   resolveProjectOwnerId,
+  type AnalyticsDbClient,
 } from "@/lib/analytics/collect";
 export {
   buildAnalyticsPages,

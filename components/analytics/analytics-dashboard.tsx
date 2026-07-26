@@ -176,7 +176,7 @@ export default function AnalyticsDashboard() {
               ) : (
                 projectOptions.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {"name" in p ? p.name : p.id}
+                    {p.name}
                   </option>
                 ))
               )}

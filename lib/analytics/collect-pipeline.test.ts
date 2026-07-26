@@ -7,11 +7,50 @@ import {
   recordAnalyticsEvent,
   renderAnalyticsScript,
   validateAnalyticsCollect,
+  type AnalyticsDbClient,
 } from "@/lib/analytics";
 import { buildStaticSite } from "@/lib/publishing/build-static-site";
 import { defaultProjectContact } from "@/lib/contact";
 import type { BusinessProject } from "@/types/business-project";
 import type { SiteVisitRow } from "@/lib/analytics/types";
+import type { Database } from "@/lib/supabase/types";
+
+type RecordEventArgs =
+  Database["public"]["Functions"]["atlas_record_analytics_event"]["Args"];
+type RecordEventResult =
+  Database["public"]["Functions"]["atlas_record_analytics_event"]["Returns"];
+
+function isRecordEventArgs(args: unknown): args is RecordEventArgs {
+  return (
+    typeof args === "object" &&
+    args !== null &&
+    "p_event" in args &&
+    "p_project_id" in args &&
+    "p_session_id" in args &&
+    "p_visitor_id" in args &&
+    "p_page_path" in args
+  );
+}
+
+/** RPC-only test double — structurally matches AnalyticsDbClient. */
+function mockRpcClient(
+  impl: (args: RecordEventArgs) => Promise<RecordEventResult>,
+): AnalyticsDbClient {
+  return {
+    async rpc(fn, args) {
+      if (fn === "atlas_record_analytics_event" && isRecordEventArgs(args)) {
+        return { data: await impl(args), error: null };
+      }
+      return {
+        data: null,
+        error: { message: `unexpected rpc: ${String(fn)}` },
+      };
+    },
+    from() {
+      throw new Error("from() should not be called when RPC succeeds");
+    },
+  };
+}
 
 function sampleProject(): BusinessProject {
   return {
@@ -51,19 +90,12 @@ function sampleProject(): BusinessProject {
 
 describe("successful visit collection", () => {
   it("records a pageview via RPC and returns visit id", async () => {
-    const rpc = vi.fn().mockResolvedValue({
-      data: {
-        ok: true,
-        visit_id: "33333333-3333-4333-8333-333333333333",
-        created_visit: true,
-        created_page_view: true,
-      },
-      error: null,
-    });
-    const client = {
-      rpc,
-      from: vi.fn(),
-    };
+    const impl = vi.fn(async (_args: RecordEventArgs) => ({
+      ok: true,
+      visit_id: "33333333-3333-4333-8333-333333333333",
+      created_visit: true,
+      created_page_view: true,
+    }));
 
     const validated = validateAnalyticsCollect({
       event: "pageview",
@@ -78,7 +110,7 @@ describe("successful visit collection", () => {
     expect(validated.ok).toBe(true);
     if (!validated.ok) return;
 
-    const result = await recordAnalyticsEvent(client, {
+    const result = await recordAnalyticsEvent(mockRpcClient(impl), {
       ...validated.data,
       ownerId: "44444444-4444-4444-8444-444444444444",
     });
@@ -86,8 +118,7 @@ describe("successful visit collection", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.visitId).toBe("33333333-3333-4333-8333-333333333333");
-    expect(rpc).toHaveBeenCalledWith(
-      "atlas_record_analytics_event",
+    expect(impl).toHaveBeenCalledWith(
       expect.objectContaining({
         p_event: "pageview",
         p_project_id: "11111111-1111-4111-8111-111111111111",
@@ -97,15 +128,12 @@ describe("successful visit collection", () => {
   });
 
   it("creates an additional page view for an existing session", async () => {
-    const rpc = vi.fn().mockResolvedValue({
-      data: {
-        ok: true,
-        visit_id: "33333333-3333-4333-8333-333333333333",
-        created_visit: false,
-        created_page_view: true,
-      },
-      error: null,
-    });
+    const impl = vi.fn(async (_args: RecordEventArgs) => ({
+      ok: true,
+      visit_id: "33333333-3333-4333-8333-333333333333",
+      created_visit: false,
+      created_page_view: true,
+    }));
 
     const validated = validateAnalyticsCollect({
       event: "pageview",
@@ -117,13 +145,13 @@ describe("successful visit collection", () => {
     expect(validated.ok).toBe(true);
     if (!validated.ok) return;
 
-    const result = await recordAnalyticsEvent(
-      { rpc, from: vi.fn() },
-      { ...validated.data, ownerId: "owner" },
-    );
+    const result = await recordAnalyticsEvent(mockRpcClient(impl), {
+      ...validated.data,
+      ownerId: "owner",
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(rpc.mock.calls[0]?.[1]?.p_page_path).toBe("/menu");
+    expect(impl.mock.calls[0]?.[0]?.p_page_path).toBe("/menu");
   });
 });
 
@@ -154,7 +182,11 @@ describe("dashboard summary", () => {
         created_at: "2026-07-26T12:00:00.000Z",
       },
     ];
-    const summary = buildAnalyticsSummary(visits, [], new Date("2026-07-26T15:00:00Z"));
+    const summary = buildAnalyticsSummary(
+      visits,
+      [],
+      new Date("2026-07-26T15:00:00Z"),
+    );
     expect(summary.visitorsToday).toBe(1);
     expect(summary.visitorsThisMonth).toBe(1);
   });
@@ -167,7 +199,10 @@ describe("RLS behavior contracts", () => {
       "utf8",
     );
     const m2 = readFileSync(
-      resolve(__dirname, "../../supabase/migrations/20260802_analytics_collect_rpc.sql"),
+      resolve(
+        __dirname,
+        "../../supabase/migrations/20260802_analytics_collect_rpc.sql",
+      ),
       "utf8",
     );
     expect(m1).toContain("Public can insert site visits");

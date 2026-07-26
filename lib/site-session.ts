@@ -13,6 +13,7 @@ export const DEFAULT_SITE_DATA: OnboardingData = {
   description:
     "Riverview Bakery is a neighborhood coffee shop serving specialty drinks, fresh breakfast, and pastries baked every morning. We care about quality ingredients, friendly service, and a warm place to gather.",
   goals: ["Get more customers", "Accept online orders", "Share information"],
+  templateId: "",
 };
 
 /**
@@ -43,6 +44,7 @@ export function loadSiteDraft(): OnboardingData {
       description:
         parsed.description?.trim() || DEFAULT_SITE_DATA.description,
       goals: parsed.goals?.length ? parsed.goals : DEFAULT_SITE_DATA.goals,
+      templateId: parsed.templateId || DEFAULT_SITE_DATA.templateId,
     };
   } catch {
     return DEFAULT_SITE_DATA;

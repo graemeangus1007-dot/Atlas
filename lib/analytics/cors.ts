@@ -3,6 +3,9 @@
  * Reflects specific allowed origins — never uses credentials + `*`.
  */
 
+import type { Database } from "@/lib/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export const ANALYTICS_CORS_METHODS = "POST, OPTIONS";
 export const ANALYTICS_CORS_HEADERS = "Content-Type";
 export const ANALYTICS_CORS_MAX_AGE = "86400";
@@ -72,9 +75,9 @@ export function evaluateAnalyticsOriginSync(
 }
 
 /** Supabase-backed lookup for verified/active custom domains. */
-export function createSupabaseAnalyticsDomainClient(client: {
-  from: (table: string) => any;
-}): AnalyticsDomainClient {
+export function createSupabaseAnalyticsDomainClient(
+  client: Pick<SupabaseClient<Database>, "from">,
+): AnalyticsDomainClient {
   return {
     async findVerifiedHostname(input) {
       const hostname = input.hostname.trim().toLowerCase();

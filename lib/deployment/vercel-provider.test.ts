@@ -93,7 +93,9 @@ describe("VercelDeploymentProvider", () => {
     const uploaded: Array<{ sha: string; size: number }> = [];
     let capturedFiles: VercelFileReference[] = [];
     let createBodyBytes = 0;
-    let capturedBody: VercelCreateStaticDeploymentBody | null = null;
+    const capture = {
+      body: null as VercelCreateStaticDeploymentBody | null,
+    };
 
     const api = makeApi({
       uploadFile: async (input) => {
@@ -102,7 +104,7 @@ describe("VercelDeploymentProvider", () => {
       createDeployment: async (body) => {
         createBodyBytes = measureCreateDeploymentBodyBytes(body);
         capturedFiles = body.files;
-        capturedBody = body;
+        capture.body = body;
         expect(isStaticNoFrameworkDeployment(body)).toBe(true);
         expect(body.projectSettings).toEqual(STATIC_SITE_PROJECT_SETTINGS);
         expect(body.projectSettings.framework).not.toBe("nextjs");
@@ -156,8 +158,8 @@ describe("VercelDeploymentProvider", () => {
     );
     expect(capturedFiles.some((f) => f.file === "vercel.json")).toBe(true);
     expect(createBodyBytes).toBeLessThan(VERCEL_CREATE_DEPLOYMENT_BODY_LIMIT_BYTES);
-    expect(capturedBody?.projectSettings.buildCommand).toBe("");
-    expect(JSON.stringify(capturedBody)).not.toMatch(/"framework"\s*:\s*"nextjs"/);
+    expect(capture.body?.projectSettings.buildCommand).toBe("");
+    expect(JSON.stringify(capture.body)).not.toMatch(/"framework"\s*:\s*"nextjs"/);
     expect(statuses).toContain("uploading");
     expect(statuses).toContain("deploying");
     expect(statuses).toContain("ready");

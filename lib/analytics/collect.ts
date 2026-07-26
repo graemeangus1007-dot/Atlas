@@ -1,19 +1,34 @@
 import { logAnalytics } from "@/lib/analytics/log";
 import type { ValidatedAnalyticsCollect } from "@/lib/analytics/sanitize";
+import type { Database } from "@/lib/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 
+type PublicFunctions = Database["public"]["Functions"];
+type AnalyticsFunctionName = keyof PublicFunctions;
+
+type AnalyticsRpcError = { message: string };
+
+/**
+ * Narrow client surface used by analytics writers.
+ *
+ * `rpc` is constrained to generated Database function names and accepts any
+ * PromiseLike `{ data, error }` result — so SupabaseClient<Database> is
+ * structurally assignable without widening Database or using casts.
+ */
 export type AnalyticsDbClient = {
-  from: (table: string) => any;
-  rpc: (fn: string, args?: Record<string, unknown>) => any;
+  from: SupabaseClient<Database>["from"];
+  rpc<Fn extends AnalyticsFunctionName>(
+    fn: Fn,
+    args: PublicFunctions[Fn]["Args"],
+  ): PromiseLike<{
+    data: PublicFunctions[Fn]["Returns"];
+    error: AnalyticsRpcError | null;
+  }>;
 };
 
-type RpcResult = {
-  ok?: boolean;
-  error?: string;
-  visit_id?: string | null;
-  created_visit?: boolean;
-  created_page_view?: boolean;
-};
+type AnalyticsRpcResult =
+  PublicFunctions["atlas_record_analytics_event"]["Returns"];
 
 /**
  * Prefer SECURITY DEFINER RPC (works with anon). Fall back to direct writes
@@ -46,18 +61,18 @@ export async function recordAnalyticsEvent(
     rpcArgs,
   );
 
-  if (!rpcError && rpcData && typeof rpcData === "object") {
-    const result = rpcData as RpcResult;
+  if (!rpcError && rpcData) {
+    const result: AnalyticsRpcResult = rpcData;
     if (result.ok) {
       logAnalytics("insert_success", {
         event: input.event,
         projectId: input.projectId,
-        visitId: result.visit_id ? String(result.visit_id).slice(-8) : null,
+        visitId: result.visit_id ? result.visit_id.slice(-8) : null,
         createdVisit: Boolean(result.created_visit),
         createdPageView: Boolean(result.created_page_view),
         via: "rpc",
       });
-      return { ok: true, visitId: String(result.visit_id || "") };
+      return { ok: true, visitId: result.visit_id ?? "" };
     }
     logAnalytics("insert_failed", {
       event: input.event,
@@ -104,11 +119,7 @@ async function recordAnalyticsEventDirect(
     };
   }
 
-  const existingVisit = existing as {
-    id: string;
-    duration_seconds: number;
-    bounced: boolean;
-  } | null;
+  const existingVisit = existing;
 
   if (input.event === "pageview") {
     if (!existingVisit) {
