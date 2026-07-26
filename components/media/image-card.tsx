@@ -3,6 +3,7 @@
 import { useId, useRef, type ChangeEvent } from "react";
 import MediaMetadataFields from "@/components/media/media-metadata-fields";
 import { ACCEPTED_IMAGE_ACCEPT } from "@/data/media";
+import { useSignedMediaUrl } from "@/hooks/use-signed-media-url";
 import type { MediaAsset, MediaAssetMeta } from "@/types/media";
 
 type ImageCardProps = {
@@ -19,6 +20,7 @@ type ImageCardProps = {
 
 /**
  * Single media library card — preview, metadata, assign / replace / delete.
+ * Private storage assets use refreshed signed URLs for the preview.
  */
 export default function ImageCard({
   asset,
@@ -33,6 +35,11 @@ export default function ImageCard({
 }: ImageCardProps) {
   const replaceInputId = useId();
   const replaceRef = useRef<HTMLInputElement>(null);
+  const previewUrl = useSignedMediaUrl({
+    storagePath: asset.storagePath,
+    url: asset.url,
+    urlExpiresAt: asset.urlExpiresAt,
+  });
 
   function handleReplaceChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -50,12 +57,24 @@ export default function ImageCard({
       }`}
     >
       <div className="relative aspect-[4/3] bg-surface">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={asset.url}
-          alt={asset.alt || `Preview of ${asset.name}`}
-          className="h-full w-full object-cover"
-        />
+        {asset.unavailable ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-3 text-center">
+            <p className="text-xs font-medium text-foreground">Unavailable</p>
+            <p className="text-[10px] text-muted">
+              Legacy local preview — re-upload to restore
+            </p>
+          </div>
+        ) : previewUrl ? (
+          <img
+            src={previewUrl}
+            alt={asset.alt || `Preview of ${asset.name}`}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <p className="text-[10px] text-muted">Loading preview…</p>
+          </div>
+        )}
         <div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">
           {isHero ? (
             <span className="rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-medium text-background">
@@ -65,6 +84,11 @@ export default function ImageCard({
           {isGallery && galleryOrder !== null ? (
             <span className="rounded-md bg-foreground/80 px-1.5 py-0.5 text-[10px] font-medium text-background">
               Gallery {galleryOrder}
+            </span>
+          ) : null}
+          {asset.unavailable ? (
+            <span className="rounded-md bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-medium text-background">
+              Expired
             </span>
           ) : null}
         </div>
@@ -91,13 +115,14 @@ export default function ImageCard({
           <button
             type="button"
             onClick={() => onSetHero(asset.id)}
+            disabled={asset.unavailable}
             aria-pressed={isHero}
             aria-label={
               isHero
                 ? `${asset.name} is the hero image`
                 : `Set ${asset.name} as hero image`
             }
-            className={`rounded-md border px-2 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+            className={`rounded-md border px-2 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40 ${
               isHero
                 ? "border-accent bg-accent-soft text-foreground"
                 : "border-border text-muted hover:border-accent/40 hover:text-foreground"
@@ -109,13 +134,14 @@ export default function ImageCard({
           <button
             type="button"
             onClick={() => onToggleGallery(asset.id)}
+            disabled={asset.unavailable}
             aria-pressed={isGallery}
             aria-label={
               isGallery
                 ? `Remove ${asset.name} from gallery`
                 : `Add ${asset.name} to gallery`
             }
-            className={`rounded-md border px-2 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+            className={`rounded-md border px-2 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40 ${
               isGallery
                 ? "border-accent bg-accent-soft text-foreground"
                 : "border-border text-muted hover:border-accent/40 hover:text-foreground"

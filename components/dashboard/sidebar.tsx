@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { useProject } from "@/context/project-context";
 import { SIDEBAR_LINKS } from "@/data/dashboard";
 
 type DashboardSidebarProps = {
@@ -18,6 +20,36 @@ export default function DashboardSidebar({
   onClose,
 }: DashboardSidebarProps) {
   const pathname = usePathname();
+  const { projectId } = useProject();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadUnread = useCallback(async () => {
+    if (!projectId) {
+      setUnreadCount(0);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/leads/unread-count?projectId=${encodeURIComponent(projectId)}`,
+        { credentials: "same-origin", cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { unreadCount?: number };
+      setUnreadCount(data.unreadCount ?? 0);
+    } catch {
+      // Badge is best-effort.
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void loadUnread();
+    const timer = window.setInterval(() => void loadUnread(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [loadUnread]);
+
+  useEffect(() => {
+    if (pathname.startsWith("/leads")) void loadUnread();
+  }, [pathname, loadUnread]);
 
   return (
     <>
@@ -51,6 +83,7 @@ export default function DashboardSidebar({
               const active =
                 pathname === link.href ||
                 pathname.startsWith(`${link.href}/`);
+              const showBadge = link.href === "/leads" && unreadCount > 0;
               return (
                 <li key={link.href}>
                   <Link
@@ -64,7 +97,15 @@ export default function DashboardSidebar({
                     aria-current={active ? "page" : undefined}
                   >
                     <span aria-hidden="true">{link.icon}</span>
-                    {link.label}
+                    <span className="flex-1">{link.label}</span>
+                    {showBadge ? (
+                      <span
+                        className="rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-background"
+                        aria-label={`${unreadCount} unread leads`}
+                      >
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </span>
+                    ) : null}
                   </Link>
                 </li>
               );

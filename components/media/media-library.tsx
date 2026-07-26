@@ -1,39 +1,69 @@
 "use client";
 
+import { useState } from "react";
 import ImageGrid from "@/components/media/image-grid";
 import ImageUploader from "@/components/media/image-uploader";
 import {
-  createMediaAssetFromFile,
   isAcceptedImageFile,
   revokeMediaUrl,
   updateMediaAssetMeta,
 } from "@/lib/media";
+import { deleteProjectMedia, uploadProjectMedia } from "@/lib/supabase/storage";
 import type { BusinessProject } from "@/types/business-project";
 import type { MediaAsset, MediaAssetMeta } from "@/types/media";
 import { GALLERY_SLOT_COUNT } from "@/types/media";
 
 type MediaLibraryProps = {
   project: BusinessProject;
+  projectId: string | null;
   onChange: (partial: Partial<BusinessProject>) => void;
 };
 
 /**
- * Atlas Media Library panel — upload, manage, and assign site images.
+ * Atlas Media Library panel — upload to Supabase Storage, manage, assign images.
  */
-export default function MediaLibrary({ project, onChange }: MediaLibraryProps) {
+export default function MediaLibrary({
+  project,
+  projectId,
+  onChange,
+}: MediaLibraryProps) {
   const isEmpty = project.mediaLibrary.length === 0;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [replacingId, setReplacingId] = useState<string | null>(null);
 
   function handleUploaded(assets: MediaAsset[]) {
+    setActionError(null);
+    // Durable Storage URLs only — triggers Context autosave.
     onChange({ mediaLibrary: [...assets, ...project.mediaLibrary] });
   }
 
   function handleSetHero(id: string) {
-    onChange({
-      heroImageId: project.heroImageId === id ? null : id,
-    });
+    setActionError(null);
+    const nextId = project.heroImageId === id ? null : id;
+    const asset = nextId
+      ? project.mediaLibrary.find((item) => item.id === nextId)
+      : null;
+
+    if (asset?.unavailable) {
+      setActionError(
+        "This image is no longer available. Re-upload it to use as the hero.",
+      );
+      return;
+    }
+
+    onChange({ heroImageId: nextId });
   }
 
   function handleToggleGallery(id: string) {
+    setActionError(null);
+    const asset = project.mediaLibrary.find((item) => item.id === id);
+    if (asset?.unavailable) {
+      setActionError(
+        "This image is no longer available. Re-upload it to use in the gallery.",
+      );
+      return;
+    }
+
     const current = project.galleryImageIds;
     if (current.includes(id)) {
       onChange({ galleryImageIds: current.filter((item) => item !== id) });
@@ -50,17 +80,42 @@ export default function MediaLibrary({ project, onChange }: MediaLibraryProps) {
     onChange({ galleryImageIds: [...current, id] });
   }
 
-  function handleReplace(id: string, file: File) {
+  async function handleReplace(id: string, file: File) {
     if (!isAcceptedImageFile(file)) return;
+    if (!projectId) {
+      setActionError("Open or create a project before replacing media.");
+      return;
+    }
 
-    const nextAsset = createMediaAssetFromFile(file);
+    setActionError(null);
+    setReplacingId(id);
+
+    const existing = project.mediaLibrary.find((asset) => asset.id === id);
+    const result = await uploadProjectMedia(projectId, file);
+
+    if (!result.ok) {
+      setActionError(result.error);
+      setReplacingId(null);
+      return;
+    }
+
+    if (existing?.storagePath) {
+      const removed = await deleteProjectMedia(existing.storagePath);
+      if (!removed.ok) {
+        // New file is already uploaded; surface a soft warning.
+        setActionError(
+          "Image replaced, but the previous file could not be removed from storage.",
+        );
+      }
+    }
+
+    if (existing) revokeMediaUrl(existing.url);
+
     const mediaLibrary = project.mediaLibrary.map((asset) => {
       if (asset.id !== id) return asset;
-      revokeMediaUrl(asset.url);
       return {
-        ...nextAsset,
+        ...result.data,
         id: asset.id,
-        /* Keep editable metadata when swapping the file bytes. */
         title: asset.title,
         description: asset.description,
         alt: asset.alt,
@@ -68,6 +123,7 @@ export default function MediaLibrary({ project, onChange }: MediaLibraryProps) {
     });
 
     onChange({ mediaLibrary });
+    setReplacingId(null);
   }
 
   function handleMetaChange(id: string, meta: Partial<MediaAssetMeta>) {
@@ -76,8 +132,19 @@ export default function MediaLibrary({ project, onChange }: MediaLibraryProps) {
     });
   }
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
+    setActionError(null);
     const removed = project.mediaLibrary.find((asset) => asset.id === id);
+
+    if (removed?.storagePath) {
+      const storageResult = await deleteProjectMedia(removed.storagePath);
+      if (!storageResult.ok) {
+        setActionError(
+          `${storageResult.error} The image was removed from this project anyway.`,
+        );
+      }
+    }
+
     if (removed) revokeMediaUrl(removed.url);
 
     onChange({
@@ -97,14 +164,30 @@ export default function MediaLibrary({ project, onChange }: MediaLibraryProps) {
           Media Library
         </h2>
         <p className="mt-1 text-xs text-muted">
-          Upload photos, set a hero image, and pick gallery images. The preview
-          updates instantly.
+          Upload photos to secure storage, set a hero image, and pick gallery
+          images.
         </p>
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-4">
+        {actionError ? (
+          <p className="text-xs text-red-400" role="alert">
+            {actionError}
+          </p>
+        ) : null}
+
+        {!projectId ? (
+          <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            Save or open a project to upload media to cloud storage.
+          </p>
+        ) : null}
+
         {isEmpty ? (
-          <ImageUploader onUploaded={handleUploaded} emptyState />
+          <ImageUploader
+            projectId={projectId}
+            onUploaded={handleUploaded}
+            emptyState
+          />
         ) : (
           <>
             <section aria-labelledby="media-upload-heading">
@@ -114,7 +197,10 @@ export default function MediaLibrary({ project, onChange }: MediaLibraryProps) {
               >
                 Upload
               </h3>
-              <ImageUploader onUploaded={handleUploaded} />
+              <ImageUploader
+                projectId={projectId}
+                onUploaded={handleUploaded}
+              />
             </section>
 
             <section aria-labelledby="media-library-heading" className="space-y-2">
@@ -123,6 +209,7 @@ export default function MediaLibrary({ project, onChange }: MediaLibraryProps) {
                 className="text-xs font-medium uppercase tracking-wide text-muted"
               >
                 Library ({project.mediaLibrary.length})
+                {replacingId ? " · Replacing…" : ""}
               </h3>
               <ImageGrid
                 assets={project.mediaLibrary}
@@ -130,8 +217,8 @@ export default function MediaLibrary({ project, onChange }: MediaLibraryProps) {
                 galleryImageIds={project.galleryImageIds}
                 onSetHero={handleSetHero}
                 onToggleGallery={handleToggleGallery}
-                onReplace={handleReplace}
-                onDelete={handleDelete}
+                onReplace={(id, file) => void handleReplace(id, file)}
+                onDelete={(id) => void handleDelete(id)}
                 onMetaChange={handleMetaChange}
               />
             </section>

@@ -13,6 +13,7 @@ import type { GeneratedWebsiteContent, WebsiteService } from "@/types/website-co
 type EditorCanvasProps = {
   content: GeneratedWebsiteContent;
   contact: ProjectContact;
+  projectId?: string | null;
   onBusinessNameChange: (value: string) => void;
   onHeadlineChange: (value: string) => void;
   onSubheadlineChange: (value: string) => void;
@@ -36,6 +37,7 @@ type EditorCanvasProps = {
 export default function EditorCanvas({
   content,
   contact,
+  projectId = null,
   onBusinessNameChange,
   onHeadlineChange,
   onSubheadlineChange,
@@ -179,6 +181,7 @@ export default function EditorCanvas({
       />
       <EditorContact
         contact={contact}
+        projectId={projectId}
         onChange={onContactChange}
         footerLayout={template.footerLayout}
         cardStyle={template.cardStyle}

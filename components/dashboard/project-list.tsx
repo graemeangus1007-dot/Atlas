@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import EditProjectDetailsModal from "@/components/dashboard/edit-project-details-modal";
 import ProjectListControls from "@/components/dashboard/project-list-controls";
+import ProjectThumbnail from "@/components/projects/project-thumbnail";
 import Button from "@/components/ui/button";
 import { useProjectListQuery } from "@/hooks/use-project-list-query";
 import { useProjects } from "@/hooks/use-projects";
@@ -338,78 +339,96 @@ export default function ProjectList() {
                         : "border-border bg-background/40"
                     }`}
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 space-y-1">
-                        <p className="truncate font-medium text-foreground">
-                          {item.name}
-                          {isActive ? (
-                            <span className="ml-2 text-xs font-normal text-accent">
-                              Active
-                            </span>
-                          ) : null}
-                        </p>
-
-                        <p className="truncate text-sm text-foreground/80">
-                          {item.businessName || "Untitled business"}
-                        </p>
-
-                        <p className="text-xs text-muted">
-                          {item.businessType ? `${item.businessType} · ` : ""}
-                          {formatProjectStatus(item.status)}
-                          {" · Updated "}
-                          {formatUpdatedAt(item.updatedAt)}
-                        </p>
-
-                        {item.publishedUrl ? (
-                          <a
-                            href={item.publishedUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-block truncate text-xs text-accent hover:underline"
-                          >
-                            {item.publishedUrl}
-                          </a>
-                        ) : null}
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+                      <div className="w-full shrink-0 sm:w-44 md:w-52">
+                        <ProjectThumbnail
+                          businessName={item.businessName}
+                          businessType={
+                            typeof item.businessType === "string"
+                              ? item.businessType
+                              : ""
+                          }
+                          projectName={item.name}
+                          source={item.thumbnail}
+                          sizes="(max-width: 640px) 100vw, 208px"
+                        />
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          className="px-3 py-1.5 text-xs"
-                          disabled={anyBusy}
-                          onClick={() => void handleOpen(item.id)}
-                        >
-                          {openLabel}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="px-3 py-1.5 text-xs"
-                          disabled={anyBusy}
-                          onClick={() => setEditingProject(item)}
-                        >
-                          Edit Details
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="px-3 py-1.5 text-xs"
-                          disabled={anyBusy}
-                          onClick={() =>
-                            void handleDuplicate(item.id, item.name)
-                          }
-                        >
-                          {duplicateLabel}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="px-3 py-1.5 text-xs"
-                          disabled={anyBusy}
-                          onClick={() => void handleDelete(item.id, item.name)}
-                        >
-                          {deleteLabel}
-                        </Button>
+                      <div className="flex min-w-0 flex-1 flex-col justify-between gap-3">
+                        <div className="min-w-0 space-y-1">
+                          <p className="truncate font-medium text-foreground">
+                            {item.name}
+                            {isActive ? (
+                              <span className="ml-2 text-xs font-normal text-accent">
+                                Active
+                              </span>
+                            ) : null}
+                          </p>
+
+                          <p className="truncate text-sm text-foreground/80">
+                            {item.businessName || "Untitled business"}
+                          </p>
+
+                          <p className="text-xs text-muted">
+                            {item.businessType ? `${item.businessType} · ` : ""}
+                            {formatProjectStatus(item.status)}
+                            {" · Updated "}
+                            {formatUpdatedAt(item.updatedAt)}
+                          </p>
+
+                          {item.publishedUrl ? (
+                            <a
+                              href={item.publishedUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-block truncate text-xs text-accent hover:underline"
+                            >
+                              {item.publishedUrl}
+                            </a>
+                          ) : null}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            className="px-3 py-1.5 text-xs"
+                            disabled={anyBusy}
+                            onClick={() => void handleOpen(item.id)}
+                          >
+                            {openLabel}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="px-3 py-1.5 text-xs"
+                            disabled={anyBusy}
+                            onClick={() => setEditingProject(item)}
+                          >
+                            Edit Details
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="px-3 py-1.5 text-xs"
+                            disabled={anyBusy}
+                            onClick={() =>
+                              void handleDuplicate(item.id, item.name)
+                            }
+                          >
+                            {duplicateLabel}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="px-3 py-1.5 text-xs"
+                            disabled={anyBusy}
+                            onClick={() =>
+                              void handleDelete(item.id, item.name)
+                            }
+                          >
+                            {deleteLabel}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </li>

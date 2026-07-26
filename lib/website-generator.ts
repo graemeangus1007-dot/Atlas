@@ -1,10 +1,20 @@
 import { BUSINESS_TYPE_TEMPLATES } from "@/data/website-templates";
-import { defaultProjectContact } from "@/lib/contact";
+import {
+  defaultProjectContact,
+  resolveContactButtonText,
+  resolveContactSuccessMessage,
+} from "@/lib/contact";
+import { getPublishableAtlasOrigin } from "@/lib/app-url";
 import { placeholderImageUrl, resolveMediaUrl } from "@/lib/media";
 import type { BusinessType } from "@/types/business";
 import type { BusinessProject } from "@/types/business-project";
 import type { GeneratedWebsiteContent } from "@/types/website-content";
 import { GALLERY_SLOT_COUNT } from "@/types/media";
+
+export type GenerateWebsiteContentOptions = {
+  /** Absolute Atlas origin for contact form POST (server-resolved APP_URL). */
+  atlasOrigin?: string | null;
+};
 
 const GALLERY_TONES = [
   "from-[color:var(--site-accent)]/35 to-surface",
@@ -25,8 +35,12 @@ function resolveBusinessType(
  */
 export function generateWebsiteContent(
   project: BusinessProject,
+  options: GenerateWebsiteContentOptions = {},
 ): GeneratedWebsiteContent {
   const businessType = resolveBusinessType(project.businessType);
+  const atlasOrigin =
+    options.atlasOrigin?.trim().replace(/\/+$/, "") ||
+    getPublishableAtlasOrigin();
   const template = BUSINESS_TYPE_TEMPLATES[businessType];
   const businessName = project.businessName.trim() || "Your Business";
   const description =
@@ -109,6 +123,15 @@ export function generateWebsiteContent(
             value: contact.location.trim() || fallback.location,
           },
         ],
+        form: {
+          enabled: contact.formEnabled !== false,
+          formId: contact.formId?.trim() || null,
+          buttonText: resolveContactButtonText(contact),
+          successMessage: resolveContactSuccessMessage(contact),
+          showPhoneField: contact.showPhoneField !== false,
+          showCompanyField: Boolean(contact.showCompanyField),
+          apiBaseUrl: atlasOrigin,
+        },
       };
     })(),
   };

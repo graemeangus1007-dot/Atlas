@@ -1,5 +1,10 @@
 import { ACCEPTED_IMAGE_TYPES } from "@/data/media";
 import type { MediaAsset } from "@/types/media";
+import { MAX_PROJECT_MEDIA_BYTES } from "@/types/media";
+
+export function isBlobUrl(url: string | null | undefined): boolean {
+  return typeof url === "string" && url.toLowerCase().startsWith("blob:");
+}
 
 /** Format byte length for the media grid. */
 export function formatFileSize(bytes: number): string {
@@ -54,8 +59,15 @@ export function isAcceptedImageFile(file: File): boolean {
   );
 }
 
-/** Create a MediaAsset backed by a browser object URL. */
-export function createMediaAssetFromFile(file: File): MediaAsset {
+export function isFileWithinMediaLimit(file: File): boolean {
+  return file.size <= MAX_PROJECT_MEDIA_BYTES;
+}
+
+/**
+ * Legacy / temporary local preview asset (blob URL).
+ * Do not persist blob-only assets as permanent library items.
+ */
+export function createTemporaryPreviewAsset(file: File): MediaAsset {
   if (!isAcceptedImageFile(file)) {
     throw new Error("Please upload a JPEG, PNG, WebP, or GIF image.");
   }
@@ -65,13 +77,79 @@ export function createMediaAssetFromFile(file: File): MediaAsset {
   return {
     id: createId(),
     name: file.name,
+    filename: file.name,
     url: URL.createObjectURL(file),
+    storagePath: null,
+    mimeType: file.type,
+    size: file.size,
     sizeLabel: formatFileSize(file.size),
     createdAt: Date.now(),
     title,
     description: "",
     alt: title,
+    unavailable: false,
   };
+}
+
+/** @deprecated Use createTemporaryPreviewAsset — blob URLs are not durable. */
+export function createMediaAssetFromFile(file: File): MediaAsset {
+  return createTemporaryPreviewAsset(file);
+}
+
+/** Normalize persisted media (marks legacy blob-only records unavailable). */
+export function normalizeMediaAsset(raw: unknown): MediaAsset | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const item = raw as Partial<MediaAsset> & { url?: string; id?: string };
+  if (typeof item.id !== "string") return null;
+
+  const storagePath =
+    typeof item.storagePath === "string" && item.storagePath.trim()
+      ? item.storagePath.trim()
+      : null;
+  const url = typeof item.url === "string" ? item.url : "";
+  // Durable identity is storagePath; url may be empty until signed on load.
+  if (!url && !storagePath) return null;
+
+  const blobOnly = isBlobUrl(url) && !storagePath;
+  const name =
+    typeof item.name === "string" && item.name.trim()
+      ? item.name
+      : "image";
+  const filename =
+    typeof item.filename === "string" && item.filename.trim()
+      ? item.filename
+      : name;
+  const size = typeof item.size === "number" ? item.size : 0;
+
+  return {
+    id: item.id,
+    name,
+    filename,
+    url,
+    storagePath,
+    mimeType: typeof item.mimeType === "string" ? item.mimeType : "image/*",
+    size,
+    sizeLabel:
+      typeof item.sizeLabel === "string" && item.sizeLabel
+        ? item.sizeLabel
+        : formatFileSize(size),
+    createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+    title: typeof item.title === "string" ? item.title : fileStem(name),
+    description: typeof item.description === "string" ? item.description : "",
+    alt: typeof item.alt === "string" ? item.alt : fileStem(name),
+    urlExpiresAt:
+      typeof item.urlExpiresAt === "number" && Number.isFinite(item.urlExpiresAt)
+        ? item.urlExpiresAt
+        : undefined,
+    unavailable: Boolean(item.unavailable || blobOnly),
+  };
+}
+
+export function normalizeMediaLibrary(raw: unknown): MediaAsset[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => normalizeMediaAsset(item))
+    .filter((item): item is MediaAsset => item !== null);
 }
 
 /** Patch metadata on one library asset; returns a new array. */
@@ -101,67 +179,14 @@ export function revokeMediaUrl(url: string): void {
   }
 }
 
-/**
- * Mock upload progress from 0 → 100, then create an object-URL asset.
- */
-export async function mockUploadImage(
-  file: File,
-  onProgress: (percent: number) => void,
-): Promise<MediaAsset> {
-  if (!isAcceptedImageFile(file)) {
-    throw new Error("Please upload a JPEG, PNG, WebP, or GIF image.");
-  }
-
-  onProgress(6);
-
-  await new Promise<void>((resolve) => {
-    let progress = 6;
-    const timer = window.setInterval(() => {
-      progress = Math.min(progress + 10 + Math.random() * 16, 94);
-      onProgress(Math.round(progress));
-      if (progress >= 94) {
-        window.clearInterval(timer);
-        resolve();
-      }
-    }, 90);
-  });
-
-  const asset = createMediaAssetFromFile(file);
-  onProgress(100);
-  return asset;
-}
-
-/** Upload multiple files sequentially with overall progress. */
-export async function mockUploadImages(
-  files: File[],
-  onProgress: (percent: number) => void,
-): Promise<MediaAsset[]> {
-  const accepted = files.filter(isAcceptedImageFile);
-  if (accepted.length === 0) {
-    throw new Error("Please upload JPEG, PNG, WebP, or GIF images.");
-  }
-
-  const assets: MediaAsset[] = [];
-  for (let index = 0; index < accepted.length; index += 1) {
-    const file = accepted[index];
-    const base = (index / accepted.length) * 100;
-    const span = 100 / accepted.length;
-
-    const asset = await mockUploadImage(file, (filePercent) => {
-      onProgress(Math.min(100, Math.round(base + (filePercent / 100) * span)));
-    });
-    assets.push(asset);
-  }
-
-  onProgress(100);
-  return assets;
-}
-
-/** Resolve a media asset id to its object URL. */
+/** Resolve a media asset id to a displayable (preferably durable) URL. */
 export function resolveMediaUrl(
   library: MediaAsset[],
   id: string | null | undefined,
 ): string | null {
   if (!id) return null;
-  return library.find((asset) => asset.id === id)?.url ?? null;
+  const asset = library.find((item) => item.id === id);
+  if (!asset || asset.unavailable) return null;
+  if (isBlobUrl(asset.url) && !asset.storagePath) return null;
+  return asset.url;
 }

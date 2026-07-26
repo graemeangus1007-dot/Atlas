@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { shouldRunEditorShortcut } from "@/lib/editor/is-typing-target";
 
 type EditableTextProps = {
   value: string;
@@ -157,6 +158,8 @@ export default function EditableText({
       className={`cursor-text rounded-lg outline-none transition-shadow hover:ring-2 hover:ring-[color:var(--site-accent)]/35 focus-visible:ring-2 focus-visible:ring-[color:var(--site-accent)]/50 ${className}`}
       onClick={() => setIsEditing(true)}
       onKeyDown={(event) => {
+        // Never steal Space/Enter from nested or focused text fields.
+        if (!shouldRunEditorShortcut(event)) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           setIsEditing(true);

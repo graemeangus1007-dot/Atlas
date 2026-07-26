@@ -111,6 +111,44 @@ export default function PreviewContact({
     );
   }
 
+  const formPreview =
+    contact.form?.enabled !== false ? (
+      <div className="mx-auto mt-10 max-w-xl rounded-2xl border border-border bg-background/30 p-5 text-left">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">
+          Contact form preview
+        </p>
+        <div className="mt-3 space-y-3">
+          <div>
+            <p className="text-xs text-muted">Name</p>
+            <div className="mt-1 h-9 rounded-lg border border-border bg-surface/50" />
+          </div>
+          <div>
+            <p className="text-xs text-muted">Email</p>
+            <div className="mt-1 h-9 rounded-lg border border-border bg-surface/50" />
+          </div>
+          {contact.form?.showPhoneField !== false ? (
+            <div>
+              <p className="text-xs text-muted">Phone</p>
+              <div className="mt-1 h-9 rounded-lg border border-border bg-surface/50" />
+            </div>
+          ) : null}
+          {contact.form?.showCompanyField ? (
+            <div>
+              <p className="text-xs text-muted">Company</p>
+              <div className="mt-1 h-9 rounded-lg border border-border bg-surface/50" />
+            </div>
+          ) : null}
+          <div>
+            <p className="text-xs text-muted">Message</p>
+            <div className="mt-1 h-20 rounded-lg border border-border bg-surface/50" />
+          </div>
+          <div className="inline-flex rounded-xl bg-[color:var(--site-accent)] px-4 py-2 text-sm font-medium text-background">
+            {contact.form?.buttonText || "Send message"}
+          </div>
+        </div>
+      </div>
+    ) : null;
+
   return (
     <PreviewSection id="contact" bordered={false}>
       <div className="rounded-3xl border border-border bg-surface/70 px-6 py-12 sm:px-10 sm:py-14">
@@ -143,6 +181,7 @@ export default function PreviewContact({
             </div>
           ))}
         </dl>
+        {formPreview}
       </div>
     </PreviewSection>
   );

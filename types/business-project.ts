@@ -8,6 +8,7 @@ import type {
 } from "@/data/design-options";
 import type { TemplateId } from "@/lib/templates/types";
 import type { GalleryImageIds, MediaAsset } from "@/types/media";
+import type { ProjectSeo } from "@/lib/seo/types";
 import type { PublishRecord } from "@/types/publishing";
 import type { WebsiteService } from "@/types/website-content";
 
@@ -28,6 +29,22 @@ export type ProjectContact = {
   phone: string;
   email: string;
   location: string;
+  /** Atlas lead_forms.id — wired automatically; not edited by hand. */
+  formId?: string | null;
+  /** Submit button label on the public contact form. */
+  buttonText?: string;
+  /** Shown after a successful submission. */
+  successMessage?: string;
+  /** @deprecated Use buttonText — kept for reading older saved projects. */
+  formButtonText?: string;
+  /** @deprecated Use successMessage — kept for reading older saved projects. */
+  formSuccessMessage?: string;
+  /** Include phone field on the public form. */
+  showPhoneField?: boolean;
+  /** Include company field on the public form. */
+  showCompanyField?: boolean;
+  /** When false, published site shows details only (no form). Default true. */
+  formEnabled?: boolean;
 };
 
 /**
@@ -49,6 +66,11 @@ export type BusinessProject = {
   services: WebsiteService[];
   /** Editable contact section (title, blurb, phone, email, location). */
   contact: ProjectContact;
+  /**
+   * Technical SEO + Local Business schema settings (content.seo).
+   * Optional for older projects — resolved via defaults at publish time.
+   */
+  seo?: ProjectSeo;
   /** Active layout template id (Modern / Elegant / Minimal / Bold). */
   templateId: TemplateId;
   pages: ProjectPage[];
@@ -78,8 +100,9 @@ export type BusinessProject = {
   galleryImageIds: GalleryImageIds;
   status: ProjectStatus;
   /**
-   * Last successful mock publish (URL + frozen snapshot for the read-only site).
+   * Last successful publish (preview URL + frozen snapshot + slim deployment).
    * Null until the user publishes at least once.
+   * Never stores generated HTML/CSS file bodies.
    */
   publish: PublishRecord | null;
 };

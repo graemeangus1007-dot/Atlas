@@ -63,6 +63,17 @@ export type GeneratedWebsiteContent = {
     title: string;
     description: string;
     details: WebsiteContactDetail[];
+    /** Public form configuration for published sites. */
+    form: {
+      enabled: boolean;
+      formId: string | null;
+      buttonText: string;
+      successMessage: string;
+      showPhoneField: boolean;
+      showCompanyField: boolean;
+      /** Absolute Atlas origin for POST /api/forms/:id/submit */
+      apiBaseUrl: string;
+    };
   };
 };
 

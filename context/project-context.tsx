@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useAuth } from "@/lib/auth";
 import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
+import { useRefreshSignedMediaLibrary } from "@/hooks/use-refresh-signed-media";
 import {
   createProject as createProjectRow,
   deleteProject as deleteProjectRow,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/supabase";
 import type { BusinessProject } from "@/types/business-project";
 import type { BusinessType } from "@/types/business";
+import type { MediaAsset } from "@/types/media";
 
 const ACTIVE_PROJECT_KEY = "atlas:activeProjectId";
 /** Wait ~1s after the last edit before persisting (never save every keystroke). */
@@ -43,7 +45,11 @@ type ProjectContextValue = {
   saveStatus: SaveStatus;
   saveError: string | null;
   setProject: (project: BusinessProject) => void;
-  updateProject: (partial: Partial<BusinessProject>) => void;
+  updateProject: (
+    partial:
+      | Partial<BusinessProject>
+      | ((current: BusinessProject) => Partial<BusinessProject>),
+  ) => void;
   resetProject: () => void;
   /** Reload the project list via getProjects(). */
   refreshProjects: () => Promise<void>;
@@ -130,6 +136,17 @@ export function ProjectProvider({
   useEffect(() => {
     projectIdRef.current = projectId;
   }, [projectId]);
+
+  /** Quietly refresh signed display URLs without marking the project dirty. */
+  const applySignedMediaLibrary = useCallback((next: MediaAsset[]) => {
+    skipAutosaveRef.current = true;
+    setProjectState((current) => ({ ...current, mediaLibrary: next }));
+    window.setTimeout(() => {
+      skipAutosaveRef.current = false;
+    }, 0);
+  }, []);
+
+  useRefreshSignedMediaLibrary(project.mediaLibrary, applySignedMediaLibrary);
 
   const refreshProjects = useCallback(async () => {
     if (!user || !isConfigured) {
@@ -360,9 +377,20 @@ export function ProjectProvider({
     setProjectState(next);
   }, []);
 
-  const updateProject = useCallback((partial: Partial<BusinessProject>) => {
-    setProjectState((current) => ({ ...current, ...partial }));
-  }, []);
+  const updateProject = useCallback(
+    (
+      partial:
+        | Partial<BusinessProject>
+        | ((current: BusinessProject) => Partial<BusinessProject>),
+    ) => {
+      // Functional updates preserve sibling fields when patches race (e.g. typing).
+      setProjectState((current) => {
+        const patch = typeof partial === "function" ? partial(current) : partial;
+        return { ...current, ...patch };
+      });
+    },
+    [],
+  );
 
   const resetProject = useCallback(() => {
     skipAutosaveRef.current = true;

@@ -18,6 +18,8 @@ type LinkButtonProps = SharedProps & {
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
   disabled?: never;
   type?: never;
+  target?: string;
+  rel?: string;
 };
 
 type NativeButtonProps = SharedProps &
@@ -49,7 +51,24 @@ export default function Button(props: ButtonProps) {
   const classes = `${BASE_STYLES} ${VARIANT_STYLES[variant]} ${className}`;
 
   if ("href" in props && props.href) {
-    const { href, onClick } = props;
+    const { href, onClick, target, rel } = props;
+    const isExternal =
+      href.startsWith("http://") || href.startsWith("https://");
+
+    if (isExternal) {
+      return (
+        <a
+          href={href}
+          onClick={onClick}
+          target={target ?? "_blank"}
+          rel={rel ?? "noopener noreferrer"}
+          className={classes}
+        >
+          {children}
+        </a>
+      );
+    }
+
     return (
       <Link href={href} onClick={onClick} className={classes}>
         {children}

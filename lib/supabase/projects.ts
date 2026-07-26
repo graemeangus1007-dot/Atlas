@@ -1,6 +1,9 @@
 import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
 import { createClient } from "@/lib/supabase/client";
 import { getAuthErrorMessage } from "@/lib/supabase/errors";
+import { normalizeMediaLibrary, resolveMediaUrl } from "@/lib/media";
+import { resolveThumbnailSource } from "@/lib/project-thumbnail";
+import { hydrateMediaLibrary } from "@/lib/supabase/storage";
 import type {
   ProjectBrandingJson,
   ProjectContentJson,
@@ -84,6 +87,40 @@ function asNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/** Persist storagePath as durable identity; drop ephemeral signed-url expiry. */
+function mediaForPersistence(library: MediaAsset[]): MediaAsset[] {
+  return library.map((asset) => {
+    const { urlExpiresAt: _expires, ...rest } = asset;
+    return rest;
+  });
+}
+
+/**
+ * Re-issue signed display URLs for private project-media objects on a row.
+ */
+export async function hydrateProjectRow(row: ProjectRow): Promise<ProjectRow> {
+  const media = await hydrateMediaLibrary(normalizeMediaLibrary(row.media));
+  const contentRaw = isRecord(row.content) ? { ...row.content } : {};
+
+  const heroImageId =
+    typeof contentRaw.heroImageId === "string" ? contentRaw.heroImageId : null;
+  const hero = heroImageId
+    ? media.find((asset) => asset.id === heroImageId)
+    : undefined;
+
+  if (hero?.url && !hero.unavailable) {
+    contentRaw.heroImageUrl = hero.url;
+  } else if (heroImageId) {
+    contentRaw.heroImageUrl = null;
+  }
+
+  return {
+    ...row,
+    media,
+    content: contentRaw,
+  };
+}
+
 /** Map a projects row to the dashboard / projects list card shape. */
 export function toProjectListItem(row: ProjectRow): ProjectListItem {
   return {
@@ -96,6 +133,7 @@ export function toProjectListItem(row: ProjectRow): ProjectListItem {
     publishedUrl: row.published_url,
     updatedAt: row.updated_at,
     createdAt: row.created_at,
+    thumbnail: resolveThumbnailSource(row),
   };
 }
 
@@ -116,14 +154,23 @@ export function businessProjectToColumns(
   project: BusinessProject,
   name?: string,
 ): Omit<ProjectInsert, "owner_id" | "id" | "created_at" | "updated_at"> {
+  // Denormalize the current hero display URL for list thumbnails.
+  // Durable identity remains media[].storagePath; URLs are re-signed on load.
+  const heroImageUrl = resolveMediaUrl(
+    project.mediaLibrary,
+    project.heroImageId,
+  );
+
   const content: ProjectContentJson = {
     heroHeadline: project.heroHeadline,
     heroSubheadline: project.heroSubheadline,
     primaryCta: project.primaryCta,
     services: project.services,
     contact: project.contact,
+    seo: project.seo ?? null,
     pages: project.pages,
     heroImageId: project.heroImageId,
+    heroImageUrl,
     galleryImageIds: project.galleryImageIds,
     publish: project.publish,
   };
@@ -151,7 +198,7 @@ export function businessProjectToColumns(
     content,
     branding,
     template: project.templateId || null,
-    media: project.mediaLibrary,
+    media: mediaForPersistence(project.mediaLibrary),
     status: project.status,
     published_url: project.publish?.url ?? null,
   };
@@ -165,7 +212,7 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
   const content = isRecord(row.content) ? row.content : {};
   const branding = isRecord(row.branding) ? row.branding : {};
   const goals = Array.isArray(row.goals) ? (row.goals as WebsiteGoal[]) : [];
-  const media = Array.isArray(row.media) ? (row.media as MediaAsset[]) : [];
+  const media = normalizeMediaLibrary(row.media);
 
   const publishRaw = content.publish;
   const publish: PublishRecord | null =
@@ -198,8 +245,41 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
           phone: asString(content.contact.phone, base.contact.phone),
           email: asString(content.contact.email, base.contact.email),
           location: asString(content.contact.location, base.contact.location),
+          formId:
+            typeof content.contact.formId === "string" ||
+            content.contact.formId === null
+              ? (content.contact.formId as string | null)
+              : (base.contact.formId ?? null),
+          buttonText: asString(
+            content.contact.buttonText ?? content.contact.formButtonText,
+            base.contact.buttonText ||
+              base.contact.formButtonText ||
+              "Send message",
+          ),
+          successMessage: asString(
+            content.contact.successMessage ??
+              content.contact.formSuccessMessage,
+            base.contact.successMessage ||
+              base.contact.formSuccessMessage ||
+              "Thanks — we received your message and will get back to you soon.",
+          ),
+          showPhoneField:
+            typeof content.contact.showPhoneField === "boolean"
+              ? content.contact.showPhoneField
+              : base.contact.showPhoneField !== false,
+          showCompanyField:
+            typeof content.contact.showCompanyField === "boolean"
+              ? content.contact.showCompanyField
+              : Boolean(base.contact.showCompanyField),
+          formEnabled:
+            typeof content.contact.formEnabled === "boolean"
+              ? content.contact.formEnabled
+              : base.contact.formEnabled !== false,
         }
       : base.contact,
+    seo: isRecord(content.seo)
+      ? (content.seo as BusinessProject["seo"])
+      : base.seo,
     templateId: (row.template as TemplateId) || base.templateId,
     pages: Array.isArray(content.pages)
       ? (content.pages as BusinessProject["pages"])
@@ -329,7 +409,7 @@ export async function createProject(
       .single();
 
     if (error) return fail(error);
-    return ok(data as ProjectRow);
+    return ok(await hydrateProjectRow(data as ProjectRow));
   } catch (error) {
     return fail(error);
   }
@@ -338,13 +418,20 @@ export async function createProject(
 export async function getProjects(): Promise<ProjectResult<ProjectListItem[]>> {
   try {
     const supabase = createClient();
+    // Full row (including content + media jsonb) is required to resolve thumbnails.
     const { data, error } = await supabase
       .from("projects")
-      .select("*")
+      .select(
+        "id, owner_id, name, business_name, business_type, description, goals, content, branding, template, media, status, published_url, created_at, updated_at",
+      )
       .order("updated_at", { ascending: false });
 
     if (error) return fail(error);
-    return ok((data as ProjectRow[]).map(toProjectListItem));
+
+    const hydrated = await Promise.all(
+      ((data as ProjectRow[]) ?? []).map((row) => hydrateProjectRow(row)),
+    );
+    return ok(hydrated.map(toProjectListItem));
   } catch (error) {
     return fail(error);
   }
@@ -362,7 +449,7 @@ export async function getProjectById(
       .single();
 
     if (error) return fail(error);
-    return ok(data as ProjectRow);
+    return ok(await hydrateProjectRow(data as ProjectRow));
   } catch (error) {
     return fail(error);
   }
@@ -436,7 +523,7 @@ export async function updateProject(
       .single();
 
     if (error) return fail(error);
-    return ok(data as ProjectRow);
+    return ok(await hydrateProjectRow(data as ProjectRow));
   } catch (error) {
     return fail(error);
   }
@@ -558,7 +645,7 @@ export async function duplicateProject(
       .single();
 
     if (error) return fail(error);
-    return ok(data as ProjectRow);
+    return ok(await hydrateProjectRow(data as ProjectRow));
   } catch (error) {
     return fail(error);
   }

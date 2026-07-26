@@ -109,8 +109,11 @@ export function getDashboardStats(project: BusinessProject) {
     {
       id: "visitors",
       label: "Visitors",
-      value: "0",
-      hint: "Publish to start tracking",
+      value: "—",
+      hint:
+        project.status === "published"
+          ? "See Analytics for live traffic"
+          : "Publish to start tracking",
     },
   ] as const;
 }

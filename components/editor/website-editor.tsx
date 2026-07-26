@@ -9,6 +9,7 @@ import EditorTopBar from "@/components/editor/editor-topbar";
 import MediaLibrary from "@/components/media/media-library";
 import EditorPublishPanel from "@/components/publishing/editor-publish-panel";
 import PublishModal from "@/components/publishing/publish-modal";
+import SeoPanel from "@/components/seo/seo-panel";
 import { useProject } from "@/context/project-context";
 import {
   EDITOR_PANEL_HINTS,
@@ -28,10 +29,13 @@ import type { BusinessProject } from "@/types/business-project";
  * Website editor shell — Brand Studio, Media, canvas, and AI Copywriter.
  */
 export default function WebsiteEditor() {
-  const { project, updateProject, setProject, saveNow } = useProject();
+  const { project, projectId, updateProject, setProject, saveNow } = useProject();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<EditorSidebarId>("content");
   const [publishOpen, setPublishOpen] = useState(false);
+  const [publishIntent, setPublishIntent] = useState<"preview" | "production">(
+    "preview",
+  );
   const [aiOpen, setAiOpen] = useState(false);
   const [aiTarget, setAiTarget] = useState<AiFieldTarget | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -141,7 +145,10 @@ export default function WebsiteEditor() {
           businessName={project.businessName}
           onSave={handleSave}
           onMenuClick={() => setSidebarOpen(true)}
-          onPublish={() => setPublishOpen(true)}
+          onPublish={() => {
+            setPublishIntent("preview");
+            setPublishOpen(true);
+          }}
         />
 
         <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
@@ -166,6 +173,7 @@ export default function WebsiteEditor() {
             className={`mx-auto flex w-full gap-0 ${
               activePanel === "branding" ||
               activePanel === "media" ||
+              activePanel === "seo" ||
               activePanel === "publish"
                 ? "max-w-7xl"
                 : "max-w-5xl"
@@ -179,13 +187,32 @@ export default function WebsiteEditor() {
 
             {activePanel === "media" ? (
               <div className="mb-4 w-full shrink-0 lg:mb-0 lg:w-80">
-                <MediaLibrary project={project} onChange={updateProject} />
+                <MediaLibrary
+                  project={project}
+                  projectId={projectId}
+                  onChange={updateProject}
+                />
+              </div>
+            ) : null}
+
+            {activePanel === "seo" ? (
+              <div className="mb-4 w-full shrink-0 lg:mb-0 lg:w-80">
+                <SeoPanel project={project} onChange={updateProject} />
               </div>
             ) : null}
 
             {activePanel === "publish" ? (
               <div className="mb-4 w-full shrink-0 lg:mb-0 lg:w-80">
-                <EditorPublishPanel onPublish={() => setPublishOpen(true)} />
+                <EditorPublishPanel
+                  onPublish={() => {
+                    setPublishIntent("preview");
+                    setPublishOpen(true);
+                  }}
+                  onPublishToProduction={() => {
+                    setPublishIntent("production");
+                    setPublishOpen(true);
+                  }}
+                />
               </div>
             ) : null}
 
@@ -193,6 +220,7 @@ export default function WebsiteEditor() {
               <EditorCanvas
                 content={content}
                 contact={displayProject.contact}
+                projectId={projectId}
                 onBusinessNameChange={(businessName) =>
                   updateProject({ businessName })
                 }
@@ -214,9 +242,9 @@ export default function WebsiteEditor() {
                   })
                 }
                 onContactChange={(patch) =>
-                  updateProject({
-                    contact: { ...project.contact, ...patch },
-                  })
+                  updateProject((current) => ({
+                    contact: { ...current.contact, ...patch },
+                  }))
                 }
                 onGalleryTitleChange={(assetId, title) =>
                   updateProject({
@@ -250,6 +278,7 @@ export default function WebsiteEditor() {
 
       <PublishModal
         open={publishOpen}
+        intent={publishIntent}
         onClose={() => setPublishOpen(false)}
       />
     </div>

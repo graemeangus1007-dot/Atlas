@@ -1,6 +1,49 @@
 import type { BusinessType, WebsiteGoal } from "@/types/business";
 import type { ProjectStatus } from "@/types/business-project";
 import type { MediaAsset } from "@/types/media";
+import type {
+  PublishVersionInsert,
+  PublishVersionRow,
+} from "@/lib/publishing/publish-version-types";
+import type {
+  ProjectDomainInsert,
+  ProjectDomainRow,
+  ProjectDomainUpdate,
+} from "@/lib/domains/types";
+import type { DeviceType } from "@/lib/analytics/types";
+import type { LeadFormRow, LeadSubmissionRow } from "@/lib/leads/types";
+
+export type SiteVisitRowDb = {
+  id: string;
+  project_id: string;
+  owner_id: string;
+  session_id: string;
+  visitor_id: string;
+  page_path: string;
+  referrer: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  country: string;
+  region: string;
+  city: string;
+  device_type: DeviceType;
+  browser: string;
+  operating_system: string;
+  screen_size: string;
+  language: string;
+  duration_seconds: number;
+  bounced: boolean;
+  created_at: string;
+};
+
+export type PageViewRowDb = {
+  id: string;
+  visit_id: string;
+  project_id: string;
+  page_path: string;
+  timestamp: string;
+};
 
 /** JSON object stored in public.projects.content */
 export type ProjectContentJson = Record<string, unknown>;
@@ -65,6 +108,24 @@ export type ProjectUpdate = {
   updated_at?: string;
 };
 
+/** Visual sources used by project card thumbnails. */
+export type ProjectListThumbnail = {
+  screenshotUrl: string | null;
+  coverImageUrl: string | null;
+  heroImageUrl: string | null;
+  /**
+   * Durable private-bucket path for the hero image.
+   * Used to re-issue signed display URLs when heroImageUrl expires.
+   */
+  heroStoragePath: string | null;
+  /** When the current heroImageUrl should be refreshed (epoch ms). */
+  heroUrlExpiresAt: number | null;
+  previewUrl: string | null;
+  accentColor: string | null;
+  /** True when heroImageUrl is a session-only blob: URL (not durable across refresh). */
+  heroIsBlobUrl: boolean;
+};
+
 /** Lightweight list item for dashboard / projects cards. */
 export type ProjectListItem = {
   id: string;
@@ -76,6 +137,7 @@ export type ProjectListItem = {
   publishedUrl: string | null;
   updatedAt: string;
   createdAt: string;
+  thumbnail: ProjectListThumbnail;
 };
 
 /** Typed success / failure wrapper for project data-access calls. */
@@ -100,9 +162,179 @@ export type Database = {
           },
         ];
       };
+      publish_versions: {
+        Row: PublishVersionRow;
+        Insert: PublishVersionInsert;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "publish_versions_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "publish_versions_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      project_domains: {
+        Row: ProjectDomainRow;
+        Insert: ProjectDomainInsert;
+        Update: ProjectDomainUpdate;
+        Relationships: [
+          {
+            foreignKeyName: "project_domains_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: true;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "project_domains_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lead_forms: {
+        Row: LeadFormRow;
+        Insert: Partial<LeadFormRow> &
+          Pick<LeadFormRow, "project_id" | "owner_id" | "name">;
+        Update: Partial<
+          Pick<
+            LeadFormRow,
+            | "name"
+            | "description"
+            | "success_message"
+            | "is_enabled"
+            | "notification_email"
+            | "email_notifications_enabled"
+            | "email_subject_template"
+            | "last_notification_error"
+            | "last_notification_at"
+          >
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "lead_forms_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: true;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      site_visits: {
+        Row: SiteVisitRowDb;
+        Insert: Partial<SiteVisitRowDb> &
+          Pick<
+            SiteVisitRowDb,
+            | "project_id"
+            | "owner_id"
+            | "session_id"
+            | "visitor_id"
+            | "page_path"
+          >;
+        Update: Partial<
+          Pick<
+            SiteVisitRowDb,
+            "duration_seconds" | "bounced" | "page_path"
+          >
+        >;
+        Relationships: [];
+      };
+      page_views: {
+        Row: PageViewRowDb;
+        Insert: Partial<PageViewRowDb> &
+          Pick<PageViewRowDb, "visit_id" | "project_id" | "page_path">;
+        Update: never;
+        Relationships: [];
+      };
+      lead_submissions: {
+        Row: LeadSubmissionRow;
+        Insert: Omit<
+          LeadSubmissionRow,
+          | "id"
+          | "created_at"
+          | "status"
+          | "is_starred"
+          | "internal_notes"
+          | "notification_status"
+          | "notification_attempted_at"
+          | "notification_sent_at"
+          | "notification_error"
+          | "notification_provider_message_id"
+        > & {
+          id?: string;
+          status?: LeadSubmissionRow["status"];
+          created_at?: string;
+          is_starred?: boolean;
+          internal_notes?: string;
+          notification_status?: LeadSubmissionRow["notification_status"];
+          notification_attempted_at?: string | null;
+          notification_sent_at?: string | null;
+          notification_error?: string | null;
+          notification_provider_message_id?: string | null;
+        };
+        Update: Partial<
+          Pick<
+            LeadSubmissionRow,
+            | "status"
+            | "is_starred"
+            | "internal_notes"
+            | "notification_status"
+            | "notification_attempted_at"
+            | "notification_sent_at"
+            | "notification_error"
+            | "notification_provider_message_id"
+          >
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "lead_submissions_form_id_fkey";
+            columns: ["form_id"];
+            isOneToOne: false;
+            referencedRelation: "lead_forms";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      project_owner_id: {
+        Args: { p_project_id: string };
+        Returns: string | null;
+      };
+      atlas_record_analytics_event: {
+        Args: {
+          p_event: string;
+          p_project_id: string;
+          p_session_id: string;
+          p_visitor_id: string;
+          p_page_path: string;
+          p_referrer?: string;
+          p_utm_source?: string;
+          p_utm_medium?: string;
+          p_utm_campaign?: string;
+          p_device_type?: string;
+          p_browser?: string;
+          p_operating_system?: string;
+          p_screen_size?: string;
+          p_language?: string;
+          p_duration_seconds?: number;
+        };
+        Returns: Record<string, unknown>;
+      };
+    };
     Enums: Record<string, never>;
   };
 };
