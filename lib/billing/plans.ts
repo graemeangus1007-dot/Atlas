@@ -269,6 +269,11 @@ export function formatPlanMonthlyPrice(plan: AtlasPlanId): string {
 /**
  * Resolve the Stripe Price id for a plan from env (never hard-coded).
  * @param interval — monthly by default; annual uses optional env key when present.
+ *
+ * Important: Next.js / Vercel only reliably expose server env vars that are
+ * referenced with a static `process.env.NAME` expression. Dynamic lookups like
+ * `process.env[envKey]` can return undefined even when the var is set — which
+ * produced "Missing STRIPE_PRICE_PROFESSIONAL" in production.
  */
 export function resolveStripePriceId(
   plan: AtlasPlanId,
@@ -280,7 +285,7 @@ export function resolveStripePriceId(
     interval === "year" && config.stripeAnnualPriceEnvKey
       ? config.stripeAnnualPriceEnvKey
       : config.stripePriceEnvKey;
-  const value = env[envKey]?.trim();
+  const value = readStripePriceEnvValue(envKey, env);
   if (!value) {
     throw new Error(
       `Missing ${envKey}. Add the Stripe Price id to the server environment.`,
@@ -296,14 +301,78 @@ export function planFromStripePriceId(
 ): AtlasPlanId | null {
   if (!priceId) return null;
   for (const plan of PLAN_CATALOG) {
-    const monthly = env[plan.stripePriceEnvKey]?.trim();
+    const monthly = readStripePriceEnvValue(plan.stripePriceEnvKey, env);
     if (monthly && monthly === priceId) return plan.id;
     if (plan.stripeAnnualPriceEnvKey) {
-      const annual = env[plan.stripeAnnualPriceEnvKey]?.trim();
+      const annual = readStripePriceEnvValue(
+        plan.stripeAnnualPriceEnvKey,
+        env,
+      );
       if (annual && annual === priceId) return plan.id;
     }
   }
   return null;
+}
+
+/**
+ * Canonical Stripe Price env keys used by {@link PLAN_CONFIG}.
+ * Keep this union in sync with plans + validateEnv static reads.
+ */
+export type StripePriceEnvKey =
+  | "STRIPE_PRICE_STARTER"
+  | "STRIPE_PRICE_PROFESSIONAL"
+  | "STRIPE_PRICE_AGENCY"
+  | "STRIPE_PRICE_STARTER_ANNUAL"
+  | "STRIPE_PRICE_PROFESSIONAL_ANNUAL"
+  | "STRIPE_PRICE_AGENCY_ANNUAL";
+
+/**
+ * Read a Stripe Price id using static `process.env.*` member access when
+ * reading the live environment. Falls back to dynamic access for injected
+ * test env objects. Accepts legacy `STRIPE_PRICE_PRO` for Professional.
+ */
+export function readStripePriceEnvValue(
+  key: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (env === process.env) {
+    const live = readLiveProcessEnvStripePrice(key);
+    if (live) return live;
+  }
+
+  const direct = env[key]?.trim();
+  if (direct) return direct;
+
+  // Legacy alias from the Free/Pro/Agency catalog rename.
+  if (key === "STRIPE_PRICE_PROFESSIONAL") {
+    const legacy = env.STRIPE_PRICE_PRO?.trim();
+    if (legacy) return legacy;
+  }
+
+  return undefined;
+}
+
+function readLiveProcessEnvStripePrice(key: string): string | undefined {
+  switch (key) {
+    case "STRIPE_PRICE_STARTER":
+      return process.env.STRIPE_PRICE_STARTER?.trim() || undefined;
+    case "STRIPE_PRICE_PROFESSIONAL":
+      return (
+        process.env.STRIPE_PRICE_PROFESSIONAL?.trim() ||
+        process.env.STRIPE_PRICE_PRO?.trim() ||
+        undefined
+      );
+    case "STRIPE_PRICE_AGENCY":
+      return process.env.STRIPE_PRICE_AGENCY?.trim() || undefined;
+    case "STRIPE_PRICE_STARTER_ANNUAL":
+      return process.env.STRIPE_PRICE_STARTER_ANNUAL?.trim() || undefined;
+    case "STRIPE_PRICE_PROFESSIONAL_ANNUAL":
+      return process.env.STRIPE_PRICE_PROFESSIONAL_ANNUAL?.trim() || undefined;
+    case "STRIPE_PRICE_AGENCY_ANNUAL":
+      return process.env.STRIPE_PRICE_AGENCY_ANNUAL?.trim() || undefined;
+    default:
+      return undefined;
+  }
 }
 
 /** Default plan id written for new users before Checkout (not entitled until paid). */

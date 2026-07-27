@@ -284,6 +284,19 @@ describe("stripe price mapping & subscription upgrades", () => {
     );
   });
 
+  it("accepts legacy STRIPE_PRICE_PRO as Professional alias", () => {
+    vi.stubEnv("STRIPE_PRICE_PRO", "price_pro_legacy");
+    expect(resolveStripePriceId("professional")).toBe("price_pro_legacy");
+    expect(planFromStripePriceId("price_pro_legacy")).toBe("professional");
+  });
+
+  it("professional plan id maps to STRIPE_PRICE_PROFESSIONAL env key", () => {
+    expect(PLAN_CONFIG.professional.stripePriceEnvKey).toBe(
+      "STRIPE_PRICE_PROFESSIONAL",
+    );
+    expect(PLAN_CONFIG.professional.id).toBe("professional");
+  });
+
   it("resolves plan from Stripe subscription items on upgrade", () => {
     vi.stubEnv("STRIPE_PRICE_STARTER", "price_starter_live");
     vi.stubEnv("STRIPE_PRICE_PROFESSIONAL", "price_professional_live");

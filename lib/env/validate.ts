@@ -305,10 +305,23 @@ export function validateEnv(
   const stripeWebhookSecret = trim(source.STRIPE_WEBHOOK_SECRET) || null;
   const stripePublishableKey =
     trim(source.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) || null;
-  const stripePriceStarter = trim(source.STRIPE_PRICE_STARTER) || null;
+
+  // Static process.env.* reads when validating the live env — Next.js/Vercel
+  // may not expose values via dynamic source[key] lookups.
+  const stripePriceStarter =
+    (source === process.env
+      ? trim(process.env.STRIPE_PRICE_STARTER)
+      : trim(source.STRIPE_PRICE_STARTER)) || null;
   const stripePriceProfessional =
-    trim(source.STRIPE_PRICE_PROFESSIONAL) || null;
-  const stripePriceAgency = trim(source.STRIPE_PRICE_AGENCY) || null;
+    (source === process.env
+      ? trim(process.env.STRIPE_PRICE_PROFESSIONAL) ||
+        trim(process.env.STRIPE_PRICE_PRO)
+      : trim(source.STRIPE_PRICE_PROFESSIONAL) ||
+        trim(source.STRIPE_PRICE_PRO)) || null;
+  const stripePriceAgency =
+    (source === process.env
+      ? trim(process.env.STRIPE_PRICE_AGENCY)
+      : trim(source.STRIPE_PRICE_AGENCY)) || null;
 
   if (strict) {
     if (!stripeSecretKey) {

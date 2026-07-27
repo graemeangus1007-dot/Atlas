@@ -36,7 +36,7 @@ export function getStripePublishableKey(): string | null {
   return process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || null;
 }
 
-/** Resolve Stripe Price id from plan catalog env keys. */
+/** Resolve Stripe Price id from plan catalog env keys (static process.env reads). */
 export function getStripePriceId(
   plan: AtlasPlanId,
   interval: "month" | "year" = "month",

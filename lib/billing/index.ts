@@ -12,11 +12,13 @@ export {
   planFromStripePriceId,
   planMonthlyPriceUsd,
   planRank,
+  readStripePriceEnvValue,
   resolveStripePriceId,
   type AtlasPlanId,
   type PlanBillingOptions,
   type PlanConfig,
   type PlanFeatureFlags,
+  type StripePriceEnvKey,
 } from "@/lib/billing/plans";
 export {
   buildBillingSummary,

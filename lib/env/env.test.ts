@@ -149,4 +149,17 @@ describe("validateEnv", () => {
     if (!result.ok) return;
     expect(result.warnings.length).toBeGreaterThan(0);
   });
+
+  it("accepts legacy STRIPE_PRICE_PRO as Professional price id", () => {
+    const result = validateEnv(
+      baseValidEnv({
+        STRIPE_PRICE_PROFESSIONAL: "",
+        STRIPE_PRICE_PRO: "price_pro_legacy",
+      }),
+      { requireProductionSecrets: true },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.env.stripePriceProfessional).toBe("price_pro_legacy");
+  });
 });
