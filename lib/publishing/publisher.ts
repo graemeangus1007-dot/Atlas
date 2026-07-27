@@ -23,24 +23,33 @@ import {
 async function resolveShowAtlasBranding(
   override?: boolean,
 ): Promise<boolean> {
-  if (typeof override === "boolean") return override;
+  let mustShowBadge = true;
   try {
     const supabase = createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return true;
-    const { data } = await supabase
-      .from("subscriptions")
-      .select("*")
-      .eq("owner_id", user.id)
-      .maybeSingle();
-    if (!data) return true;
-    // Show badge when not entitled to removeBranding (locked or Starter).
-    return !resolveFeatures(data as SubscriptionRow).removeBranding;
+    if (user) {
+      const { data } = await supabase
+        .from("subscriptions")
+        .select("*")
+        .eq("owner_id", user.id)
+        .maybeSingle();
+      if (data) {
+        // Show badge when not entitled to removeBranding (locked or Starter).
+        mustShowBadge = !resolveFeatures(data as SubscriptionRow).removeBranding;
+      }
+    }
   } catch {
-    return true;
+    mustShowBadge = true;
   }
+
+  // Client may force showing the badge, but cannot hide it without entitlement.
+  if (typeof override === "boolean") {
+    if (override === false && mustShowBadge) return true;
+    return override;
+  }
+  return mustShowBadge;
 }
 
 /**

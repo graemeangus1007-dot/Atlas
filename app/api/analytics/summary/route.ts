@@ -2,6 +2,7 @@ import { buildAnalyticsSummary } from "@/lib/analytics";
 import {
   isAnalyticsOwnerError,
   requireAnalyticsOwner,
+  requireBasicAnalytics,
 } from "@/lib/analytics/auth";
 import { loadAnalyticsDataset } from "@/lib/analytics/load";
 import { logAnalytics } from "@/lib/analytics/log";
@@ -16,6 +17,9 @@ export async function GET(request: Request) {
   const projectId = new URL(request.url).searchParams.get("projectId");
   const auth = await requireAnalyticsOwner(projectId, requestId);
   if (isAnalyticsOwnerError(auth)) return auth.error;
+
+  const gate = await requireBasicAnalytics(auth, requestId);
+  if (gate) return gate;
 
   try {
     const { visits, leads } = await loadAnalyticsDataset(auth.supabase, {

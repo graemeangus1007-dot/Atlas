@@ -129,38 +129,28 @@ export async function POST(request: Request) {
             return;
           }
 
-          console.info("[deployment.deploy] target resolved", {
-            source: resolved.source,
-            deployTarget: body.deployTarget ?? "preview",
-            force: body.force,
-            vercelProjectIdTail:
-              resolved.vercelProjectId.length > 6
-                ? `…${resolved.vercelProjectId.slice(-6)}`
-                : resolved.vercelProjectId,
-          });
-
           vercelProjectId = resolved.vercelProjectId;
         }
 
-        // Never ship localhost form endpoints to preview/production hosts.
+        // Never ship localhost form/analytics endpoints to preview/production hosts.
         const atlasOrigin = getPublishableAtlasOrigin();
-        let artifact = rewritePublishedFormOrigins(body.artifact, atlasOrigin);
+        const artifact = rewritePublishedFormOrigins(body.artifact, atlasOrigin);
 
         const html = artifact.files.find((f) => f.path === "index.html")?.content;
-        const hasLocalhostForm =
+        const hasLocalhostAtlasEndpoint =
           typeof html === "string" &&
           /https?:\/\/(?:localhost|127\.0\.0\.1)/i.test(html) &&
-          html.includes("/api/forms/");
+          (/\/api\/forms\//.test(html) || /\/api\/analytics\/collect/.test(html));
 
         if (
-          hasLocalhostForm &&
+          hasLocalhostAtlasEndpoint &&
           getServerDeploymentProviderId() === "vercel" &&
           (!atlasOrigin || isLocalhostOrigin(atlasOrigin))
         ) {
           send({
             type: "error",
             message:
-              "Published contact forms still target localhost. Set APP_URL to your deployed Atlas origin (e.g. https://your-atlas-app.vercel.app), then publish again.",
+              "Published site still targets localhost for forms or analytics. Set APP_URL to your deployed Atlas origin (e.g. https://your-atlas-app.vercel.app), then publish again.",
           });
           return;
         }

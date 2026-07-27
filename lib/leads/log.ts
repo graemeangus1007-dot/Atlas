@@ -1,6 +1,6 @@
 /**
- * Temporary redacted pipeline logging for lead submit / inbox (Sprint 17.0B bugfix).
- * Never logs IP hashes, emails, message bodies, or secrets.
+ * Redacted pipeline logging for lead submit / inbox.
+ * Opt-in via ATLAS_PIPELINE_LOG=1 — silent by default (no lead bodies/secrets).
  */
 
 function shortId(value: string | null | undefined): string | null {
@@ -13,6 +13,8 @@ export function logLeadPipeline(
   step: string,
   details: Record<string, unknown> = {},
 ): void {
+  if (process.env.ATLAS_PIPELINE_LOG?.trim() !== "1") return;
+
   const safe: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(details)) {
     const lower = key.toLowerCase();

@@ -1,4 +1,15 @@
-import { NextResponse } from "next/server";
+import {
+  apiError,
+  apiJson,
+  badRequest,
+  forbidden,
+  getRequestId,
+  internalError,
+  tooManyRequests,
+  unauthorized,
+} from "@/lib/api";
+import { upgradeMessage } from "@/lib/billing/entitlements";
+import { ownerHasFeature } from "@/lib/billing/subscription";
 import { createClient } from "@/lib/supabase/server";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
 import { sanitizePlainText } from "@/lib/leads/sanitize";
@@ -29,11 +40,12 @@ const ALLOWED_STATUS = new Set<LeadSubmissionStatus>([
  * GET /api/leads/[id]
  * Fetch a single lead the caller owns.
  */
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
+  const requestId = getRequestId(request);
   const { id } = await context.params;
   const leadId = id?.trim();
   if (!leadId) {
-    return NextResponse.json({ error: "Missing lead id." }, { status: 400 });
+    return badRequest("Missing lead id.", requestId);
   }
 
   const supabase = await createClient();
@@ -42,7 +54,16 @@ export async function GET(_request: Request, context: RouteContext) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized(requestId);
+  }
+
+  if (!(await ownerHasFeature(user.id, "leadInbox", supabase))) {
+    return apiError({
+      code: "feature_lead_inbox",
+      message: upgradeMessage("feature_lead_inbox"),
+      status: 402,
+      requestId,
+    });
   }
 
   const { data, error } = await supabase
@@ -53,23 +74,20 @@ export async function GET(_request: Request, context: RouteContext) {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json(
-      { error: safeLeadErrorMessage(error) },
-      { status: 500 },
-    );
+    return internalError(requestId, safeLeadErrorMessage(error));
   }
   if (!data) {
-    return NextResponse.json(
-      { error: "Lead not found or access denied." },
-      { status: 404 },
-    );
+    return forbidden(requestId, "Lead not found or access denied.");
   }
 
-  return NextResponse.json({
-    lead: toPublicLeadSubmission(
-      rowToLeadSubmission(data as LeadSubmissionRow),
-    ),
-  });
+  return apiJson(
+    {
+      lead: toPublicLeadSubmission(
+        rowToLeadSubmission(data as LeadSubmissionRow),
+      ),
+    },
+    { requestId },
+  );
 }
 
 /**
@@ -78,10 +96,11 @@ export async function GET(_request: Request, context: RouteContext) {
  * Owner-scoped inbox actions. No delete.
  */
 export async function PATCH(request: Request, context: RouteContext) {
+  const requestId = getRequestId(request);
   const { id } = await context.params;
   const leadId = id?.trim();
   if (!leadId) {
-    return NextResponse.json({ error: "Missing lead id." }, { status: 400 });
+    return badRequest("Missing lead id.", requestId);
   }
 
   const supabase = await createClient();
@@ -90,7 +109,16 @@ export async function PATCH(request: Request, context: RouteContext) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized(requestId);
+  }
+
+  if (!(await ownerHasFeature(user.id, "leadInbox", supabase))) {
+    return apiError({
+      code: "feature_lead_inbox",
+      message: upgradeMessage("feature_lead_inbox"),
+      status: 402,
+      requestId,
+    });
   }
 
   const rate = checkDomainRateLimit(`leads:patch:${user.id}`, {
@@ -98,13 +126,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     windowMs: 60_000,
   });
   if (!rate.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Try again shortly." },
-      {
-        status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
-      },
-    );
+    return tooManyRequests(rate.retryAfterSeconds, requestId);
   }
 
   let body: {
@@ -115,7 +137,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     body = (await request.json()) as typeof body;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    return badRequest("Invalid JSON body.", requestId, "invalid_json");
   }
 
   const patch: {
@@ -127,9 +149,10 @@ export async function PATCH(request: Request, context: RouteContext) {
   if (body.status !== undefined) {
     const status = body.status?.trim() as LeadSubmissionStatus | undefined;
     if (!status || !ALLOWED_STATUS.has(status)) {
-      return NextResponse.json(
-        { error: "Invalid status. Use new, read, archived, or spam." },
-        { status: 400 },
+      return badRequest(
+        "Invalid status. Use new, read, archived, or spam.",
+        requestId,
+        "invalid_status",
       );
     }
     patch.status = status;
@@ -147,10 +170,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   if (Object.keys(patch).length === 0) {
-    return NextResponse.json(
-      { error: "No valid fields to update." },
-      { status: 400 },
-    );
+    return badRequest("No valid fields to update.", requestId);
   }
 
   const { data, error } = await supabase
@@ -162,21 +182,18 @@ export async function PATCH(request: Request, context: RouteContext) {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json(
-      { error: safeLeadErrorMessage(error) },
-      { status: 500 },
-    );
+    return internalError(requestId, safeLeadErrorMessage(error));
   }
   if (!data) {
-    return NextResponse.json(
-      { error: "Lead not found or access denied." },
-      { status: 404 },
-    );
+    return forbidden(requestId, "Lead not found or access denied.");
   }
 
-  return NextResponse.json({
-    lead: toPublicLeadSubmission(
-      rowToLeadSubmission(data as LeadSubmissionRow),
-    ),
-  });
+  return apiJson(
+    {
+      lead: toPublicLeadSubmission(
+        rowToLeadSubmission(data as LeadSubmissionRow),
+      ),
+    },
+    { requestId },
+  );
 }

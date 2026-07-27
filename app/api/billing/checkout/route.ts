@@ -3,7 +3,6 @@ import {
   badRequest,
   getRequestId,
   internalError,
-  safeErrorMessage,
   unauthorized,
 } from "@/lib/api";
 import { createCheckoutSession } from "@/lib/billing/checkout";
@@ -12,9 +11,6 @@ import { captureException, requestContextFromRequest } from "@/lib/monitoring";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-
-const PRODUCTION_CHECKOUT_ERROR =
-  "Could not start checkout. Confirm Stripe keys and price IDs are configured.";
 
 /**
  * POST /api/billing/checkout
@@ -63,9 +59,6 @@ export async function POST(request: Request) {
 
     return apiJson(session, { requestId });
   } catch (error) {
-    // Temporary: surface checkout failures in development for debugging.
-    console.error("[billing.checkout] checkout creation failed", error);
-
     captureException({
       error,
       context: {
@@ -73,12 +66,9 @@ export async function POST(request: Request) {
         tags: { route: "billing.checkout" },
       },
     });
-
-    const message =
-      process.env.NODE_ENV !== "production"
-        ? safeErrorMessage(error, PRODUCTION_CHECKOUT_ERROR)
-        : PRODUCTION_CHECKOUT_ERROR;
-
-    return internalError(requestId, message);
+    return internalError(
+      requestId,
+      "Could not start checkout. Confirm Stripe keys and price IDs are configured.",
+    );
   }
 }

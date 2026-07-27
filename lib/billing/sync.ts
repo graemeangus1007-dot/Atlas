@@ -206,3 +206,17 @@ export async function claimWebhookEvent(input: {
   }
   return true;
 }
+
+/**
+ * Release a claimed webhook event so Stripe retries can reprocess after failure.
+ */
+export async function releaseWebhookEvent(eventId: string): Promise<void> {
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("stripe_webhook_events")
+    .delete()
+    .eq("id", eventId);
+  if (error) {
+    throw new Error(`Failed to release webhook event: ${error.message}`);
+  }
+}

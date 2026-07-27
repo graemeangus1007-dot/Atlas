@@ -37,14 +37,18 @@ export function parseRequestOrigin(
   }
 }
 
-/** Published Atlas sites on Vercel (e.g. atlas-sites-….vercel.app). */
+/** Published Atlas sites on Vercel (atlas-sites*.vercel.app only). */
 export function isAtlasVercelPreviewOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
     if (url.protocol !== "https:") return false;
     const host = url.hostname.toLowerCase();
     if (host === "vercel.app") return false;
-    return host.endsWith(".vercel.app");
+    // Narrow allowlist: only Atlas preview hosting project hostnames.
+    return (
+      host === "atlas-sites.vercel.app" ||
+      (host.startsWith("atlas-sites-") && host.endsWith(".vercel.app"))
+    );
   } catch {
     return false;
   }

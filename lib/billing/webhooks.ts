@@ -1,12 +1,14 @@
 /**
  * Stripe webhook verification + event processing.
  * Production architecture: signature verify → idempotent claim → sync.
+ * On processing failure, the claim is released so Stripe can retry.
  */
 
 import {
   findOwnerIdByStripeCustomerId,
   claimWebhookEvent,
   markSubscriptionCanceled,
+  releaseWebhookEvent,
   syncSubscriptionFromStripe,
 } from "@/lib/billing/sync";
 import { getStripe, getStripeWebhookSecret } from "@/lib/billing/stripe";
@@ -66,6 +68,21 @@ export async function processStripeEvent(
     return { ok: true, handled: false, type: event.type, duplicate: true };
   }
 
+  try {
+    const result = await dispatchStripeEvent(event);
+    if (!result.ok) {
+      await releaseWebhookEvent(event.id);
+    }
+    return result;
+  } catch (error) {
+    await releaseWebhookEvent(event.id);
+    throw error;
+  }
+}
+
+async function dispatchStripeEvent(
+  event: Stripe.Event,
+): Promise<WebhookProcessResult> {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;

@@ -91,3 +91,22 @@ export async function requireAdvancedAnalytics(
     requestId,
   });
 }
+
+/** Gate basic analytics (summary) — locked/unpaid users cannot read. */
+export async function requireBasicAnalytics(
+  context: AnalyticsOwnerContext,
+  requestId?: string,
+): Promise<Response | null> {
+  const allowed = await ownerHasFeature(
+    context.user.id,
+    "basicAnalytics",
+    context.supabase as never,
+  );
+  if (allowed) return null;
+  return apiError({
+    code: "feature_basic_analytics",
+    message: upgradeMessage("feature_basic_analytics"),
+    status: 402,
+    requestId,
+  });
+}

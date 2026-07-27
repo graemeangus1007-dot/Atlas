@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ownerHasFeature } from "@/lib/billing/subscription";
 import { createClient } from "@/lib/supabase/server";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
 import {
@@ -140,6 +141,11 @@ export async function POST(request: Request) {
   const ownerEmail = normalizeEmail(user.email || "");
   const notificationEmail =
     ownerEmail && isValidEmail(ownerEmail) ? ownerEmail : null;
+  const canNotify = await ownerHasFeature(
+    user.id,
+    "emailNotifications",
+    supabase,
+  );
 
   const { data: inserted, error: insertError } = await supabase
     .from("lead_forms")
@@ -153,7 +159,7 @@ export async function POST(request: Request) {
         "Thanks — we received your message and will get back to you soon.",
       is_enabled: true,
       notification_email: notificationEmail,
-      email_notifications_enabled: true,
+      email_notifications_enabled: canNotify,
       email_subject_template: DEFAULT_EMAIL_SUBJECT_TEMPLATE,
     })
     .select("*")

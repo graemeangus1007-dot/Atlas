@@ -60,6 +60,12 @@ describe("analytics CORS origin allowlist", () => {
     expect(isAtlasVercelPreviewOrigin("http://atlas-sites.vercel.app")).toBe(
       false,
     );
+    expect(isAtlasVercelPreviewOrigin("https://random-app.vercel.app")).toBe(
+      false,
+    );
+    expect(isAtlasVercelPreviewOrigin("https://atlas-sites-abc.vercel.app")).toBe(
+      true,
+    );
 
     const decision = await resolveAnalyticsCorsOrigin(
       "https://phishing.example",

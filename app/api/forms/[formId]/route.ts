@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { upgradeMessage } from "@/lib/billing/entitlements";
+import { ownerHasFeature } from "@/lib/billing/subscription";
 import { createClient } from "@/lib/supabase/server";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
 import {
@@ -121,6 +123,22 @@ export async function PATCH(request: Request, context: RouteContext) {
   } = {};
 
   if (typeof body.emailNotificationsEnabled === "boolean") {
+    if (body.emailNotificationsEnabled) {
+      const allowed = await ownerHasFeature(
+        user.id,
+        "emailNotifications",
+        supabase,
+      );
+      if (!allowed) {
+        return NextResponse.json(
+          {
+            error: upgradeMessage("feature_email_notifications"),
+            code: "feature_email_notifications",
+          },
+          { status: 402 },
+        );
+      }
+    }
     patch.email_notifications_enabled = body.emailNotificationsEnabled;
   }
 

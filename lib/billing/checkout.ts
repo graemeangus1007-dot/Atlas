@@ -1,4 +1,8 @@
-import { getPublicAtlasOrigin } from "@/lib/app-url";
+import {
+  getPublicAtlasOrigin,
+  isLocalDevelopmentRuntime,
+  isLocalhostOrigin,
+} from "@/lib/app-url";
 import { getPlanConfig, isAtlasPlanId } from "@/lib/billing/plans";
 import {
   getStripe,
@@ -8,6 +12,18 @@ import { upsertBillingCustomer } from "@/lib/billing/sync";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { CheckoutTargetPlan } from "@/lib/billing/types";
 import type Stripe from "stripe";
+
+/** Checkout/portal return URLs — never fall back to localhost on deployed runtimes. */
+function requireBillingReturnOrigin(): string {
+  const origin = getPublicAtlasOrigin();
+  if (origin && !isLocalhostOrigin(origin)) return origin;
+  if (isLocalDevelopmentRuntime()) {
+    return origin || "http://localhost:3000";
+  }
+  throw new Error(
+    "APP_URL must be set to your deployed Atlas origin for Stripe Checkout and Billing Portal return URLs.",
+  );
+}
 
 async function getOrCreateStripeCustomer(input: {
   ownerId: string;
@@ -58,8 +74,22 @@ export async function createCheckoutSession(input: {
     throw new Error("Invalid plan id.");
   }
 
-  const origin = getPublicAtlasOrigin() || "http://localhost:3000";
+  const origin = requireBillingReturnOrigin();
   const interval = input.interval ?? "month";
+  if (interval === "year") {
+    const hasAnnual =
+      (input.plan === "starter" &&
+        Boolean(process.env.STRIPE_PRICE_STARTER_ANNUAL?.trim())) ||
+      (input.plan === "professional" &&
+        Boolean(process.env.STRIPE_PRICE_PROFESSIONAL_ANNUAL?.trim())) ||
+      (input.plan === "agency" &&
+        Boolean(process.env.STRIPE_PRICE_AGENCY_ANNUAL?.trim()));
+    if (!hasAnnual) {
+      throw new Error(
+        "Annual billing is not configured for this plan. Choose monthly billing.",
+      );
+    }
+  }
   const priceId = getStripePriceId(input.plan, interval);
   const planConfig = getPlanConfig(input.plan);
   const customerId = await getOrCreateStripeCustomer({
@@ -109,7 +139,7 @@ export async function createBillingPortalSession(input: {
   email: string | null;
   returnUrl?: string;
 }): Promise<{ url: string }> {
-  const origin = getPublicAtlasOrigin() || "http://localhost:3000";
+  const origin = requireBillingReturnOrigin();
   const customerId = await getOrCreateStripeCustomer({
     ownerId: input.ownerId,
     email: input.email,

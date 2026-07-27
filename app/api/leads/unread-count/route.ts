@@ -1,4 +1,15 @@
-import { NextResponse } from "next/server";
+import {
+  apiError,
+  apiJson,
+  badRequest,
+  forbidden,
+  getRequestId,
+  internalError,
+  tooManyRequests,
+  unauthorized,
+} from "@/lib/api";
+import { upgradeMessage } from "@/lib/billing/entitlements";
+import { ownerHasFeature } from "@/lib/billing/subscription";
 import { createClient } from "@/lib/supabase/server";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
 import { logLeadPipeline } from "@/lib/leads/log";
@@ -11,12 +22,10 @@ export const runtime = "nodejs";
  * Lightweight unread (status=new) count for sidebar badge.
  */
 export async function GET(request: Request) {
+  const requestId = getRequestId(request);
   const projectId = new URL(request.url).searchParams.get("projectId")?.trim();
   if (!projectId) {
-    return NextResponse.json(
-      { error: "Missing projectId query parameter." },
-      { status: 400 },
-    );
+    return badRequest("Missing projectId query parameter.", requestId);
   }
 
   const supabase = await createClient();
@@ -25,7 +34,16 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized(requestId);
+  }
+
+  if (!(await ownerHasFeature(user.id, "leadInbox", supabase))) {
+    return apiError({
+      code: "feature_lead_inbox",
+      message: upgradeMessage("feature_lead_inbox"),
+      status: 402,
+      requestId,
+    });
   }
 
   const rate = checkDomainRateLimit(`leads:unread:${user.id}`, {
@@ -33,13 +51,7 @@ export async function GET(request: Request) {
     windowMs: 60_000,
   });
   if (!rate.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Try again shortly." },
-      {
-        status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
-      },
-    );
+    return tooManyRequests(rate.retryAfterSeconds, requestId);
   }
 
   const { data: project } = await supabase
@@ -50,10 +62,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (!project) {
-    return NextResponse.json(
-      { error: "Project not found or access denied." },
-      { status: 403 },
-    );
+    return forbidden(requestId, "Project not found or access denied.");
   }
 
   // Must match GET /api/leads ownership filters (project_id + owner_id).
@@ -70,10 +79,7 @@ export async function GET(request: Request) {
       ownerId: user.id,
       error: safeLeadErrorMessage(error),
     });
-    return NextResponse.json(
-      { error: safeLeadErrorMessage(error) },
-      { status: 500 },
-    );
+    return internalError(requestId, safeLeadErrorMessage(error));
   }
 
   logLeadPipeline("inbox.unread_ok", {
@@ -82,5 +88,5 @@ export async function GET(request: Request) {
     unreadCount: count ?? 0,
   });
 
-  return NextResponse.json({ unreadCount: count ?? 0 });
+  return apiJson({ unreadCount: count ?? 0 }, { requestId });
 }

@@ -233,7 +233,7 @@ describe("published preview integration", () => {
       apiBaseUrl: origin,
       projectId,
     });
-    expect(script).toContain("script_loaded");
+    expect(script).not.toContain("script_loaded");
     expect(script).toContain("beacon_sent");
     expect(script).toContain(`${origin}/api/analytics/collect`);
 

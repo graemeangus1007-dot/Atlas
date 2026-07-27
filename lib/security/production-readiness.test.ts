@@ -125,6 +125,13 @@ describe("public API data isolation contracts", () => {
     expect(leads).toMatch(/eq\(\s*["']owner_id["']/);
     expect(leads).toMatch(/eq\(\s*["']project_id["']/);
 
+    const leadDetail = readFileSync(
+      join(ROOT, "app/api/leads/[id]/route.ts"),
+      "utf8",
+    );
+    expect(leadDetail).toMatch(/eq\(\s*["']owner_id["']/);
+    expect(leadDetail).toContain('ownerHasFeature(user.id, "leadInbox"');
+
     const domains = readFileSync(join(ROOT, "app/api/domains/route.ts"), "utf8");
     expect(domains).toMatch(/requireOwnedProject/);
     expect(domains).toMatch(/eq\(\s*["']owner_id["']/);
@@ -134,6 +141,12 @@ describe("public API data isolation contracts", () => {
       "utf8",
     );
     expect(analyticsAuth).toMatch(/owner_id/);
+    expect(analyticsAuth).toContain("requireBasicAnalytics");
+  });
+
+  it("does not ship temporary billing debug routes", () => {
+    const route = join(ROOT, "app/api/debug/billing-env/route.ts");
+    expect(() => readFileSync(route, "utf8")).toThrow();
   });
 
   it("protects leads and profile behind auth middleware", () => {

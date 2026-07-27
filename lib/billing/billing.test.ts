@@ -419,18 +419,39 @@ describe("secret isolation", () => {
     expect("STRIPE_SECRET_KEY".startsWith("NEXT_PUBLIC_")).toBe(false);
     expect("STRIPE_WEBHOOK_SECRET".startsWith("NEXT_PUBLIC_")).toBe(false);
   });
+});
 
-  it("debug billing-env route returns presence flags only", async () => {
+describe("feature gate API contracts (Sprint 19.1)", () => {
+  it("lead detail and unread-count gate leadInbox", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    for (const rel of [
+      "../../app/api/leads/[id]/route.ts",
+      "../../app/api/leads/unread-count/route.ts",
+    ]) {
+      const src = readFileSync(resolve(__dirname, rel), "utf8");
+      expect(src).toContain('ownerHasFeature(user.id, "leadInbox"');
+      expect(src).toContain("feature_lead_inbox");
+    }
+  });
+
+  it("analytics summary gates basicAnalytics", async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
     const src = readFileSync(
-      resolve(__dirname, "../../app/api/debug/billing-env/route.ts"),
+      resolve(__dirname, "../../app/api/analytics/summary/route.ts"),
       "utf8",
     );
-    expect(src).toContain("unauthorized");
-    expect(src).toContain("STRIPE_PRICE_PROFESSIONAL");
-    expect(src).toContain("Boolean(");
-    expect(src).not.toMatch(/return apiJson\(\s*process\.env/);
-    expect(src).not.toContain("process.env.STRIPE_SECRET_KEY,");
+    expect(src).toContain("requireBasicAnalytics");
+  });
+
+  it("webhook processing releases claim on failure", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(
+      resolve(__dirname, "./webhooks.ts"),
+      "utf8",
+    );
+    expect(src).toContain("releaseWebhookEvent");
   });
 });

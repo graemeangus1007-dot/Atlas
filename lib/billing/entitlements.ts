@@ -128,7 +128,9 @@ export type FeatureGateCode =
   | "plan_limit_domains"
   | "feature_custom_domains"
   | "feature_lead_inbox"
+  | "feature_email_notifications"
   | "feature_advanced_analytics"
+  | "feature_basic_analytics"
   | "feature_remove_branding"
   | "feature_team_members";
 
@@ -142,8 +144,12 @@ export function upgradeMessage(code: FeatureGateCode): string {
       return "Custom domains are available on Professional and Agency. Upgrade to connect your domain.";
     case "feature_lead_inbox":
       return "Lead inbox is available on Professional and Agency. Upgrade to manage form submissions.";
+    case "feature_email_notifications":
+      return "Email notifications are available on Professional and Agency.";
     case "feature_advanced_analytics":
       return "Advanced analytics are available on Professional and Agency.";
+    case "feature_basic_analytics":
+      return "Analytics require an active Atlas subscription. Upgrade to view site traffic.";
     case "feature_remove_branding":
       return "Upgrade to Professional or Agency to remove Atlas branding from published sites.";
     case "feature_team_members":

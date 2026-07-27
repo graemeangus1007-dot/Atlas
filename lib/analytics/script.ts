@@ -20,13 +20,7 @@ export function renderAnalyticsScript(input: {
     var projectId=${projectIdJs};
     var STORAGE_V="atlas_vid";
     var STORAGE_S="atlas_sid";
-    function log(){
-      try {
-        var args=["[atlas.analytics]"].concat([].slice.call(arguments));
-        if (window.console && console.info) console.info.apply(console, args);
-      } catch(e){}
-    }
-    log("script_loaded", { projectId: projectId, endpoint: endpoint });
+    function log(){}
     function rid(){
       if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
       return "v_"+Math.random().toString(36).slice(2)+Date.now().toString(36);

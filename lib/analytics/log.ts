@@ -1,10 +1,13 @@
 /**
  * Redacted analytics pipeline logs (no IPs, raw visitor ids, or secrets).
+ * Opt-in via ATLAS_PIPELINE_LOG=1 — silent in production by default.
  */
 export function logAnalytics(
   stage: string,
   details: Record<string, unknown> = {},
 ): void {
+  if (process.env.ATLAS_PIPELINE_LOG?.trim() !== "1") return;
+
   const safe: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(details)) {
     if (value == null) {
