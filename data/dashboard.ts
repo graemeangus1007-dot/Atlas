@@ -55,6 +55,7 @@ export const MOCK_SUGGESTIONS: DashboardAiSuggestion[] = [
 export const SIDEBAR_LINKS = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
   { href: "/projects", label: "Projects", icon: "📁" },
+  { href: "/dashboard/ai", label: "AI Website", icon: "✦" },
   { href: "/dashboard/analytics", label: "Analytics", icon: "📊" },
   { href: "/leads", label: "Leads", icon: "📬" },
   { href: "/editor", label: "Editor", icon: "✏️" },

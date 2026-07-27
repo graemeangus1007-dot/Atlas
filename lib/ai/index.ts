@@ -34,12 +34,26 @@ export {
   getOpenAiModel,
   tryCreateAiProvider,
 } from "@/lib/ai/provider";
+export { questionnaireToGenerateInput } from "@/lib/ai/questionnaire-map";
+export {
+  AI_QUESTIONNAIRE_STORAGE_EVENT,
+  clearAiQuestionnaire,
+  loadAiQuestionnaire,
+  saveAiQuestionnaire,
+} from "@/lib/ai/questionnaire-storage";
+export {
+  isAiQuestionnaireComplete,
+  isAiQuestionnaireStepValid,
+  splitServiceLines,
+  validateAiQuestionnaireStep,
+} from "@/lib/ai/questionnaire-validation";
 export type {
   AiErrorCode,
   AiProvider,
   AiProviderId,
   GenerateWebsiteFailure,
   GenerateWebsiteInput,
+  GenerateWebsiteQuestionnaire,
   GenerateWebsiteResult,
   GenerateWebsiteSuccess,
   GeneratedContact,

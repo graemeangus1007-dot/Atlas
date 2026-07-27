@@ -5,7 +5,25 @@
 
 export type AiProviderId = "mock" | "openai";
 
-/** Input for full-site draft generation (foundation — UI wires later). */
+/** Optional questionnaire enrichment from Sprint 20.0B. */
+export type GenerateWebsiteQuestionnaire = {
+  yearsInBusiness?: string;
+  primaryServices?: string[];
+  secondaryServices?: string[];
+  targetCustomer?: string;
+  serviceArea?: string;
+  tone?: string;
+  primaryColor?: string;
+  accentColor?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  website?: string;
+  facebook?: string;
+  instagram?: string;
+};
+
+/** Input for full-site draft generation. */
 export type GenerateWebsiteInput = {
   /** Atlas project id — ownership verified by the API route. */
   projectId: string;
@@ -13,6 +31,7 @@ export type GenerateWebsiteInput = {
   businessType: string;
   description: string;
   goals?: string[];
+  questionnaire?: GenerateWebsiteQuestionnaire;
 };
 
 export type GeneratedService = {

@@ -16,6 +16,7 @@ import {
   statusForCode,
   tryCreateAiProvider,
 } from "@/lib/ai";
+import type { GenerateWebsiteQuestionnaire } from "@/lib/ai/types";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
 import { captureException, requestContextFromRequest } from "@/lib/monitoring";
 import { createClient } from "@/lib/supabase/server";
@@ -28,12 +29,13 @@ type GenerateBody = {
   businessType?: string;
   description?: string;
   goals?: string[];
+  questionnaire?: GenerateWebsiteQuestionnaire;
 };
 
 /**
  * POST /api/ai/generate
  * Authenticated website draft generation (mock by default).
- * Body: { projectId, businessName?, businessType?, description?, goals? }
+ * Accepts optional questionnaire enrichment from Sprint 20.0B.
  */
 export async function POST(request: Request) {
   const requestId = getRequestId(request);
@@ -99,6 +101,7 @@ export async function POST(request: Request) {
             : "") ||
           "",
         goals: body.goals,
+        questionnaire: body.questionnaire,
       });
     } catch (error) {
       if (isAiError(error)) {

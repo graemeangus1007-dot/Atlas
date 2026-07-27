@@ -18,6 +18,37 @@ export function normalizeGenerateWebsiteInput(
     throw new AiError("bad_request", "projectId is required.");
   }
 
+  const questionnaire = raw.questionnaire
+    ? {
+        yearsInBusiness: raw.questionnaire.yearsInBusiness?.trim() || undefined,
+        primaryServices: Array.isArray(raw.questionnaire.primaryServices)
+          ? raw.questionnaire.primaryServices
+              .filter((s): s is string => typeof s === "string")
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .slice(0, 12)
+          : undefined,
+        secondaryServices: Array.isArray(raw.questionnaire.secondaryServices)
+          ? raw.questionnaire.secondaryServices
+              .filter((s): s is string => typeof s === "string")
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .slice(0, 12)
+          : undefined,
+        targetCustomer: raw.questionnaire.targetCustomer?.trim() || undefined,
+        serviceArea: raw.questionnaire.serviceArea?.trim() || undefined,
+        tone: raw.questionnaire.tone?.trim() || undefined,
+        primaryColor: raw.questionnaire.primaryColor?.trim() || undefined,
+        accentColor: raw.questionnaire.accentColor?.trim() || undefined,
+        phone: raw.questionnaire.phone?.trim() || undefined,
+        email: raw.questionnaire.email?.trim() || undefined,
+        address: raw.questionnaire.address?.trim() || undefined,
+        website: raw.questionnaire.website?.trim() || undefined,
+        facebook: raw.questionnaire.facebook?.trim() || undefined,
+        instagram: raw.questionnaire.instagram?.trim() || undefined,
+      }
+    : undefined;
+
   return {
     projectId,
     businessName: (raw.businessName ?? "").trim(),
@@ -30,6 +61,7 @@ export function normalizeGenerateWebsiteInput(
           .filter(Boolean)
           .slice(0, 12)
       : [],
+    questionnaire,
   };
 }
 
