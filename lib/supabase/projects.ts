@@ -61,6 +61,13 @@ function getProjectErrorMessage(error: unknown): string {
     return "Project saving isn't configured yet. Add your Supabase keys to .env.local.";
   }
 
+  if (
+    lower.includes("plan_limit_projects") ||
+    message.includes("PLAN_LIMIT_PROJECTS")
+  ) {
+    return "You've reached your website limit on the current plan. Upgrade to create more sites.";
+  }
+
   return message || "Something went wrong with your project. Please try again.";
 }
 
@@ -363,6 +370,33 @@ export async function createProject(
       return {
         ok: false,
         error: "Please sign in to save your project, then try again.",
+      };
+    }
+
+    // Soft pre-check from plan catalog (DB trigger remains authoritative).
+    const { count: projectCount } = await supabase
+      .from("projects")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_id", user.id);
+    const { data: subRow } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    const { resolveFeatures } = await import("@/lib/billing/entitlements");
+    const features = resolveFeatures(
+      subRow as import("@/lib/billing/types").SubscriptionRow | null,
+    );
+    const maxProjects = features.maxProjects;
+    if (
+      maxProjects != null &&
+      typeof projectCount === "number" &&
+      projectCount >= maxProjects
+    ) {
+      return {
+        ok: false,
+        error:
+          "You've reached your website limit on the current plan. Upgrade to create more sites.",
       };
     }
 

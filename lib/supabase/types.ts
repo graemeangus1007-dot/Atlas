@@ -307,12 +307,143 @@ export type Database = {
           },
         ];
       };
+      billing_customers: {
+        Row: {
+          owner_id: string;
+          stripe_customer_id: string;
+          email: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          owner_id: string;
+          stripe_customer_id: string;
+          email?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          stripe_customer_id?: string;
+          email?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      subscriptions: {
+        Row: {
+          owner_id: string;
+          plan: "starter" | "professional" | "agency";
+          status:
+            | "trialing"
+            | "active"
+            | "past_due"
+            | "canceled"
+            | "unpaid"
+            | "incomplete"
+            | "incomplete_expired"
+            | "paused"
+            | "none";
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+          stripe_price_id: string | null;
+          cancel_at_period_end: boolean;
+          current_period_start: string | null;
+          current_period_end: string | null;
+          canceled_at: string | null;
+          feature_flags: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          owner_id: string;
+          plan?: "starter" | "professional" | "agency";
+          status?:
+            | "trialing"
+            | "active"
+            | "past_due"
+            | "canceled"
+            | "unpaid"
+            | "incomplete"
+            | "incomplete_expired"
+            | "paused"
+            | "none";
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          stripe_price_id?: string | null;
+          cancel_at_period_end?: boolean;
+          current_period_start?: string | null;
+          current_period_end?: string | null;
+          canceled_at?: string | null;
+          feature_flags?: Record<string, unknown>;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          plan?: "starter" | "professional" | "agency";
+          status?:
+            | "trialing"
+            | "active"
+            | "past_due"
+            | "canceled"
+            | "unpaid"
+            | "incomplete"
+            | "incomplete_expired"
+            | "paused"
+            | "none";
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          stripe_price_id?: string | null;
+          cancel_at_period_end?: boolean;
+          current_period_start?: string | null;
+          current_period_end?: string | null;
+          canceled_at?: string | null;
+          feature_flags?: Record<string, unknown>;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      stripe_webhook_events: {
+        Row: {
+          id: string;
+          type: string;
+          processed_at: string;
+          livemode: boolean;
+          payload_digest: string | null;
+        };
+        Insert: {
+          id: string;
+          type: string;
+          processed_at?: string;
+          livemode?: boolean;
+          payload_digest?: string | null;
+        };
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
       project_owner_id: {
         Args: { p_project_id: string };
         Returns: string | null;
+      };
+      ensure_free_subscription: {
+        Args: { p_owner_id: string };
+        Returns: {
+          owner_id: string;
+          plan: "starter" | "professional" | "agency";
+          status: string;
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+          stripe_price_id: string | null;
+          cancel_at_period_end: boolean;
+          current_period_start: string | null;
+          current_period_end: string | null;
+          canceled_at: string | null;
+          feature_flags: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
       };
       atlas_record_analytics_event: {
         Args: {

@@ -485,6 +485,8 @@ export function renderStaticSiteDocument(input: {
   jsonLdHtml?: string;
   /** Pre-rendered Atlas analytics beacon (before </body>). */
   analyticsScriptHtml?: string;
+  /** Free-plan "Built with Atlas" badge HTML. */
+  brandingHtml?: string;
 }): string {
   const styles = input.stylesHref ?? "styles.css";
   const seoHead =
@@ -496,6 +498,9 @@ export function renderStaticSiteDocument(input: {
     : "";
   const analytics = input.analyticsScriptHtml?.trim()
     ? `\n${input.analyticsScriptHtml.trim()}`
+    : "";
+  const branding = input.brandingHtml?.trim()
+    ? `\n${input.brandingHtml.trim()}`
     : "";
 
   return `<!DOCTYPE html>
@@ -510,7 +515,7 @@ ${seoHead}
   <link rel="stylesheet" href="${escapeAttr(styles)}" />${jsonLd}
 </head>
 <body>
-${input.bodyHtml}${analytics}
+${input.bodyHtml}${branding}${analytics}
 </body>
 </html>
 `;

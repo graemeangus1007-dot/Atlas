@@ -106,10 +106,19 @@ export default function LeadsPage() {
         leads?: PublicLeadSubmission[];
         total?: number;
         unreadCount?: number;
-        error?: string;
+        error?: string | { code?: string; message?: string };
       };
       if (!res.ok) {
-        setError(data.error || "Could not load leads.");
+        const message =
+          typeof data.error === "string"
+            ? data.error
+            : data.error?.message || "Could not load leads.";
+        const upgrade =
+          typeof data.error === "object" &&
+          data.error?.code === "feature_lead_inbox"
+            ? " Upgrade in Billing to unlock the lead inbox."
+            : "";
+        setError(`${message}${upgrade}`);
         setLeads([]);
         return;
       }

@@ -5,13 +5,16 @@ import {
 } from "@/lib/analytics/auth";
 import { loadAnalyticsDataset } from "@/lib/analytics/load";
 import { logAnalytics } from "@/lib/analytics/log";
+import { apiJson, getRequestId, internalError } from "@/lib/api";
+import { captureException, requestContextFromRequest } from "@/lib/monitoring";
 
 export const runtime = "nodejs";
 
 /** GET /api/analytics/summary?projectId= */
 export async function GET(request: Request) {
+  const requestId = getRequestId(request);
   const projectId = new URL(request.url).searchParams.get("projectId");
-  const auth = await requireAnalyticsOwner(projectId);
+  const auth = await requireAnalyticsOwner(projectId, requestId);
   if (isAnalyticsOwnerError(auth)) return auth.error;
 
   try {
@@ -25,11 +28,18 @@ export async function GET(request: Request) {
       visitorsToday: summary.visitorsToday,
       visitorsThisMonth: summary.visitorsThisMonth,
       totalLeads: summary.totalLeads,
+      requestId,
     });
-    return Response.json(summary);
+    return apiJson(summary, { requestId });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Could not load analytics.";
-    return Response.json({ error: message }, { status: 500 });
+    captureException({
+      error: err,
+      context: {
+        request: requestContextFromRequest(request, requestId),
+        project: { projectId: auth.projectId },
+        tags: { route: "analytics.summary" },
+      },
+    });
+    return internalError(requestId, "Could not load analytics.");
   }
 }

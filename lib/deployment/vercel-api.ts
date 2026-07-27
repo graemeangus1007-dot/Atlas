@@ -1,3 +1,4 @@
+import { DEPLOYMENT_HTTP_RETRIES } from "@/lib/deployment/limits";
 import { withRetry, isTransientDeploymentError } from "@/lib/deployment/retry";
 import { redactSecrets } from "@/lib/deployment/server-config";
 import {
@@ -125,7 +126,7 @@ export function createVercelApiClient(
         return res;
       },
       {
-        retries: 3,
+        retries: DEPLOYMENT_HTTP_RETRIES,
         baseDelayMs: 400,
         shouldRetry: isTransientDeploymentError,
       },
@@ -179,7 +180,7 @@ export function createVercelApiClient(
           return;
         },
         {
-          retries: 3,
+          retries: DEPLOYMENT_HTTP_RETRIES,
           baseDelayMs: 400,
           shouldRetry: isTransientDeploymentError,
         },

@@ -2,6 +2,7 @@ import {
   getPublishableAtlasOrigin,
   isLocalhostOrigin,
 } from "@/lib/app-url";
+import { badRequest, getRequestId, unauthorized } from "@/lib/api";
 import { createServerDeploymentProvider } from "@/lib/deployment/create-provider.server";
 import type { DeployViaServerBody } from "@/lib/deployment/deploy-client";
 import {
@@ -10,12 +11,14 @@ import {
 } from "@/lib/deployment/server-config";
 import { resolveVercelDeployProjectId } from "@/lib/domains/resolve-deploy-project";
 import type { DeployTarget } from "@/lib/domains/production-publish";
+import { captureException, requestContextFromRequest } from "@/lib/monitoring";
 import { createClient } from "@/lib/supabase/server";
 import { rewritePublishedFormOrigins } from "@/lib/publishing/rewrite-form-origin";
 import type { PublishArtifact } from "@/lib/publishing/types";
 import type { PreviousDeploymentRef } from "@/lib/deployment/types";
 
 export const runtime = "nodejs";
+/** Keep in sync with DEPLOYMENT_ROUTE_MAX_DURATION_SECONDS in lib/deployment/limits.ts */
 export const maxDuration = 120;
 
 function isPublishArtifact(value: unknown): value is PublishArtifact {
@@ -72,27 +75,29 @@ function parseBody(raw: unknown): DeployViaServerBody | null {
  * Linked production requires deployTarget=production + typed confirmation.
  */
 export async function POST(request: Request) {
+  const requestId = getRequestId(request);
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized(requestId);
   }
 
   let raw: unknown;
   try {
     raw = await request.json();
   } catch {
-    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+    return badRequest("Invalid JSON body.", requestId, "invalid_json");
   }
 
   const body = parseBody(raw);
   if (!body) {
-    return Response.json(
-      { error: "Invalid deployment payload. Expected slug + publish artifact." },
-      { status: 400 },
+    return badRequest(
+      "Invalid deployment payload. Expected slug + publish artifact.",
+      requestId,
+      "invalid_deploy_payload",
     );
   }
 
@@ -181,7 +186,21 @@ export async function POST(request: Request) {
           err instanceof Error ? err.message : "Deployment failed.",
           token,
         );
-        send({ type: "error", message });
+        captureException({
+          error: err,
+          context: {
+            request: requestContextFromRequest(request, requestId),
+            user: { id: user.id },
+            project: { projectId: body.projectId },
+            tags: { route: "deployment.deploy" },
+          },
+        });
+        send({
+          type: "error",
+          code: "deploy_failed",
+          message,
+          requestId,
+        });
       } finally {
         controller.close();
       }
@@ -193,6 +212,7 @@ export async function POST(request: Request) {
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-store",
+      "x-request-id": requestId,
     },
   });
 }

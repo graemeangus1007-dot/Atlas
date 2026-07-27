@@ -14,6 +14,8 @@ export const PROTECTED_PREFIXES = [
   "/dashboard",
   "/editor",
   "/projects",
+  "/leads",
+  "/profile",
 ] as const;
 
 /**

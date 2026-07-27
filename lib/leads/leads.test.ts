@@ -153,7 +153,7 @@ describe("dashboard + API contracts", () => {
       "utf8",
     );
     expect(list).toContain('eq("owner_id", user.id)');
-    expect(list).toContain("Unauthorized");
+    expect(list).toMatch(/unauthorized/i);
     expect(patch).toContain('"read"');
     expect(patch).toContain('"archived"');
     expect(patch).toContain('eq("owner_id", user.id)');

@@ -1,4 +1,8 @@
 import { buildDeploymentId } from "@/lib/deployment/ids";
+import {
+  DEPLOYMENT_POLL_INTERVAL_MS,
+  DEPLOYMENT_POLL_TIMEOUT_MS,
+} from "@/lib/deployment/limits";
 import type { DeploymentProvider } from "@/lib/deployment/provider";
 import { canReusePreviousPreviewUrl } from "@/lib/deployment/preview-url";
 import {
@@ -120,8 +124,9 @@ export class VercelDeploymentProvider implements DeploymentProvider {
         teamId: options.config.teamId,
       });
     this.assetResolver = options.assetResolver;
-    this.pollIntervalMs = options.pollIntervalMs ?? 1_200;
-    this.pollTimeoutMs = options.pollTimeoutMs ?? 90_000;
+    this.pollIntervalMs =
+      options.pollIntervalMs ?? DEPLOYMENT_POLL_INTERVAL_MS;
+    this.pollTimeoutMs = options.pollTimeoutMs ?? DEPLOYMENT_POLL_TIMEOUT_MS;
     this.now = options.now ?? (() => new Date());
     this.sleep = options.sleep;
   }

@@ -1,14 +1,17 @@
 import { buildAnalyticsPages } from "@/lib/analytics";
 import {
   isAnalyticsOwnerError,
+  requireAdvancedAnalytics,
   requireAnalyticsOwner,
 } from "@/lib/analytics/auth";
 import { loadAnalyticsDataset } from "@/lib/analytics/load";
+import { getRequestId } from "@/lib/api";
 
 export const runtime = "nodejs";
 
 /** GET /api/analytics/pages?projectId=&sort=visits|uniqueVisitors|conversionRate */
 export async function GET(request: Request) {
+  const requestId = getRequestId(request);
   const url = new URL(request.url);
   const projectId = url.searchParams.get("projectId");
   const sortRaw = url.searchParams.get("sort") || "visits";
@@ -17,8 +20,10 @@ export async function GET(request: Request) {
       ? sortRaw
       : "visits";
 
-  const auth = await requireAnalyticsOwner(projectId);
+  const auth = await requireAnalyticsOwner(projectId, requestId);
   if (isAnalyticsOwnerError(auth)) return auth.error;
+  const gated = await requireAdvancedAnalytics(auth, requestId);
+  if (gated) return gated;
 
   try {
     const { visits, leads } = await loadAnalyticsDataset(auth.supabase, {

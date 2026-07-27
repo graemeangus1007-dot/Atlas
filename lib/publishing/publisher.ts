@@ -1,3 +1,5 @@
+import { resolveFeatures } from "@/lib/billing/entitlements";
+import type { SubscriptionRow } from "@/lib/billing/types";
 import { MockDeploymentProvider } from "@/lib/deployment/mock-provider";
 import type { DeploymentProvider } from "@/lib/deployment/provider";
 import {
@@ -9,6 +11,7 @@ import {
 import { buildPublishUrl } from "@/lib/publishing/build-publish-url";
 import { buildStaticSite } from "@/lib/publishing/build-static-site";
 import { createPublishSnapshot } from "@/lib/publishing/create-publish-snapshot";
+import { createClient } from "@/lib/supabase/client";
 import type { BusinessProject } from "@/types/business-project";
 import {
   PUBLISH_STEPS,
@@ -16,6 +19,29 @@ import {
   type PublishResult,
   type PublishStepId,
 } from "@/types/publishing";
+
+async function resolveShowAtlasBranding(
+  override?: boolean,
+): Promise<boolean> {
+  if (typeof override === "boolean") return override;
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return true;
+    const { data } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    if (!data) return true;
+    // Show badge when not entitled to removeBranding (locked or Starter).
+    return !resolveFeatures(data as SubscriptionRow).removeBranding;
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Hosting-agnostic publish contract.
@@ -48,6 +74,8 @@ export type PublishOptions = {
   activeCustomHostname?: string | null;
   /** Prior preview URL used when no custom domain is active. */
   deploymentPreviewUrl?: string | null;
+  /** Override Free-plan Atlas badge (defaults from subscription entitlements). */
+  showAtlasBranding?: boolean;
   /**
    * Absolute Atlas origin for contact form endpoints.
    * When omitted, fetched from `/api/app-origin` (server APP_URL).
@@ -130,6 +158,9 @@ export class AtlasWebsitePublisher implements WebsitePublisher {
     await delay(PREPARE_DELAY_MS);
 
     const atlasOrigin = await resolveAtlasOriginForPublish(options, fetchImpl);
+    const showAtlasBranding = await resolveShowAtlasBranding(
+      options.showAtlasBranding,
+    );
 
     emit(onProgress, "building", 18);
     const artifact = buildStaticSite(project, {
@@ -141,6 +172,7 @@ export class AtlasWebsitePublisher implements WebsitePublisher {
         null,
       atlasOrigin,
       projectId: options.projectId ?? null,
+      showAtlasBranding,
     });
     emit(onProgress, "building", 30);
 

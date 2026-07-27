@@ -89,4 +89,9 @@ export type BuildStaticSiteOptions = {
   atlasOrigin?: string | null;
   /** Atlas project id for analytics beacon (required for tracking). */
   projectId?: string | null;
+  /**
+   * When true (default), inject "Built with Atlas" on Free plans.
+   * Set false for Pro/Agency (removeBranding entitlement).
+   */
+  showAtlasBranding?: boolean;
 };

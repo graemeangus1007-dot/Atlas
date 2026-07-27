@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { apiErrorPayload, getRequestId } from "@/lib/api";
 import { scheduleLeadNotificationDelivery } from "@/lib/email/deliver-lead-notification";
 import { extractClientIp, hashIp } from "@/lib/leads/ip";
 import { logLeadPipeline } from "@/lib/leads/log";
@@ -12,6 +13,7 @@ import {
   validateLeadSubmission,
   type LeadSubmitInput,
 } from "@/lib/leads/validate";
+import { captureException, requestContextFromRequest } from "@/lib/monitoring";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { tryCreateServiceClient } from "@/lib/supabase/service";
 import type { LeadFormRow } from "@/lib/leads/types";
@@ -25,15 +27,32 @@ type RouteContext = {
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, x-request-id",
   "Access-Control-Max-Age": "86400",
 };
 
-function withCors(response: NextResponse) {
+function withCors(response: NextResponse, requestId?: string) {
   for (const [key, value] of Object.entries(CORS_HEADERS)) {
     response.headers.set(key, value);
   }
+  if (requestId) response.headers.set("x-request-id", requestId);
   return response;
+}
+
+function submitError(
+  code: string,
+  message: string,
+  status: number,
+  requestId: string,
+  extra?: Record<string, unknown>,
+) {
+  return withCors(
+    NextResponse.json(
+      { ...apiErrorPayload(code, message, requestId), ...extra },
+      { status },
+    ),
+    requestId,
+  );
 }
 
 /** CORS preflight for published static sites on other origins. */
@@ -47,24 +66,27 @@ export async function OPTIONS() {
  * Owner email notification runs after the response via `after()` (idempotent).
  */
 export async function POST(request: Request, context: RouteContext) {
+  const requestId = getRequestId(request);
   const { formId: rawFormId } = await context.params;
   const formId = rawFormId?.trim();
-  logLeadPipeline("submit.reached", { formId });
+  logLeadPipeline("submit.reached", { formId, requestId });
 
   if (!formId) {
-    return withCors(
-      NextResponse.json({ error: "Missing form id." }, { status: 400 }),
-    );
+    return submitError("missing_form_id", "Missing form id.", 400, requestId);
   }
 
   const contentLength = Number(request.headers.get("content-length") || "0");
   if (contentLength > LEAD_SUBMIT_MAX_BODY_BYTES) {
-    logLeadPipeline("submit.rejected_size", { formId, contentLength });
-    return withCors(
-      NextResponse.json(
-        { error: "Submission is too large." },
-        { status: 413 },
-      ),
+    logLeadPipeline("submit.rejected_size", {
+      formId,
+      contentLength,
+      requestId,
+    });
+    return submitError(
+      "payload_too_large",
+      "Submission is too large.",
+      413,
+      requestId,
     );
   }
 
@@ -73,15 +95,20 @@ export async function POST(request: Request, context: RouteContext) {
   const rateKey = `leads:submit:${formId}:${ipHash || "unknown"}`;
   const rate = checkLeadSubmitRateLimit(rateKey);
   if (!rate.allowed) {
-    logLeadPipeline("submit.rate_limited", { formId });
+    logLeadPipeline("submit.rate_limited", { formId, requestId });
     return withCors(
       NextResponse.json(
-        { error: "Too many submissions. Please try again shortly." },
+        apiErrorPayload(
+          "rate_limited",
+          "Too many submissions. Please try again shortly.",
+          requestId,
+        ),
         {
           status: 429,
           headers: { "Retry-After": String(rate.retryAfterSeconds) },
         },
       ),
+      requestId,
     );
   }
 
@@ -89,19 +116,17 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const text = await request.text();
     if (text.length > LEAD_SUBMIT_MAX_BODY_BYTES) {
-      return withCors(
-        NextResponse.json(
-          { error: "Submission is too large." },
-          { status: 413 },
-        ),
+      return submitError(
+        "payload_too_large",
+        "Submission is too large.",
+        413,
+        requestId,
       );
     }
     body = JSON.parse(text) as LeadSubmitInput;
   } catch {
-    logLeadPipeline("submit.invalid_json", { formId });
-    return withCors(
-      NextResponse.json({ error: "Invalid JSON body." }, { status: 400 }),
-    );
+    logLeadPipeline("submit.invalid_json", { formId, requestId });
+    return submitError("invalid_json", "Invalid JSON body.", 400, requestId);
   }
 
   const validated = validateLeadSubmission(body);
@@ -109,19 +134,21 @@ export async function POST(request: Request, context: RouteContext) {
     logLeadPipeline("submit.validation_failed", {
       formId,
       error: validated.error,
+      requestId,
     });
-    return withCors(
-      NextResponse.json(
-        { error: validated.error, fields: validated.fields },
-        { status: validated.status },
-      ),
+    return submitError(
+      "validation_failed",
+      validated.error,
+      validated.status,
+      requestId,
+      { fields: validated.fields },
     );
   }
-  logLeadPipeline("submit.validation_ok", { formId });
+  logLeadPipeline("submit.validation_ok", { formId, requestId });
 
   try {
     const anon = createAnonClient();
-    // Do not select notification_email — public column grants omit it.
+    // Do not select the owner notify address — public column grants omit it.
     const { data: form, error: formError } = await anon
       .from("lead_forms")
       .select("id, project_id, owner_id, is_enabled, success_message")
@@ -133,12 +160,13 @@ export async function POST(request: Request, context: RouteContext) {
       logLeadPipeline("submit.form_unavailable", {
         formId,
         hasFormError: Boolean(formError),
+        requestId,
       });
-      return withCors(
-        NextResponse.json(
-          { error: "This form is unavailable." },
-          { status: 404 },
-        ),
+      return submitError(
+        "form_unavailable",
+        "This form is unavailable.",
+        404,
+        requestId,
       );
     }
 
@@ -192,11 +220,11 @@ export async function POST(request: Request, context: RouteContext) {
         writerKind,
         error: safeLeadErrorMessage(insertError),
       });
-      return withCors(
-        NextResponse.json(
-          { error: "Could not send your message. Please try again." },
-          { status: 502 },
-        ),
+      return submitError(
+        "submit_failed",
+        "Could not send your message. Please try again.",
+        502,
+        requestId,
       );
     }
 
@@ -228,12 +256,16 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     if (!committed) {
-      logLeadPipeline("submit.commit_unconfirmed", { submissionId, formId });
-      return withCors(
-        NextResponse.json(
-          { error: "Could not send your message. Please try again." },
-          { status: 502 },
-        ),
+      logLeadPipeline("submit.commit_unconfirmed", {
+        submissionId,
+        formId,
+        requestId,
+      });
+      return submitError(
+        "submit_unconfirmed",
+        "Could not send your message. Please try again.",
+        502,
+        requestId,
       );
     }
 
@@ -243,27 +275,39 @@ export async function POST(request: Request, context: RouteContext) {
       projectId: formRow.project_id,
       ownerId: formRow.owner_id,
       notifyScheduled: true,
+      requestId,
     });
 
     return withCors(
       NextResponse.json({
         ok: true,
         success: true,
+        requestId,
         message:
           formRow.success_message ||
           "Thanks — we received your message and will get back to you soon.",
       }),
+      requestId,
     );
   } catch (error) {
     logLeadPipeline("submit.exception", {
       formId,
       error: safeLeadErrorMessage(error),
+      requestId,
     });
-    return withCors(
-      NextResponse.json(
-        { error: "Could not send your message. Please try again." },
-        { status: 502 },
-      ),
+    captureException({
+      error,
+      context: {
+        request: requestContextFromRequest(request, requestId),
+        project: { formId },
+        tags: { route: "forms.submit" },
+      },
+    });
+    return submitError(
+      "submit_failed",
+      "Could not send your message. Please try again.",
+      502,
+      requestId,
     );
   }
 }

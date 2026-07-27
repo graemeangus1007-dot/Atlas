@@ -58,5 +58,7 @@ export const SIDEBAR_LINKS = [
   { href: "/dashboard/analytics", label: "Analytics", icon: "📊" },
   { href: "/leads", label: "Leads", icon: "📬" },
   { href: "/editor", label: "Editor", icon: "✏️" },
+  { href: "/dashboard/billing", label: "Billing", icon: "💳" },
+  { href: "/dashboard/system", label: "System", icon: "🩺" },
   { href: "/profile", label: "Profile", icon: "👤" },
 ] as const;

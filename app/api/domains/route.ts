@@ -1,4 +1,14 @@
 import { NextResponse } from "next/server";
+import {
+  apiError,
+  apiJson,
+  badRequest,
+  forbidden,
+  getRequestId,
+  internalError,
+  tooManyRequests,
+  unauthorized,
+} from "@/lib/api";
 import { createClient } from "@/lib/supabase/server";
 import { createDomainProvider } from "@/lib/domains/create-provider";
 import { normalizeAndValidateHostname } from "@/lib/domains/hostname";
@@ -14,6 +24,7 @@ export const runtime = "nodejs";
 
 async function requireOwnedProject(
   projectId: string,
+  requestId: string,
 ): Promise<
   | { ok: true; userId: string; supabase: Awaited<ReturnType<typeof createClient>> }
   | { ok: false; response: NextResponse }
@@ -26,7 +37,7 @@ async function requireOwnedProject(
   if (!user) {
     return {
       ok: false,
-      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      response: unauthorized(requestId),
     };
   }
 
@@ -40,10 +51,7 @@ async function requireOwnedProject(
   if (error || !project) {
     return {
       ok: false,
-      response: NextResponse.json(
-        { error: "Project not found or access denied." },
-        { status: 403 },
-      ),
+      response: forbidden(requestId),
     };
   }
 
@@ -55,15 +63,13 @@ async function requireOwnedProject(
  * List custom domains for a project the caller owns.
  */
 export async function GET(request: Request) {
+  const requestId = getRequestId(request);
   const projectId = new URL(request.url).searchParams.get("projectId")?.trim();
   if (!projectId) {
-    return NextResponse.json(
-      { error: "Missing projectId query parameter." },
-      { status: 400 },
-    );
+    return badRequest("Missing projectId query parameter.", requestId);
   }
 
-  const auth = await requireOwnedProject(projectId);
+  const auth = await requireOwnedProject(projectId, requestId);
   if (!auth.ok) return auth.response;
 
   const rate = checkDomainRateLimit(`domains:list:${auth.userId}`, {
@@ -71,13 +77,7 @@ export async function GET(request: Request) {
     windowMs: 60_000,
   });
   if (!rate.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Try again shortly." },
-      {
-        status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
-      },
-    );
+    return tooManyRequests(rate.retryAfterSeconds, requestId);
   }
 
   const { data, error } = await auth.supabase
@@ -87,17 +87,14 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json(
-      { error: safeDomainErrorMessage(error) },
-      { status: 500 },
-    );
+    return internalError(requestId, safeDomainErrorMessage(error));
   }
 
   const domains = ((data ?? []) as ProjectDomainRow[]).map((row) =>
     toPublicProjectDomain(rowToProjectDomain(row)),
   );
 
-  return NextResponse.json({ domains });
+  return apiJson({ domains }, { requestId });
 }
 
 /**
@@ -107,27 +104,29 @@ export async function GET(request: Request) {
  * Never trusts owner_id from the client.
  */
 export async function POST(request: Request) {
+  const requestId = getRequestId(request);
   let body: { projectId?: string; hostname?: string; owner_id?: string };
   try {
     body = (await request.json()) as typeof body;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    return badRequest("Invalid JSON body.", requestId, "invalid_json");
   }
 
   // Never accept ownership claims from the browser.
   if (body.owner_id != null) {
-    return NextResponse.json(
-      { error: "owner_id cannot be set by the client." },
-      { status: 400 },
+    return badRequest(
+      "owner_id cannot be set by the client.",
+      requestId,
+      "owner_id_forbidden",
     );
   }
 
   const projectId = body.projectId?.trim();
   if (!projectId) {
-    return NextResponse.json({ error: "Missing projectId." }, { status: 400 });
+    return badRequest("Missing projectId.", requestId);
   }
 
-  const auth = await requireOwnedProject(projectId);
+  const auth = await requireOwnedProject(projectId, requestId);
   if (!auth.ok) return auth.response;
 
   const rate = checkDomainRateLimit(`domains:create:${auth.userId}`, {
@@ -135,18 +134,34 @@ export async function POST(request: Request) {
     windowMs: 60_000,
   });
   if (!rate.allowed) {
-    return NextResponse.json(
-      { error: "Too many domain requests. Try again shortly." },
-      {
-        status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
-      },
-    );
+    return tooManyRequests(rate.retryAfterSeconds, requestId);
+  }
+
+  const { getBillingSummaryForOwner } = await import(
+    "@/lib/billing/subscription"
+  );
+  const { upgradeMessage } = await import("@/lib/billing/entitlements");
+  const billing = await getBillingSummaryForOwner(auth.userId, auth.supabase);
+  if (!billing.subscription.features.customDomains) {
+    return apiError({
+      code: "feature_custom_domains",
+      message: upgradeMessage("feature_custom_domains"),
+      status: 402,
+      requestId,
+    });
+  }
+  if (!billing.canAddDomain) {
+    return apiError({
+      code: "plan_limit_domains",
+      message: upgradeMessage("plan_limit_domains"),
+      status: 402,
+      requestId,
+    });
   }
 
   const validated = normalizeAndValidateHostname(body.hostname ?? "");
   if (!validated.ok) {
-    return NextResponse.json({ error: validated.error }, { status: 400 });
+    return badRequest(validated.error, requestId, "invalid_hostname");
   }
 
   // One domain per project — reject if one already exists.
@@ -157,13 +172,13 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (existingForProject) {
-    return NextResponse.json(
-      {
-        error:
-          "This project already has a custom domain. Remove it before adding another.",
-      },
-      { status: 409 },
-    );
+    return apiError({
+      code: "domain_exists_for_project",
+      message:
+        "This project already has a custom domain. Remove it before adding another.",
+      status: 409,
+      requestId,
+    });
   }
 
   const { data: existingHostname } = await auth.supabase
@@ -173,10 +188,12 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (existingHostname) {
-    return NextResponse.json(
-      { error: "That domain is already connected to a project." },
-      { status: 409 },
-    );
+    return apiError({
+      code: "domain_already_connected",
+      message: "That domain is already connected to a project.",
+      status: 409,
+      requestId,
+    });
   }
 
   try {
@@ -209,29 +226,29 @@ export async function POST(request: Request) {
         .single();
 
       if (insertError || !inserted) {
-        return NextResponse.json(
-          { error: safeDomainErrorMessage(insertError) },
-          { status: 500 },
-        );
+        return internalError(requestId, safeDomainErrorMessage(insertError));
       }
 
       const domain = toPublicProjectDomain(
         rowToProjectDomain(inserted as ProjectDomainRow),
       );
 
-      return NextResponse.json({
-        domain,
-        live: true,
-        requiresLinkConfirmation: true,
-        existingProject: {
-          projectId: added.linkedProjectId,
-          projectName: added.linkedProjectName,
-          hostname: added.hostname,
-          sameAccount: true as const,
+      return apiJson(
+        {
+          domain,
+          live: true,
+          requiresLinkConfirmation: true,
+          existingProject: {
+            projectId: added.linkedProjectId,
+            projectName: added.linkedProjectName,
+            hostname: added.hostname,
+            sameAccount: true as const,
+          },
+          message:
+            "This domain is already connected to an existing Vercel project. Link it to keep the site live with zero downtime.",
         },
-        message:
-          "This domain is already connected to an existing Vercel project. Link it to keep the site live with zero downtime.",
-      });
+        { requestId },
+      );
     }
 
     const { data: inserted, error: insertError } = await auth.supabase
@@ -261,28 +278,30 @@ export async function POST(request: Request) {
       } catch {
         // ignore
       }
-      return NextResponse.json(
-        { error: safeDomainErrorMessage(insertError) },
-        { status: 500 },
-      );
+      return internalError(requestId, safeDomainErrorMessage(insertError));
     }
 
     const domain = toPublicProjectDomain(
       rowToProjectDomain(inserted as ProjectDomainRow),
     );
 
-    return NextResponse.json({
-      domain,
-      // Explicit: not live yet.
-      live: false,
-      requiresLinkConfirmation: false,
-      message:
-        "Domain saved as pending. Configure the DNS records below — this domain is not live yet.",
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: safeDomainErrorMessage(error) },
-      { status: 502 },
+    return apiJson(
+      {
+        domain,
+        // Explicit: not live yet.
+        live: false,
+        requiresLinkConfirmation: false,
+        message:
+          "Domain saved as pending. Configure the DNS records below — this domain is not live yet.",
+      },
+      { requestId },
     );
+  } catch (error) {
+    return apiError({
+      code: "domain_provider_error",
+      message: safeDomainErrorMessage(error),
+      status: 502,
+      requestId,
+    });
   }
 }

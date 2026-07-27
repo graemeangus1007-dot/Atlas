@@ -14,8 +14,10 @@ import {
   resolveAnalyticsCorsOrigin,
 } from "@/lib/analytics/cors";
 import { logAnalytics } from "@/lib/analytics/log";
+import { apiErrorPayload, getRequestId } from "@/lib/api";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
 import { extractClientIp, hashIp } from "@/lib/leads/ip";
+import { captureException, requestContextFromRequest } from "@/lib/monitoring";
 import { createAnonClient } from "@/lib/supabase/anon";
 import { tryCreateServiceClient } from "@/lib/supabase/service";
 
@@ -25,16 +27,35 @@ function jsonWithCors(
   body: unknown,
   status: number,
   allowedOrigin: string | null,
+  requestId: string,
   extraHeaders?: Record<string, string>,
 ) {
   const response = NextResponse.json(body, { status });
   applyAnalyticsCorsHeaders(response.headers, allowedOrigin);
+  response.headers.set("x-request-id", requestId);
   if (extraHeaders) {
     for (const [key, value] of Object.entries(extraHeaders)) {
       response.headers.set(key, value);
     }
   }
   return response;
+}
+
+function collectError(
+  code: string,
+  message: string,
+  status: number,
+  allowedOrigin: string | null,
+  requestId: string,
+  extraHeaders?: Record<string, string>,
+) {
+  return jsonWithCors(
+    apiErrorPayload(code, message, requestId),
+    status,
+    allowedOrigin,
+    requestId,
+    extraHeaders,
+  );
 }
 
 function getDbClient() {
@@ -74,11 +95,13 @@ export async function OPTIONS(request: Request) {
  */
 export async function POST(request: Request) {
   const originHeader = request.headers.get("origin");
+  const requestId = getRequestId(request);
   let allowedOrigin: string | null = null;
 
   try {
     logAnalytics("api_reached", {
       method: "POST",
+      requestId,
       contentLength: Number(request.headers.get("content-length") || "0"),
     });
 
@@ -89,7 +112,13 @@ export async function POST(request: Request) {
         domainClient: createSupabaseAnalyticsDomainClient(getDbClient()),
       });
       allowedOrigin = early.allowed ? early.origin : null;
-      return jsonWithCors({ error: "Payload too large." }, 413, allowedOrigin);
+      return collectError(
+        "payload_too_large",
+        "Payload too large.",
+        413,
+        allowedOrigin,
+        requestId,
+      );
     }
 
     // Rate-limit in memory using a hashed IP — hash is never persisted.
@@ -107,7 +136,13 @@ export async function POST(request: Request) {
           domainClient: createSupabaseAnalyticsDomainClient(getDbClient()),
         });
         allowedOrigin = early.allowed ? early.origin : null;
-        return jsonWithCors({ error: "Payload too large." }, 413, allowedOrigin);
+        return collectError(
+          "payload_too_large",
+          "Payload too large.",
+          413,
+          allowedOrigin,
+          requestId,
+        );
       }
       body = JSON.parse(text) as AnalyticsCollectPayload;
     } catch {
@@ -115,8 +150,14 @@ export async function POST(request: Request) {
         domainClient: createSupabaseAnalyticsDomainClient(getDbClient()),
       });
       allowedOrigin = early.allowed ? early.origin : null;
-      logAnalytics("validation_failed", { error: "invalid_json" });
-      return jsonWithCors({ error: "Invalid JSON." }, 400, allowedOrigin);
+      logAnalytics("validation_failed", { error: "invalid_json", requestId });
+      return collectError(
+        "invalid_json",
+        "Invalid JSON.",
+        400,
+        allowedOrigin,
+        requestId,
+      );
     }
 
     const validated = validateAnalyticsCollect(body, {
@@ -137,28 +178,48 @@ export async function POST(request: Request) {
         method: "POST",
         reason: corsDecision.reason,
         projectId: projectIdForCors,
+        requestId,
       });
-      return new NextResponse(JSON.stringify({ error: "Origin not allowed." }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new NextResponse(
+        JSON.stringify(
+          apiErrorPayload("cors_blocked", "Origin not allowed.", requestId),
+        ),
+        {
+          status: 403,
+          headers: {
+            "Content-Type": "application/json",
+            "x-request-id": requestId,
+          },
+        },
+      );
     }
 
     allowedOrigin = corsDecision.origin;
 
     if (!rate.allowed) {
-      logAnalytics("rate_limited", { scope: "ip" });
-      return jsonWithCors(
-        { error: "Too many requests." },
+      logAnalytics("rate_limited", { scope: "ip", requestId });
+      return collectError(
+        "rate_limited",
+        "Too many requests.",
         429,
         allowedOrigin,
+        requestId,
         { "Retry-After": String(rate.retryAfterSeconds) },
       );
     }
 
     if (!validated.ok) {
-      logAnalytics("validation_failed", { error: validated.error });
-      return jsonWithCors({ error: validated.error }, 400, allowedOrigin);
+      logAnalytics("validation_failed", {
+        error: validated.error,
+        requestId,
+      });
+      return collectError(
+        "validation_failed",
+        validated.error,
+        400,
+        allowedOrigin,
+        requestId,
+      );
     }
 
     logAnalytics("validation_passed", {
@@ -170,6 +231,7 @@ export async function POST(request: Request) {
       visitorIdHash: validated.data.visitorIdHash,
       sessionId: validated.data.sessionId,
       corsReason: corsDecision.reason,
+      requestId,
     });
 
     const visitorRate = checkDomainRateLimit(
@@ -180,11 +242,13 @@ export async function POST(request: Request) {
       },
     );
     if (!visitorRate.allowed) {
-      logAnalytics("rate_limited", { scope: "visitor" });
-      return jsonWithCors(
-        { error: "Too many requests." },
+      logAnalytics("rate_limited", { scope: "visitor", requestId });
+      return collectError(
+        "rate_limited",
+        "Too many requests.",
         429,
         allowedOrigin,
+        requestId,
         { "Retry-After": String(visitorRate.retryAfterSeconds) },
       );
     }
@@ -200,8 +264,15 @@ export async function POST(request: Request) {
         error: "unknown_project",
         projectId: validated.data.projectId,
         writerKind,
+        requestId,
       });
-      return jsonWithCors({ error: "Unknown project." }, 404, allowedOrigin);
+      return collectError(
+        "unknown_project",
+        "Unknown project.",
+        404,
+        allowedOrigin,
+        requestId,
+      );
     }
 
     const result = await recordAnalyticsEvent(client, {
@@ -210,19 +281,34 @@ export async function POST(request: Request) {
     });
 
     if (!result.ok) {
-      return jsonWithCors({ error: result.error }, 500, allowedOrigin);
+      return collectError(
+        "collect_failed",
+        result.error,
+        500,
+        allowedOrigin,
+        requestId,
+      );
     }
 
     logAnalytics("collect_ok", {
       event: validated.data.event,
       projectId: validated.data.projectId,
       writerKind,
+      requestId,
     });
 
-    return jsonWithCors({ ok: true }, 200, allowedOrigin);
+    return jsonWithCors({ ok: true }, 200, allowedOrigin, requestId);
   } catch (err) {
     logAnalytics("collect_error", {
       error: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+      requestId,
+    });
+    captureException({
+      error: err,
+      context: {
+        request: requestContextFromRequest(request, requestId),
+        tags: { route: "analytics.collect" },
+      },
     });
     // Best-effort CORS on unexpected errors for allowed preview origins.
     if (!allowedOrigin) {
@@ -231,10 +317,12 @@ export async function POST(request: Request) {
       });
       allowedOrigin = fallback.allowed ? fallback.origin : null;
     }
-    return jsonWithCors(
-      { error: "Analytics collection failed." },
+    return collectError(
+      "collect_failed",
+      "Analytics collection failed.",
       500,
       allowedOrigin,
+      requestId,
     );
   }
 }

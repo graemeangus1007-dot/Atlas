@@ -1,3 +1,7 @@
+import {
+  BUILT_WITH_ATLAS_CSS,
+  renderBuiltWithAtlasBadge,
+} from "@/lib/billing/branding";
 import { planStaticSiteAssets } from "@/lib/publishing/assets";
 import { createPublishSnapshot } from "@/lib/publishing/create-publish-snapshot";
 import { fingerprintFiles } from "@/lib/publishing/fingerprint";
@@ -139,6 +143,11 @@ export function buildStaticSite(
     });
   }
 
+  const showAtlasBranding = options.showAtlasBranding !== false;
+  const brandingHtml = showAtlasBranding
+    ? renderBuiltWithAtlasBadge({ atlasOrigin })
+    : "";
+
   const indexHtml = renderStaticSiteDocument({
     title: metaWithSite.title,
     description: metaWithSite.description,
@@ -147,8 +156,11 @@ export function buildStaticSite(
     seoHeadHtml,
     jsonLdHtml,
     analyticsScriptHtml,
+    brandingHtml,
   });
-  const stylesCss = buildStaticSiteCss(snapshot);
+  const stylesCss =
+    buildStaticSiteCss(snapshot) +
+    (showAtlasBranding ? `\n${BUILT_WITH_ATLAS_CSS}` : "");
   const robotsTxt = buildRobotsTxt({
     siteUrl: metaWithSite.siteUrl,
     allowIndexing: seo.robotsIndex,

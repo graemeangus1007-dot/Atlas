@@ -513,7 +513,7 @@ describe("authorization + inbox API contracts", () => {
       resolve(__dirname, "../../app/api/leads/route.ts"),
       "utf8",
     );
-    expect(list).toContain("Unauthorized");
+    expect(list).toMatch(/unauthorized/i);
     expect(list).toContain("unreadCount");
     expect(list).toContain("filterLeadsForInbox");
 
