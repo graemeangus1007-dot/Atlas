@@ -10,20 +10,21 @@ type DashboardShellProps = {
 
 /**
  * Product chrome: sidebar + top nav wrapping page content.
+ * Uses a viewport-locked flex row so the sidebar nav can scroll and all links stay reachable.
  */
 export default function DashboardShell({ children }: DashboardShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="flex min-h-full flex-1 bg-background">
+    <div className="flex h-dvh min-h-0 flex-1 overflow-hidden bg-background">
       <DashboardSidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <DashboardTopNav onMenuClick={() => setSidebarOpen(true)} />
-        <div className="flex-1 overflow-y-auto">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </div>
     </div>
   );

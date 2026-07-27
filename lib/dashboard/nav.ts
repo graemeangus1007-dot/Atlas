@@ -9,34 +9,61 @@ export type DashboardNavLink = {
   icon: string;
 };
 
+export const AI_WEBSITE_NAV_HREF = "/dashboard/ai" as const;
+export const AI_WEBSITE_NAV_LABEL = "AI Website" as const;
+
+const AI_WEBSITE_LINK: DashboardNavLink = {
+  href: AI_WEBSITE_NAV_HREF,
+  label: AI_WEBSITE_NAV_LABEL,
+  icon: "✨",
+};
+
 /**
- * Main dashboard sidebar links (Sprint 20.0B+).
- * Keep AI Website here so desktop rail and mobile drawer stay in sync.
+ * Main dashboard sidebar links.
+ * AI Website is intentionally early (after Dashboard) so it stays above the fold.
  */
-export const DASHBOARD_NAV_LINKS: readonly DashboardNavLink[] = [
+const BASE_DASHBOARD_NAV_LINKS: readonly DashboardNavLink[] = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
+  AI_WEBSITE_LINK,
   { href: "/projects", label: "Projects", icon: "📁" },
-  { href: "/dashboard/ai", label: "AI Website", icon: "✨" },
   { href: "/dashboard/analytics", label: "Analytics", icon: "📊" },
   { href: "/leads", label: "Leads", icon: "📬" },
   { href: "/editor", label: "Editor", icon: "✏️" },
   { href: "/dashboard/billing", label: "Billing", icon: "💳" },
   { href: "/dashboard/system", label: "System", icon: "🩺" },
   { href: "/profile", label: "Profile", icon: "👤" },
-] as const;
+];
+
+export const DASHBOARD_NAV_LINKS: readonly DashboardNavLink[] =
+  BASE_DASHBOARD_NAV_LINKS;
 
 /** @deprecated Prefer DASHBOARD_NAV_LINKS — kept for existing imports. */
 export const SIDEBAR_LINKS = DASHBOARD_NAV_LINKS;
 
-/** Snapshot of links for rendering (never filtered by plan/role). */
+/**
+ * Final links passed to the sidebar renderer.
+ * Guarantees AI Website is present even if the base list is ever edited incorrectly.
+ */
 export function getDashboardNavLinks(): DashboardNavLink[] {
-  return DASHBOARD_NAV_LINKS.map((link) => ({ ...link }));
+  const links = BASE_DASHBOARD_NAV_LINKS.map((link) => ({ ...link }));
+  const aiIndex = links.findIndex((link) => link.href === AI_WEBSITE_NAV_HREF);
+  if (aiIndex === -1) {
+    links.splice(1, 0, { ...AI_WEBSITE_LINK });
+  } else {
+    // Normalize label/href so callers cannot drift.
+    links[aiIndex] = { ...AI_WEBSITE_LINK };
+  }
+  return links;
+}
+
+/** Labels in render order — used by sidebar diagnostics + tests. */
+export function getDashboardNavLabels(): string[] {
+  return getDashboardNavLinks().map((link) => link.label);
 }
 
 /**
  * Active state for sidebar links.
- * `/dashboard` is exact-only so nested routes (AI, analytics, billing)
- * do not keep highlighting the parent Dashboard item.
+ * `/dashboard` is exact-only so nested routes do not keep highlighting Dashboard.
  */
 export function isDashboardNavActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") {
@@ -46,8 +73,7 @@ export function isDashboardNavActive(pathname: string, href: string): boolean {
 }
 
 /**
- * HTML snapshot of the sidebar link list (regression tests without a DOM lib).
- * Mirrors the href/label contract rendered by DashboardSidebar.
+ * HTML snapshot of the sidebar link list (unit regression without a DOM lib).
  */
 export function renderDashboardNavHtml(pathname = "/dashboard"): string {
   return getDashboardNavLinks()

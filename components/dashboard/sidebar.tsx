@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useProject } from "@/context/project-context";
 import {
+  AI_WEBSITE_NAV_HREF,
+  getDashboardNavLabels,
   getDashboardNavLinks,
   isDashboardNavActive,
 } from "@/lib/dashboard/nav";
@@ -14,10 +16,16 @@ type DashboardSidebarProps = {
   onClose: () => void;
 };
 
+const showNavDebug =
+  process.env.NODE_ENV === "development" ||
+  process.env.NEXT_PUBLIC_DEBUG_NAV === "1";
+
 /**
  * Left navigation for the product shell.
  * Desktop: fixed rail. Mobile: slide-over drawer.
  * Both surfaces render the same getDashboardNavLinks() list (no plan/role filter).
+ *
+ * /dashboard layout → DashboardShell → this component (only dashboard sidebar).
  */
 export default function DashboardSidebar({
   open,
@@ -26,7 +34,10 @@ export default function DashboardSidebar({
   const pathname = usePathname();
   const { projectId } = useProject();
   const [unreadCount, setUnreadCount] = useState(0);
-  const links = getDashboardNavLinks();
+
+  // Final rendered list — computed once per mount; never filtered by plan/role.
+  const links = useMemo(() => getDashboardNavLinks(), []);
+  const navLabels = useMemo(() => getDashboardNavLabels(), []);
 
   const loadUnread = useCallback(async () => {
     if (!projectId) {
@@ -56,6 +67,12 @@ export default function DashboardSidebar({
     if (pathname.startsWith("/leads")) void loadUnread();
   }, [pathname, loadUnread]);
 
+  useEffect(() => {
+    if (!showNavDebug) return;
+    // Temporary Sprint 20.0B diagnostics — final labels passed to the sidebar.
+    console.info("[atlas:nav] DashboardSidebar links:", navLabels.join(" · "));
+  }, [navLabels]);
+
   return (
     <>
       <div
@@ -67,12 +84,13 @@ export default function DashboardSidebar({
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-surface/95 backdrop-blur-xl transition-transform duration-300 lg:static lg:z-auto lg:translate-x-0 lg:bg-surface/60 ${
-          open ? "translate-x-0" : "-translate-x-full"
+        className={`fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh w-64 shrink-0 flex-col border-r border-border bg-surface/95 backdrop-blur-xl transition-transform duration-300 lg:static lg:z-auto lg:h-full lg:max-h-none lg:translate-x-0 lg:bg-surface/60 ${
+          open ? "translate-x-0" : "max-lg:-translate-x-full"
         }`}
         aria-label="Dashboard"
+        data-testid="dashboard-sidebar"
       >
-        <div className="flex h-16 items-center border-b border-border px-5">
+        <div className="flex h-16 shrink-0 items-center border-b border-border px-5">
           <Link
             href="/"
             className="rounded-md font-[family-name:var(--font-atlas-display)] text-lg font-semibold tracking-tight text-foreground transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -82,26 +100,45 @@ export default function DashboardSidebar({
           </Link>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <nav
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4"
+          data-testid="dashboard-sidebar-nav"
+          aria-label="Dashboard pages"
+        >
+          {showNavDebug ? (
+            <p
+              data-testid="dashboard-nav-debug"
+              className="mb-3 rounded-lg border border-dashed border-accent/40 bg-accent-soft/40 px-2 py-1.5 text-[10px] leading-snug text-muted"
+            >
+              Nav: {navLabels.join(" · ")}
+            </p>
+          ) : null}
+
           <ul className="space-y-1">
             {links.map((link) => {
               const active = isDashboardNavActive(pathname, link.href);
               const showBadge = link.href === "/leads" && unreadCount > 0;
+              const isAiWebsite = link.href === AI_WEBSITE_NAV_HREF;
               return (
                 <li key={link.href}>
                   <Link
                     href={link.href}
                     onClick={onClose}
                     data-nav={link.href}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
+                    data-testid={
+                      isAiWebsite ? "sidebar-link-ai-website" : undefined
+                    }
+                    className={`flex min-h-10 items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
                       active
                         ? "bg-accent-soft font-medium text-foreground"
                         : "text-muted hover:bg-white/[0.03] hover:text-foreground"
                     }`}
                     aria-current={active ? "page" : undefined}
                   >
-                    <span aria-hidden="true">{link.icon}</span>
-                    <span className="flex-1">{link.label}</span>
+                    <span aria-hidden="true" className="shrink-0">
+                      {link.icon}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{link.label}</span>
                     {showBadge ? (
                       <span
                         className="rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-background"

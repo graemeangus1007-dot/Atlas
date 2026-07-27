@@ -3,8 +3,11 @@
 import type { AiContentField } from "@/types/ai";
 
 export {
+  AI_WEBSITE_NAV_HREF,
+  AI_WEBSITE_NAV_LABEL,
   DASHBOARD_NAV_LINKS,
   SIDEBAR_LINKS,
+  getDashboardNavLabels,
   getDashboardNavLinks,
   isDashboardNavActive,
   renderDashboardNavHtml,
