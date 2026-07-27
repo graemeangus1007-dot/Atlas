@@ -1,6 +1,9 @@
 /**
  * Per-project AI questionnaire persistence (localStorage).
  * Client-only — safe for resume after refresh.
+ *
+ * Snapshots used by useSyncExternalStore MUST be referentially stable when
+ * localStorage contents have not changed (React error #185 / max update depth).
  */
 
 import {
@@ -12,6 +15,17 @@ import {
 
 const STORAGE_PREFIX = "atlas.ai.questionnaire.v1:";
 export const AI_QUESTIONNAIRE_STORAGE_EVENT = "atlas-ai-questionnaire";
+
+/** Stable server/SSR snapshot for useSyncExternalStore. */
+const SERVER_SNAPSHOT: AiQuestionnaireProgress | null = null;
+
+type SnapshotCacheEntry = {
+  /** Exact localStorage string (or null when missing). */
+  raw: string | null;
+  value: AiQuestionnaireProgress | null;
+};
+
+const snapshotCache = new Map<string, SnapshotCacheEntry>();
 
 function storageKey(projectId: string): string {
   return `${STORAGE_PREFIX}${projectId}`;
@@ -69,24 +83,20 @@ function parseAnswers(raw: unknown): AiQuestionnaireAnswers {
   };
 }
 
-export function loadAiQuestionnaire(
+function parseProgress(
+  raw: string,
   projectId: string,
 ): AiQuestionnaireProgress | null {
-  if (typeof window === "undefined") return null;
-  const id = projectId.trim();
-  if (!id) return null;
   try {
-    const raw = window.localStorage.getItem(storageKey(id));
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AiQuestionnaireProgress>;
-    if (parsed.version !== 1 || parsed.projectId !== id) return null;
+    if (parsed.version !== 1 || parsed.projectId !== projectId) return null;
     const stepIndex =
       typeof parsed.stepIndex === "number" && Number.isFinite(parsed.stepIndex)
         ? Math.max(0, Math.min(4, Math.floor(parsed.stepIndex)))
         : 0;
     return {
       version: 1,
-      projectId: id,
+      projectId,
       stepIndex,
       answers: parseAnswers(parsed.answers),
       updatedAt:
@@ -99,33 +109,141 @@ export function loadAiQuestionnaire(
   }
 }
 
+function answersEqual(
+  a: AiQuestionnaireAnswers,
+  b: AiQuestionnaireAnswers,
+): boolean {
+  const keys = Object.keys(EMPTY_AI_QUESTIONNAIRE) as Array<
+    keyof AiQuestionnaireAnswers
+  >;
+  return keys.every((key) => a[key] === b[key]);
+}
+
+function readRaw(projectId: string): string | null {
+  try {
+    return window.localStorage.getItem(storageKey(projectId));
+  } catch {
+    return snapshotCache.get(projectId)?.raw ?? null;
+  }
+}
+
+function writeCache(
+  projectId: string,
+  raw: string | null,
+  value: AiQuestionnaireProgress | null,
+): void {
+  snapshotCache.set(projectId, { raw, value });
+}
+
+/** Test helper — drop cached snapshots between cases. */
+export function clearAiQuestionnaireSnapshotCache(): void {
+  snapshotCache.clear();
+}
+
+/**
+ * Referentially stable snapshot for useSyncExternalStore.
+ * Re-parses only when the underlying localStorage string changes.
+ */
+export function getAiQuestionnaireSnapshot(
+  projectId: string,
+): AiQuestionnaireProgress | null {
+  if (typeof window === "undefined") return SERVER_SNAPSHOT;
+  const id = projectId.trim();
+  if (!id) return null;
+
+  const raw = readRaw(id);
+  const cached = snapshotCache.get(id);
+  if (cached && cached.raw === raw) {
+    return cached.value;
+  }
+
+  const value = raw ? parseProgress(raw, id) : null;
+  writeCache(id, raw, value);
+  return value;
+}
+
+export function getAiQuestionnaireServerSnapshot(): AiQuestionnaireProgress | null {
+  return SERVER_SNAPSHOT;
+}
+
+/**
+ * Subscribe to questionnaire storage updates for one project.
+ * Custom events from other project ids are ignored.
+ */
+export function subscribeAiQuestionnaire(
+  projectId: string,
+  onStoreChange: () => void,
+): () => void {
+  const id = projectId.trim();
+  const handler = (event: Event) => {
+    if (typeof window === "undefined") return;
+    if (event.type === AI_QUESTIONNAIRE_STORAGE_EVENT) {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId && detail.projectId !== id) return;
+    }
+    onStoreChange();
+  };
+
+  window.addEventListener(AI_QUESTIONNAIRE_STORAGE_EVENT, handler);
+  window.addEventListener("storage", handler);
+  return () => {
+    window.removeEventListener(AI_QUESTIONNAIRE_STORAGE_EVENT, handler);
+    window.removeEventListener("storage", handler);
+  };
+}
+
+/**
+ * Load questionnaire progress (stable when storage unchanged).
+ */
+export function loadAiQuestionnaire(
+  projectId: string,
+): AiQuestionnaireProgress | null {
+  return getAiQuestionnaireSnapshot(projectId);
+}
+
 export function saveAiQuestionnaire(input: {
   projectId: string;
   stepIndex: number;
   answers: AiQuestionnaireAnswers;
 }): AiQuestionnaireProgress {
+  const projectId = input.projectId.trim();
+  const stepIndex = Math.max(0, Math.min(4, input.stepIndex));
+  const answers = { ...input.answers };
+
+  const existing = getAiQuestionnaireSnapshot(projectId);
+  if (
+    existing &&
+    existing.stepIndex === stepIndex &&
+    answersEqual(existing.answers, answers)
+  ) {
+    // No-op: avoid rewriting localStorage / dispatching (prevents store churn).
+    return existing;
+  }
+
   const progress: AiQuestionnaireProgress = {
     version: 1,
-    projectId: input.projectId.trim(),
-    stepIndex: Math.max(0, Math.min(4, input.stepIndex)),
-    answers: { ...input.answers },
+    projectId,
+    stepIndex,
+    answers,
     updatedAt: new Date().toISOString(),
   };
 
-  if (typeof window !== "undefined" && progress.projectId) {
+  if (typeof window !== "undefined" && projectId) {
     try {
-      window.localStorage.setItem(
-        storageKey(progress.projectId),
-        JSON.stringify(progress),
-      );
+      const raw = JSON.stringify(progress);
+      window.localStorage.setItem(storageKey(projectId), raw);
+      writeCache(projectId, raw, progress);
       window.dispatchEvent(
         new CustomEvent(AI_QUESTIONNAIRE_STORAGE_EVENT, {
-          detail: { projectId: progress.projectId },
+          detail: { projectId },
         }),
       );
     } catch {
-      // Quota / private mode — wizard still works in-memory.
+      // Quota / private mode — keep in-memory cache so the wizard still works.
+      writeCache(projectId, null, progress);
     }
+  } else {
+    writeCache(projectId, null, progress);
   }
 
   return progress;
@@ -137,12 +255,13 @@ export function clearAiQuestionnaire(projectId: string): void {
   if (!id) return;
   try {
     window.localStorage.removeItem(storageKey(id));
+    writeCache(id, null, null);
     window.dispatchEvent(
       new CustomEvent(AI_QUESTIONNAIRE_STORAGE_EVENT, {
         detail: { projectId: id },
       }),
     );
   } catch {
-    // ignore
+    writeCache(id, null, null);
   }
 }

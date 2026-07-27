@@ -29,10 +29,11 @@ import { AI_CREATE_PROJECT_EDITOR_PATH } from "@/lib/ai/create-project-constants
 import type { GeneratedWebsiteDraft } from "@/lib/ai/types";
 import { questionnaireToGenerateInput } from "@/lib/ai/questionnaire-map";
 import {
-  AI_QUESTIONNAIRE_STORAGE_EVENT,
   clearAiQuestionnaire,
-  loadAiQuestionnaire,
+  getAiQuestionnaireServerSnapshot,
+  getAiQuestionnaireSnapshot,
   saveAiQuestionnaire,
+  subscribeAiQuestionnaire,
 } from "@/lib/ai/questionnaire-storage";
 import {
   isAiQuestionnaireComplete,
@@ -48,16 +49,6 @@ type LocalDraft = {
   answers: AiQuestionnaireAnswers;
 };
 
-function subscribeQuestionnaire(onStoreChange: () => void): () => void {
-  const handler = () => onStoreChange();
-  window.addEventListener(AI_QUESTIONNAIRE_STORAGE_EVENT, handler);
-  window.addEventListener("storage", handler);
-  return () => {
-    window.removeEventListener(AI_QUESTIONNAIRE_STORAGE_EVENT, handler);
-    window.removeEventListener("storage", handler);
-  };
-}
-
 function newIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -71,10 +62,21 @@ function newIdempotencyKey(): string {
 export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
   const router = useRouter();
   const { openProject, refreshProjects } = useProject();
+
+  const subscribe = useCallback(
+    (onStoreChange: () => void) =>
+      subscribeAiQuestionnaire(projectId, onStoreChange),
+    [projectId],
+  );
+  const getSnapshot = useCallback(
+    () => getAiQuestionnaireSnapshot(projectId),
+    [projectId],
+  );
+
   const persisted = useSyncExternalStore(
-    subscribeQuestionnaire,
-    () => loadAiQuestionnaire(projectId),
-    () => null,
+    subscribe,
+    getSnapshot,
+    getAiQuestionnaireServerSnapshot,
   );
 
   const [local, setLocal] = useState<LocalDraft | null>(null);

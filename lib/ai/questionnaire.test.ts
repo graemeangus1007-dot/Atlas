@@ -9,6 +9,8 @@ import { buildMockWebsiteDraft } from "@/lib/ai/mock-provider";
 import { questionnaireToGenerateInput } from "@/lib/ai/questionnaire-map";
 import {
   clearAiQuestionnaire,
+  clearAiQuestionnaireSnapshotCache,
+  getAiQuestionnaireSnapshot,
   loadAiQuestionnaire,
   saveAiQuestionnaire,
 } from "@/lib/ai/questionnaire-storage";
@@ -83,10 +85,11 @@ describe("AI questionnaire validation", () => {
 describe("AI questionnaire autosave & resume", () => {
   afterEach(() => {
     clearAiQuestionnaire("proj-1");
+    clearAiQuestionnaireSnapshotCache();
     vi.unstubAllGlobals();
   });
 
-  it("saves and resumes progress per project", () => {
+  function stubStorage() {
     const store = new Map<string, string>();
     vi.stubGlobal("window", {
       localStorage: {
@@ -102,6 +105,11 @@ describe("AI questionnaire autosave & resume", () => {
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
     });
+    return store;
+  }
+
+  it("saves and resumes progress per project", () => {
+    stubStorage();
 
     const answers = completeAnswers();
     saveAiQuestionnaire({
@@ -117,6 +125,29 @@ describe("AI questionnaire autosave & resume", () => {
     expect(loaded?.answers.tone).toBe("friendly");
 
     expect(loadAiQuestionnaire("other-project")).toBeNull();
+  });
+
+  it("returns a referentially stable snapshot when storage is unchanged", () => {
+    stubStorage();
+    saveAiQuestionnaire({
+      projectId: "proj-1",
+      stepIndex: 1,
+      answers: completeAnswers(),
+    });
+
+    const first = getAiQuestionnaireSnapshot("proj-1");
+    const second = getAiQuestionnaireSnapshot("proj-1");
+    expect(first).not.toBeNull();
+    expect(second).toBe(first);
+
+    // Identical save must not churn the snapshot (no write / no event loop).
+    const saved = saveAiQuestionnaire({
+      projectId: "proj-1",
+      stepIndex: 1,
+      answers: completeAnswers(),
+    });
+    expect(saved).toBe(first);
+    expect(getAiQuestionnaireSnapshot("proj-1")).toBe(first);
   });
 });
 
@@ -165,6 +196,11 @@ describe("AI questionnaire UI & API contracts", () => {
     expect(wizard).toContain("Creating your website draft");
     expect(wizard).toContain("saveAiQuestionnaire");
     expect(wizard).toContain("useSyncExternalStore");
+    expect(wizard).toContain("getAiQuestionnaireSnapshot");
+    expect(wizard).toContain("subscribeAiQuestionnaire");
+    expect(wizard).not.toMatch(
+      /useSyncExternalStore\(\s*subscribeQuestionnaire,\s*\(\)\s*=>\s*loadAiQuestionnaire/,
+    );
 
     const business = readFileSync(
       resolve(__dirname, "../../components/ai/ai-step-business.tsx"),
