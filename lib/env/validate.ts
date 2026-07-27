@@ -1,5 +1,6 @@
 import { isLocalhostOrigin, isValidAppOrigin } from "@/lib/app-url";
 import type {
+  AiProviderId,
   DeploymentProviderId,
   DomainProviderId,
   EmailProviderId,
@@ -45,6 +46,13 @@ function parseDomainProvider(raw: string): DomainProviderId | null {
 function parseEmailProvider(raw: string): EmailProviderId | null {
   const v = raw.toLowerCase();
   if (v === "resend") return "resend";
+  if (v === "mock" || v === "") return "mock";
+  return null;
+}
+
+function parseAiProvider(raw: string): AiProviderId | null {
+  const v = raw.toLowerCase();
+  if (v === "openai") return "openai";
   if (v === "mock" || v === "") return "mock";
   return null;
 }
@@ -245,6 +253,33 @@ export function validateEnv(
     });
   }
 
+  const aiRaw = trim(source.AI_PROVIDER);
+  const aiProvider = parseAiProvider(aiRaw || "mock");
+  if (aiProvider === null) {
+    errors.push({
+      severity: "error",
+      key: "AI_PROVIDER",
+      message: "AI_PROVIDER must be mock or openai.",
+    });
+  }
+
+  const openaiApiKey =
+    (source === process.env
+      ? trim(process.env.OPENAI_API_KEY)
+      : trim(source.OPENAI_API_KEY)) || null;
+  const openaiModel =
+    (source === process.env
+      ? trim(process.env.OPENAI_MODEL)
+      : trim(source.OPENAI_MODEL)) || "gpt-4o-mini";
+
+  if (aiProvider === "openai" && !openaiApiKey) {
+    errors.push({
+      severity: "error",
+      key: "OPENAI_API_KEY",
+      message: "OPENAI_API_KEY is required when AI_PROVIDER=openai.",
+    });
+  }
+
   const serviceRoleKey = trim(source.SUPABASE_SERVICE_ROLE_KEY);
   if (!serviceRoleKey || isPlaceholder(serviceRoleKey)) {
     if (strict) {
@@ -406,6 +441,9 @@ export function validateEnv(
     emailFromAddress:
       emailFromAddress || "Atlas <notifications@localhost>",
     resendApiKey,
+    aiProvider: aiProvider ?? "mock",
+    openaiApiKey,
+    openaiModel,
     leadIpHashSalt: leadIpHashSalt || "dev-lead-ip-hash-salt",
     analyticsVisitorSalt: analyticsVisitorSalt || "dev-analytics-visitor-salt",
     stripeSecretKey,

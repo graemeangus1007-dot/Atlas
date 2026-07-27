@@ -6,6 +6,7 @@
 export type DeploymentProviderId = "mock" | "supabase" | "vercel";
 export type DomainProviderId = "mock" | "vercel";
 export type EmailProviderId = "mock" | "resend";
+export type AiProviderId = "mock" | "openai";
 
 /** Safe for client bundles (NEXT_PUBLIC_* only). */
 export type PublicEnv = {
@@ -29,6 +30,9 @@ export type ServerEnv = {
   emailProvider: EmailProviderId;
   emailFromAddress: string;
   resendApiKey: string | null;
+  aiProvider: AiProviderId;
+  openaiApiKey: string | null;
+  openaiModel: string;
   leadIpHashSalt: string;
   analyticsVisitorSalt: string;
   stripeSecretKey: string | null;
@@ -70,6 +74,9 @@ export const SERVER_ENV_KEYS = [
   "EMAIL_PROVIDER",
   "EMAIL_FROM_ADDRESS",
   "RESEND_API_KEY",
+  "AI_PROVIDER",
+  "OPENAI_API_KEY",
+  "OPENAI_MODEL",
   "LEAD_IP_HASH_SALT",
   "ANALYTICS_VISITOR_SALT",
   "STRIPE_SECRET_KEY",
@@ -84,6 +91,7 @@ export const SECRET_ENV_KEYS = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "VERCEL_TOKEN",
   "RESEND_API_KEY",
+  "OPENAI_API_KEY",
   "LEAD_IP_HASH_SALT",
   "ANALYTICS_VISITOR_SALT",
   "STRIPE_SECRET_KEY",

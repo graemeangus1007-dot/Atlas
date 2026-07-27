@@ -46,6 +46,20 @@ describe("validateEnv", () => {
     expect(result.env.appUrl).toBe("https://atlas.example.com");
     expect(result.env.deploymentProvider).toBe("vercel");
     expect(result.env.public.supabaseUrl).toBe("https://example.supabase.co");
+    expect(result.env.aiProvider).toBe("mock");
+  });
+
+  it("requires OPENAI_API_KEY when AI_PROVIDER=openai", () => {
+    const result = validateEnv(
+      baseValidEnv({
+        AI_PROVIDER: "openai",
+        OPENAI_API_KEY: "",
+      }),
+      { requireProductionSecrets: true },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.key === "OPENAI_API_KEY")).toBe(true);
   });
 
   it("fails when critical public Supabase vars are missing", () => {
