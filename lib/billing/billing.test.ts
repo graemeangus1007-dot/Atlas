@@ -419,4 +419,18 @@ describe("secret isolation", () => {
     expect("STRIPE_SECRET_KEY".startsWith("NEXT_PUBLIC_")).toBe(false);
     expect("STRIPE_WEBHOOK_SECRET".startsWith("NEXT_PUBLIC_")).toBe(false);
   });
+
+  it("debug billing-env route returns presence flags only", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(
+      resolve(__dirname, "../../app/api/debug/billing-env/route.ts"),
+      "utf8",
+    );
+    expect(src).toContain("unauthorized");
+    expect(src).toContain("STRIPE_PRICE_PROFESSIONAL");
+    expect(src).toContain("Boolean(");
+    expect(src).not.toMatch(/return apiJson\(\s*process\.env/);
+    expect(src).not.toContain("process.env.STRIPE_SECRET_KEY,");
+  });
 });
