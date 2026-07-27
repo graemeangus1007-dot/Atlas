@@ -1,5 +1,7 @@
 /**
  * Map questionnaire answers → generate API input (Sprint 20.0B).
+ * Explicit questionnaire fields are always sent (top-level + nested) so the
+ * API/mock never fall back to the context project's placeholder name.
  */
 
 import type { AiQuestionnaireAnswers } from "@/components/ai/ai-types";
@@ -13,7 +15,14 @@ export function questionnaireToGenerateInput(
   projectId: string,
   answers: AiQuestionnaireAnswers,
 ): GenerateWebsiteInput {
+  const businessName = answers.businessName.trim();
+  const businessType = answers.industry.trim();
+  const description = answers.oneSentenceDescription.trim();
+
   const questionnaire: GenerateWebsiteQuestionnaire = {
+    businessName: businessName || undefined,
+    businessType: businessType || undefined,
+    description: description || undefined,
     yearsInBusiness: answers.yearsInBusiness.trim() || undefined,
     primaryServices: splitServiceLines(answers.primaryServices),
     secondaryServices: splitServiceLines(answers.secondaryServices),
@@ -32,9 +41,9 @@ export function questionnaireToGenerateInput(
 
   return {
     projectId: projectId.trim(),
-    businessName: answers.businessName.trim(),
-    businessType: answers.industry.trim(),
-    description: answers.oneSentenceDescription.trim(),
+    businessName,
+    businessType,
+    description,
     goals: [
       answers.targetCustomer.trim(),
       answers.serviceArea.trim(),

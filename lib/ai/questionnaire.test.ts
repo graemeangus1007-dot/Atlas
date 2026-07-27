@@ -8,6 +8,10 @@ import {
 import { buildMockWebsiteDraft } from "@/lib/ai/mock-provider";
 import { questionnaireToGenerateInput } from "@/lib/ai/questionnaire-map";
 import {
+  mapDraftToBusinessProject,
+  resolveGenerateIdentity,
+} from "@/lib/ai";
+import {
   clearAiQuestionnaire,
   clearAiQuestionnaireSnapshotCache,
   getAiQuestionnaireSnapshot,
@@ -157,6 +161,7 @@ describe("questionnaire → generate mapping & mock draft", () => {
     expect(input.projectId).toBe("proj-1");
     expect(input.businessName).toBe("Cedar Cafe");
     expect(input.businessType).toBe("Coffee Shop");
+    expect(input.questionnaire?.businessName).toBe("Cedar Cafe");
     expect(input.questionnaire?.primaryServices).toEqual([
       "Espresso",
       "Pastries",
@@ -174,6 +179,97 @@ describe("questionnaire → generate mapping & mock draft", () => {
     expect(draft.heroSubheadline).toMatch(/Remote workers/);
     expect(draft.primaryCta).toBe("Say hello");
   });
+
+  it("preserves Northforge Digital over context project Atlas Digital", () => {
+    const answers = completeAnswers({
+      businessName: "Northforge Digital",
+      industry: "Web Design Agency",
+      oneSentenceDescription:
+        "We build modern websites for local businesses.",
+      primaryServices: "Websites\nBranding\nSEO",
+      phone: "(555) 999-0001",
+      email: "hello@northforge.example",
+      address: "100 Harbor Ave, Portland, OR",
+      website: "https://northforge.example",
+      facebook: "northforgedigital",
+      instagram: "@northforge",
+      primaryColor: "#1a6b5c",
+      accentColor: "#0b1f1a",
+    });
+
+    const input = questionnaireToGenerateInput("atlas-project", answers);
+    // Simulate API merge where context project has a different name.
+    const identity = resolveGenerateIdentity(
+      {
+        businessName: input.businessName,
+        businessType: input.businessType,
+        description: input.description,
+        questionnaire: input.questionnaire,
+      },
+      {
+        business_name: "Atlas Digital",
+        business_type: "Other",
+        description: "Old project description",
+      },
+    );
+    expect(identity.businessName).toBe("Northforge Digital");
+    expect(identity.businessName).not.toBe("Atlas Digital");
+
+    const draft = buildMockWebsiteDraft({
+      ...input,
+      businessName: identity.businessName,
+      businessType: identity.businessType,
+      description: identity.description,
+    });
+    expect(draft.businessName).toBe("Northforge Digital");
+    expect(draft.heroHeadline).toContain("Northforge Digital");
+    expect(draft.heroHeadline).not.toContain("Atlas Digital");
+    expect(draft.aboutTitle).toContain("Northforge Digital");
+    expect(draft.services.map((s) => s.title)).toEqual([
+      "Websites",
+      "Branding",
+      "SEO",
+    ]);
+    expect(draft.contact.phone).toBe("(555) 999-0001");
+    expect(draft.contact.email).toBe("hello@northforge.example");
+    expect(draft.contact.location).toBe("100 Harbor Ave, Portland, OR");
+
+    const { project, meta } = mapDraftToBusinessProject({
+      draft,
+      questionnaire: answers,
+    });
+    expect(project.businessName).toBe("Northforge Digital");
+    expect(project.contact.phone).toBe("(555) 999-0001");
+    expect(project.contact.email).toBe("hello@northforge.example");
+    expect(project.primaryColor).toBe("#1a6b5c");
+    expect(project.accentColor).toBe("#0b1f1a");
+    expect(meta.socialLinks.website).toContain("northforge.example");
+    expect(meta.socialLinks.facebook).toBe("northforgedigital");
+    expect(meta.socialLinks.instagram).toBe("@northforge");
+  });
+
+  it("uses nested questionnaire businessName when top-level is blank", () => {
+    const draft = buildMockWebsiteDraft({
+      projectId: "p1",
+      businessName: "",
+      businessType: "",
+      description: "",
+      questionnaire: {
+        businessName: "Northforge Digital",
+        businessType: "Agency",
+        description: "Custom sites for local brands.",
+        phone: "(555) 222-3333",
+        email: "team@northforge.example",
+        address: "Portland, OR",
+        primaryServices: ["Strategy"],
+      },
+    });
+    expect(draft.businessName).toBe("Northforge Digital");
+    expect(draft.businessType).toBe("Agency");
+    expect(draft.description).toContain("Custom sites");
+    expect(draft.contact.phone).toBe("(555) 222-3333");
+    expect(draft.services[0]?.title).toBe("Strategy");
+  });
 });
 
 describe("AI questionnaire UI & API contracts", () => {
@@ -183,6 +279,7 @@ describe("AI questionnaire UI & API contracts", () => {
       "utf8",
     );
     expect(src).toContain("questionnaire");
+    expect(src).toContain("resolveGenerateIdentity");
     expect(src).toContain("unauthorized");
     expect(src).toContain('eq("owner_id", user.id)');
   });

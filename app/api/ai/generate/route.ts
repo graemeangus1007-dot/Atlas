@@ -16,6 +16,7 @@ import {
   statusForCode,
   tryCreateAiProvider,
 } from "@/lib/ai";
+import { resolveGenerateIdentity } from "@/lib/ai/resolve-generate-input";
 import type { GenerateWebsiteQuestionnaire } from "@/lib/ai/types";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
 import { captureException, requestContextFromRequest } from "@/lib/monitoring";
@@ -80,26 +81,35 @@ export async function POST(request: Request) {
 
     let input;
     try {
+      // Explicit questionnaire / body values win; project row is last-resort only.
+      const identity = resolveGenerateIdentity(
+        {
+          businessName: body.businessName,
+          businessType: body.businessType,
+          description: body.description,
+          questionnaire: body.questionnaire,
+        },
+        {
+          business_name:
+            typeof project.business_name === "string"
+              ? project.business_name
+              : null,
+          business_type:
+            typeof project.business_type === "string"
+              ? project.business_type
+              : null,
+          description:
+            typeof project.description === "string"
+              ? project.description
+              : null,
+        },
+      );
+
       input = normalizeGenerateWebsiteInput({
         projectId,
-        businessName:
-          body.businessName?.trim() ||
-          (typeof project.business_name === "string"
-            ? project.business_name
-            : "") ||
-          "",
-        businessType:
-          body.businessType?.trim() ||
-          (typeof project.business_type === "string"
-            ? project.business_type
-            : "") ||
-          "",
-        description:
-          body.description?.trim() ||
-          (typeof project.description === "string"
-            ? project.description
-            : "") ||
-          "",
+        businessName: identity.businessName,
+        businessType: identity.businessType,
+        description: identity.description,
         goals: body.goals,
         questionnaire: body.questionnaire,
       });

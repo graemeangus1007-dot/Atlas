@@ -4,11 +4,50 @@
 
 import { AiError, isAiError, safeAiErrorMessage } from "@/lib/ai/errors";
 import { createAiProvider } from "@/lib/ai/provider";
+import { coalesceNonEmpty } from "@/lib/ai/resolve-generate-input";
 import type {
   AiProvider,
   GenerateWebsiteInput,
+  GenerateWebsiteQuestionnaire,
   GenerateWebsiteResult,
 } from "@/lib/ai/types";
+
+function normalizeQuestionnaire(
+  raw: GenerateWebsiteQuestionnaire | undefined,
+): GenerateWebsiteQuestionnaire | undefined {
+  if (!raw) return undefined;
+  return {
+    businessName: coalesceNonEmpty(raw.businessName) || undefined,
+    businessType: coalesceNonEmpty(raw.businessType) || undefined,
+    description: coalesceNonEmpty(raw.description) || undefined,
+    yearsInBusiness: raw.yearsInBusiness?.trim() || undefined,
+    primaryServices: Array.isArray(raw.primaryServices)
+      ? raw.primaryServices
+          .filter((s): s is string => typeof s === "string")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 12)
+      : undefined,
+    secondaryServices: Array.isArray(raw.secondaryServices)
+      ? raw.secondaryServices
+          .filter((s): s is string => typeof s === "string")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 12)
+      : undefined,
+    targetCustomer: raw.targetCustomer?.trim() || undefined,
+    serviceArea: raw.serviceArea?.trim() || undefined,
+    tone: raw.tone?.trim() || undefined,
+    primaryColor: raw.primaryColor?.trim() || undefined,
+    accentColor: raw.accentColor?.trim() || undefined,
+    phone: raw.phone?.trim() || undefined,
+    email: raw.email?.trim() || undefined,
+    address: raw.address?.trim() || undefined,
+    website: raw.website?.trim() || undefined,
+    facebook: raw.facebook?.trim() || undefined,
+    instagram: raw.instagram?.trim() || undefined,
+  };
+}
 
 export function normalizeGenerateWebsiteInput(
   raw: Partial<GenerateWebsiteInput> & { projectId?: string },
@@ -18,42 +57,19 @@ export function normalizeGenerateWebsiteInput(
     throw new AiError("bad_request", "projectId is required.");
   }
 
-  const questionnaire = raw.questionnaire
-    ? {
-        yearsInBusiness: raw.questionnaire.yearsInBusiness?.trim() || undefined,
-        primaryServices: Array.isArray(raw.questionnaire.primaryServices)
-          ? raw.questionnaire.primaryServices
-              .filter((s): s is string => typeof s === "string")
-              .map((s) => s.trim())
-              .filter(Boolean)
-              .slice(0, 12)
-          : undefined,
-        secondaryServices: Array.isArray(raw.questionnaire.secondaryServices)
-          ? raw.questionnaire.secondaryServices
-              .filter((s): s is string => typeof s === "string")
-              .map((s) => s.trim())
-              .filter(Boolean)
-              .slice(0, 12)
-          : undefined,
-        targetCustomer: raw.questionnaire.targetCustomer?.trim() || undefined,
-        serviceArea: raw.questionnaire.serviceArea?.trim() || undefined,
-        tone: raw.questionnaire.tone?.trim() || undefined,
-        primaryColor: raw.questionnaire.primaryColor?.trim() || undefined,
-        accentColor: raw.questionnaire.accentColor?.trim() || undefined,
-        phone: raw.questionnaire.phone?.trim() || undefined,
-        email: raw.questionnaire.email?.trim() || undefined,
-        address: raw.questionnaire.address?.trim() || undefined,
-        website: raw.questionnaire.website?.trim() || undefined,
-        facebook: raw.questionnaire.facebook?.trim() || undefined,
-        instagram: raw.questionnaire.instagram?.trim() || undefined,
-      }
-    : undefined;
+  const questionnaire = normalizeQuestionnaire(raw.questionnaire);
 
   return {
     projectId,
-    businessName: (raw.businessName ?? "").trim(),
-    businessType: (raw.businessType ?? "").trim(),
-    description: (raw.description ?? "").trim(),
+    businessName: coalesceNonEmpty(
+      raw.businessName,
+      questionnaire?.businessName,
+    ),
+    businessType: coalesceNonEmpty(
+      raw.businessType,
+      questionnaire?.businessType,
+    ),
+    description: coalesceNonEmpty(raw.description, questionnaire?.description),
     goals: Array.isArray(raw.goals)
       ? raw.goals
           .filter((g): g is string => typeof g === "string")

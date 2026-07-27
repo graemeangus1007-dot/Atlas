@@ -7,6 +7,10 @@ export type AiProviderId = "mock" | "openai";
 
 /** Optional questionnaire enrichment from Sprint 20.0B. */
 export type GenerateWebsiteQuestionnaire = {
+  /** Duplicated identity fields — authoritative when top-level input is blank. */
+  businessName?: string;
+  businessType?: string;
+  description?: string;
   yearsInBusiness?: string;
   primaryServices?: string[];
   secondaryServices?: string[];

@@ -23,6 +23,10 @@ export { buildMockWebsiteDraft, MockAiProvider } from "@/lib/ai/mock-provider";
 export {
   AI_CREATE_PROJECT_EDITOR_PATH,
 } from "@/lib/ai/create-project-constants";
+export {
+  coalesceNonEmpty,
+  resolveGenerateIdentity,
+} from "@/lib/ai/resolve-generate-input";
 // createProjectFromDraft is server-only — import from
 // @/lib/ai/create-project-from-draft in Route Handlers, not the barrel.
 export {

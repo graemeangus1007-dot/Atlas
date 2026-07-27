@@ -4,6 +4,7 @@ import type {
   GenerateWebsiteResult,
   GeneratedWebsiteDraft,
 } from "@/lib/ai/types";
+import { coalesceNonEmpty } from "@/lib/ai/resolve-generate-input";
 
 function slugifyEmailLocal(name: string): string {
   const cleaned = name
@@ -32,6 +33,8 @@ function toneCta(tone: string | undefined): string {
 /**
  * Deterministic mock website drafts for local/UI development.
  * No network calls — Atlas runs without OPENAI_API_KEY.
+ *
+ * Explicit questionnaire / input values always win over placeholders.
  */
 export class MockAiProvider implements AiProvider {
   readonly id = "mock" as const;
@@ -55,10 +58,15 @@ export function buildMockWebsiteDraft(
   input: GenerateWebsiteInput,
 ): GeneratedWebsiteDraft {
   const q = input.questionnaire;
-  const businessName = input.businessName.trim() || "Northshore Studio";
-  const businessType = input.businessType.trim() || "Creative Studio";
+
+  // Never replace explicit user input with placeholder brand names.
+  const businessName =
+    coalesceNonEmpty(input.businessName, q?.businessName) ||
+    "Northshore Studio";
+  const businessType =
+    coalesceNonEmpty(input.businessType, q?.businessType) || "Creative Studio";
   const description =
-    input.description.trim() ||
+    coalesceNonEmpty(input.description, q?.description) ||
     `${businessName} helps customers get reliable results with clear communication and careful craft.`;
 
   const primary =
@@ -66,9 +74,9 @@ export function buildMockWebsiteDraft(
       ? q.primaryServices
       : ["Core service", "Consultation", "Ongoing support"];
   const secondary = q?.secondaryServices ?? [];
-  const serviceArea = q?.serviceArea?.trim();
-  const target = q?.targetCustomer?.trim();
-  const years = q?.yearsInBusiness?.trim();
+  const serviceArea = coalesceNonEmpty(q?.serviceArea) || undefined;
+  const target = coalesceNonEmpty(q?.targetCustomer) || undefined;
+  const years = coalesceNonEmpty(q?.yearsInBusiness) || undefined;
 
   const aboutBits = [description];
   if (years) aboutBits.push(`Serving clients for ${years}.`);
@@ -97,9 +105,9 @@ export function buildMockWebsiteDraft(
   }
 
   const emailLocal = slugifyEmailLocal(businessName);
-  const phone = q?.phone?.trim() || "(555) 010-2040";
-  const email = q?.email?.trim() || `${emailLocal}@example.com`;
-  const location = q?.address?.trim() || "Your city, ST";
+  const phone = coalesceNonEmpty(q?.phone) || "(555) 010-2040";
+  const email = coalesceNonEmpty(q?.email) || `${emailLocal}@example.com`;
+  const location = coalesceNonEmpty(q?.address) || "Your city, ST";
 
   const tone = (q?.tone ?? "").toLowerCase();
 

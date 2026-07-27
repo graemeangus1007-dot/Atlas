@@ -15,6 +15,7 @@ import type {
 import { defaultOpeningHours } from "@/lib/seo/defaults";
 import type { ProjectSeo } from "@/lib/seo/types";
 import { SEO_DESCRIPTION_MAX, SEO_TITLE_MAX } from "@/lib/seo/types";
+import { coalesceNonEmpty } from "@/lib/ai/resolve-generate-input";
 import "@/lib/templates";
 import { getTemplate } from "@/lib/templates";
 import { sanitizePlainText } from "@/lib/leads/sanitize";
@@ -222,15 +223,62 @@ export function mapDraftToBusinessProject(
     template.colorDefaults.accentColor ||
     DEFAULT_BRANDING.accentColor;
 
-  const businessType = mapIndustryToBusinessType(draft.businessType);
-  const addressHint =
-    readQuestionnaireField(q, "address") || draft.contact.location;
+  // Questionnaire / explicit fields always beat draft placeholders.
+  const businessName = sanitizePlainText(
+    coalesceNonEmpty(
+      readQuestionnaireField(q, "businessName"),
+      draft.businessName,
+    ),
+    { maxLength: AI_DRAFT_LIMITS.businessName },
+  );
+  const industryOrType = coalesceNonEmpty(
+    readQuestionnaireField(q, "industry"),
+    readQuestionnaireField(q, "businessType"),
+    draft.businessType,
+  );
+  const businessType = mapIndustryToBusinessType(industryOrType);
+  const oneLiner = sanitizePlainText(
+    coalesceNonEmpty(
+      readQuestionnaireField(q, "oneSentenceDescription"),
+      readQuestionnaireField(q, "description"),
+      draft.description,
+    ),
+    { maxLength: AI_DRAFT_LIMITS.description, allowNewlines: true },
+  );
 
-  const heroEyebrow =
-    draft.heroEyebrow ||
-    sanitizePlainText(draft.businessName, {
-      maxLength: AI_DRAFT_LIMITS.heroEyebrow,
-    });
+  const addressHint = coalesceNonEmpty(
+    readQuestionnaireField(q, "address"),
+    draft.contact.location,
+  );
+  const contactPhone = coalesceNonEmpty(
+    readQuestionnaireField(q, "phone"),
+    draft.contact.phone,
+  );
+  const contactEmail = coalesceNonEmpty(
+    readQuestionnaireField(q, "email"),
+    draft.contact.email,
+  );
+  const contactLocation = coalesceNonEmpty(
+    readQuestionnaireField(q, "address"),
+    draft.contact.location,
+  );
+
+  const rewriteName = (value: string) =>
+    draft.businessName &&
+    businessName &&
+    draft.businessName !== businessName &&
+    value.includes(draft.businessName)
+      ? value.split(draft.businessName).join(businessName)
+      : value;
+
+  const heroEyebrow = sanitizePlainText(
+    rewriteName(
+      draft.heroEyebrow ||
+        businessName ||
+        draft.businessName,
+    ),
+    { maxLength: AI_DRAFT_LIMITS.heroEyebrow },
+  );
   const secondaryCta =
     draft.secondaryCta || secondaryCtaFromTone(design.tone);
 
@@ -246,29 +294,53 @@ export function mapDraftToBusinessProject(
     }),
   };
 
-  const seo = mapDraftToProjectSeo(draft, { address: addressHint });
+  const draftForSeo = {
+    ...draft,
+    businessName,
+    businessType: industryOrType || draft.businessType,
+    description: oneLiner || draft.description,
+    contact: {
+      ...draft.contact,
+      phone: contactPhone,
+      email: contactEmail,
+      location: contactLocation,
+    },
+  };
+  const seo = mapDraftToProjectSeo(draftForSeo, { address: addressHint });
 
   const project: BusinessProject = {
-    businessName: draft.businessName,
+    businessName,
     businessType,
-    description: draft.aboutBody || draft.description,
+    description: sanitizePlainText(rewriteName(draft.aboutBody || oneLiner), {
+      maxLength: AI_DRAFT_LIMITS.aboutBody,
+      allowNewlines: true,
+    }),
     goals: defaultGoals(),
     heroEyebrow,
-    heroHeadline: draft.heroHeadline,
-    heroSubheadline: draft.heroSubheadline,
+    heroHeadline: sanitizePlainText(rewriteName(draft.heroHeadline), {
+      maxLength: AI_DRAFT_LIMITS.heroHeadline,
+    }),
+    heroSubheadline: sanitizePlainText(rewriteName(draft.heroSubheadline), {
+      maxLength: AI_DRAFT_LIMITS.heroSubheadline,
+    }),
     primaryCta: draft.primaryCta,
     secondaryCta,
-    aboutTitle: draft.aboutTitle,
+    aboutTitle: sanitizePlainText(rewriteName(draft.aboutTitle), {
+      maxLength: AI_DRAFT_LIMITS.aboutTitle,
+    }),
     services: draft.services.map((service) => ({
       title: service.title,
       description: service.description,
     })),
     contact: {
       title: draft.contact.title,
-      description: draft.contact.description,
-      phone: draft.contact.phone,
-      email: draft.contact.email,
-      location: draft.contact.location,
+      description: sanitizePlainText(rewriteName(draft.contact.description), {
+        maxLength: AI_DRAFT_LIMITS.contactDescription,
+        allowNewlines: true,
+      }),
+      phone: contactPhone,
+      email: contactEmail,
+      location: contactLocation,
       formId: null,
       buttonText: draft.contact.buttonText,
       successMessage:
