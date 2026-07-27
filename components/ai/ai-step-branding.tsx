@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   AI_BRAND_TONES,
   AI_TONE_LABELS,
@@ -8,6 +9,8 @@ import {
   type AiQuestionnaireFieldErrors,
 } from "@/components/ai/ai-types";
 import TextInput from "@/components/ui/text-input";
+import { validateBrandContrast } from "@/lib/ai/contrast";
+import { layoutPresetFromTone } from "@/lib/ai/layout-presets";
 
 type Props = {
   answers: AiQuestionnaireAnswers;
@@ -19,6 +22,21 @@ type Props = {
 };
 
 export default function AiStepBranding({ answers, errors, onChange }: Props) {
+  const contrastWarnings = useMemo(() => {
+    if (
+      !/^#([0-9a-fA-F]{6})$/.test(answers.primaryColor) ||
+      !/^#([0-9a-fA-F]{6})$/.test(answers.accentColor)
+    ) {
+      return [];
+    }
+    const preset = layoutPresetFromTone(answers.tone || "professional");
+    return validateBrandContrast({
+      primaryColor: answers.primaryColor,
+      accentColor: answers.accentColor,
+      backgroundColor: preset.backgroundColor,
+    });
+  }, [answers.accentColor, answers.primaryColor, answers.tone]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -141,6 +159,25 @@ export default function AiStepBranding({ answers, errors, onChange }: Props) {
           ) : null}
         </div>
       </div>
+
+      {contrastWarnings.length > 0 ? (
+        <div
+          className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3"
+          role="status"
+        >
+          <p className="text-sm font-medium text-amber-100">
+            Accessibility contrast warnings
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-sm text-amber-100/90">
+            {contrastWarnings.map((warning) => (
+              <li key={`${warning.code}-${warning.message}`}>
+                {warning.message} (ratio {warning.ratio}:1, need{" "}
+                {warning.minimum}:1)
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-dashed border-border bg-surface/40 px-5 py-6">
         <p className="text-sm font-medium text-foreground">Logo upload</p>

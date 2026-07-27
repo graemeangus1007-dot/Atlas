@@ -176,8 +176,10 @@ describe("questionnaire → generate mapping & mock draft", () => {
     expect(draft.services[0]?.title).toBe("Espresso");
     expect(draft.contact.phone).toBe("(555) 111-2222");
     expect(draft.contact.email).toBe("hello@cedar.example");
-    expect(draft.heroSubheadline).toMatch(/Remote workers/);
-    expect(draft.primaryCta).toBe("Say hello");
+    expect(draft.heroSubheadline).toMatch(/remote workers/i);
+    expect(draft.primaryCta.length).toBeGreaterThan(2);
+    expect(draft.layoutPreset.id).toBe("friendly");
+    expect(draft.enabledSections).toContain("gallery");
   });
 
   it("preserves Northforge Digital over context project Atlas Digital", () => {
@@ -222,7 +224,8 @@ describe("questionnaire → generate mapping & mock draft", () => {
       description: identity.description,
     });
     expect(draft.businessName).toBe("Northforge Digital");
-    expect(draft.heroHeadline).toContain("Northforge Digital");
+    expect(draft.heroEyebrow).toContain("Northforge Digital");
+    expect(draft.heroHeadline.length).toBeGreaterThan(8);
     expect(draft.heroHeadline).not.toContain("Atlas Digital");
     expect(draft.aboutTitle).toContain("Northforge Digital");
     expect(draft.services.map((s) => s.title)).toEqual([

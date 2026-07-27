@@ -4,6 +4,10 @@ import {
   AI_TONE_LABELS,
   type AiQuestionnaireAnswers,
 } from "@/components/ai/ai-types";
+import {
+  AI_OPTIONAL_SECTION_IDS,
+  AI_OPTIONAL_SECTION_LABELS,
+} from "@/lib/ai/optional-sections";
 
 type Props = {
   answers: AiQuestionnaireAnswers;
@@ -30,6 +34,12 @@ export default function AiStepReview({ answers }: Props) {
     answers.tone && answers.tone in AI_TONE_LABELS
       ? AI_TONE_LABELS[answers.tone]
       : answers.tone;
+
+  const enabledSectionLabels = AI_OPTIONAL_SECTION_IDS.filter(
+    (id) => answers.optionalSections[id],
+  )
+    .map((id) => AI_OPTIONAL_SECTION_LABELS[id])
+    .join(", ");
 
   return (
     <div className="space-y-6">
@@ -84,6 +94,21 @@ export default function AiStepReview({ answers }: Props) {
           <Row label="Primary" value={answers.primaryColor} />
           <Row label="Accent" value={answers.accentColor} />
           <Row label="Logo" value="Upload later" />
+        </dl>
+      </section>
+
+      <section aria-labelledby="ai-review-sections">
+        <h3
+          id="ai-review-sections"
+          className="text-sm font-semibold text-foreground"
+        >
+          Sections
+        </h3>
+        <dl>
+          <Row
+            label="Included"
+            value={enabledSectionLabels || "None selected"}
+          />
         </dl>
       </section>
 

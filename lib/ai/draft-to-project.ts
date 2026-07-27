@@ -5,6 +5,7 @@
 import { DEFAULT_BRANDING } from "@/data/design-options";
 import { DEFAULT_MEDIA } from "@/data/media";
 import type { AiQuestionnaireAnswers } from "@/components/ai/ai-types";
+import { layoutPresetFromTone } from "@/lib/ai/layout-presets";
 import { designFromTone } from "@/lib/ai/tone-design";
 import { AI_DRAFT_LIMITS } from "@/lib/ai/draft-limits";
 import { validateGeneratedWebsiteDraft } from "@/lib/ai/validate-draft";
@@ -62,7 +63,13 @@ export type AiProjectMeta = {
   idempotencyKey?: string;
   sourceProjectId?: string | null;
   tone?: string;
+  layoutPresetId?: string;
   socialLinks: AiProjectSocialLinks;
+  enabledSections?: string[];
+  optionalSections?: GeneratedWebsiteDraft["optionalSections"];
+  mediaPlaceholders?: GeneratedWebsiteDraft["mediaPlaceholders"];
+  contrastWarnings?: GeneratedWebsiteDraft["contrastWarnings"];
+  brand?: GeneratedWebsiteDraft["brand"];
 };
 
 function normalizeHexColor(value: unknown, fallback: string): string {
@@ -200,9 +207,15 @@ export function mapDraftToBusinessProject(
 ): MappedAiProject {
   const draft = validateGeneratedWebsiteDraft(input.draft);
   const q = input.questionnaire;
-  const toneRaw = readQuestionnaireField(q, "tone");
-  const design = designFromTone(toneRaw);
-  const template = getTemplate(design.templateId);
+  // Questionnaire tone wins so create-from-draft reflects the latest answers.
+  const toneRaw =
+    readQuestionnaireField(q, "tone") ||
+    draft.brand.layoutPresetId ||
+    draft.layoutPreset?.id ||
+    "professional";
+  const layoutPreset = layoutPresetFromTone(toneRaw);
+  const design = designFromTone(layoutPreset.id);
+  const template = getTemplate(layoutPreset.templateId || design.templateId);
 
   const primaryFromQ = normalizeHexColor(
     readQuestionnaireField(q, "primaryColor"),
@@ -215,13 +228,28 @@ export function mapDraftToBusinessProject(
 
   const primaryColor =
     primaryFromQ ||
+    normalizeHexColor(draft.brand.primaryColor, "") ||
     template.colorDefaults.primaryColor ||
     DEFAULT_BRANDING.primaryColor;
   const accentColor =
     accentFromQ ||
+    normalizeHexColor(draft.brand.accentColor, "") ||
     primaryFromQ ||
     template.colorDefaults.accentColor ||
     DEFAULT_BRANDING.accentColor;
+  const secondaryColor =
+    normalizeHexColor(draft.brand.secondaryColor, "") ||
+    layoutPreset.secondaryColor ||
+    design.secondaryColor ||
+    template.colorDefaults.secondaryColor;
+  const backgroundColor =
+    normalizeHexColor(draft.brand.backgroundColor, "") ||
+    layoutPreset.backgroundColor ||
+    design.backgroundColor ||
+    template.colorDefaults.backgroundColor;
+  const headingFont = layoutPreset.headingFont || design.headingFont;
+  const bodyFont = layoutPreset.bodyFont || design.bodyFont;
+  const buttonStyle = layoutPreset.buttonStyle || design.buttonStyle;
 
   // Questionnaire / explicit fields always beat draft placeholders.
   const businessName = sanitizePlainText(
@@ -350,20 +378,18 @@ export function mapDraftToBusinessProject(
       formEnabled: true,
     },
     seo,
-    templateId: design.templateId,
+    templateId: layoutPreset.templateId || design.templateId,
     pages: DEFAULT_PROJECT_PAGES.map((page) => ({ ...page })),
     primaryColor,
-    secondaryColor:
-      design.secondaryColor || template.colorDefaults.secondaryColor,
+    secondaryColor,
     accentColor,
-    backgroundColor:
-      design.backgroundColor || template.colorDefaults.backgroundColor,
-    headingFont: design.headingFont,
-    bodyFont: design.bodyFont,
-    buttonStyle: design.buttonStyle,
-    heroOverlay: design.heroOverlay,
-    siteWidth: design.siteWidth,
-    theme: design.theme,
+    backgroundColor,
+    headingFont,
+    bodyFont,
+    buttonStyle,
+    heroOverlay: layoutPreset.heroOverlay ?? design.heroOverlay,
+    siteWidth: layoutPreset.siteWidth || design.siteWidth,
+    theme: layoutPreset.theme || design.theme,
     logo: null,
     mediaLibrary: [],
     heroImageId: DEFAULT_MEDIA.heroImageId,
@@ -377,8 +403,14 @@ export function mapDraftToBusinessProject(
     meta: {
       idempotencyKey: input.idempotencyKey,
       sourceProjectId: input.sourceProjectId ?? null,
-      tone: design.tone,
+      tone: layoutPreset.id,
+      layoutPresetId: layoutPreset.id,
       socialLinks,
+      enabledSections: draft.enabledSections,
+      optionalSections: draft.optionalSections,
+      mediaPlaceholders: draft.mediaPlaceholders,
+      contrastWarnings: draft.contrastWarnings,
+      brand: draft.brand,
     },
   };
 }

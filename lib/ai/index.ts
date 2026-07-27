@@ -74,10 +74,34 @@ export {
   splitServiceLines,
   validateAiQuestionnaireStep,
 } from "@/lib/ai/questionnaire-validation";
+export {
+  allLayoutPresets,
+  layoutPresetFromTone,
+  normalizeLayoutPresetId,
+} from "@/lib/ai/layout-presets";
+export {
+  AI_OPTIONAL_SECTION_IDS,
+  AI_OPTIONAL_SECTION_LABELS,
+  DEFAULT_OPTIONAL_SECTIONS,
+  enabledOptionalSections,
+  normalizeOptionalSections,
+} from "@/lib/ai/optional-sections";
+export {
+  contrastRatio,
+  meetsWcagAa,
+  validateBrandContrast,
+} from "@/lib/ai/contrast";
+export { buildMediaPlaceholders } from "@/lib/ai/media-placeholders";
+export {
+  applySectionPatch,
+  normalizeRegenerateSection,
+  regenerateDraftSection,
+} from "@/lib/ai/regenerate";
 export type {
   AiErrorCode,
   AiProvider,
   AiProviderId,
+  AiRegenerateSection,
   GenerateWebsiteFailure,
   GenerateWebsiteInput,
   GenerateWebsiteQuestionnaire,
@@ -87,6 +111,7 @@ export type {
   GeneratedSeo,
   GeneratedService,
   GeneratedWebsiteDraft,
+  RegenerateSectionResult,
 } from "@/lib/ai/types";
 export type {
   AiProjectMeta,

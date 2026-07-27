@@ -63,6 +63,9 @@ export function validateAiQuestionnaireStep(
       }
       break;
     }
+    case "sections":
+      // All toggles optional — no required fields.
+      break;
     case "contact": {
       const phone = required(answers.phone, "Phone");
       if (phone) errors.phone = phone;
@@ -97,6 +100,7 @@ export function isAiQuestionnaireComplete(
     isAiQuestionnaireStepValid("business", answers) &&
     isAiQuestionnaireStepValid("services", answers) &&
     isAiQuestionnaireStepValid("branding", answers) &&
+    isAiQuestionnaireStepValid("sections", answers) &&
     isAiQuestionnaireStepValid("contact", answers)
   );
 }

@@ -8,8 +8,17 @@ import {
   AI_DRAFT_MAX_SERVICES,
   AI_DRAFT_MIN_SERVICES,
 } from "@/lib/ai/draft-limits";
+import { layoutPresetFromTone } from "@/lib/ai/layout-presets";
+import { buildMediaPlaceholders } from "@/lib/ai/media-placeholders";
+import {
+  AI_OPTIONAL_SECTION_IDS,
+  enabledOptionalSections,
+  normalizeOptionalSections,
+  type AiOptionalSectionId,
+} from "@/lib/ai/optional-sections";
 import type {
   GeneratedContact,
+  GeneratedOptionalSections,
   GeneratedSeo,
   GeneratedService,
   GeneratedWebsiteDraft,
@@ -180,17 +189,85 @@ export function validateGeneratedWebsiteDraft(
     optionalText(row.secondaryCta, AI_DRAFT_LIMITS.secondaryCta) ||
     "Learn more";
 
+  const businessName = requireNonEmpty(
+    row.businessName,
+    "businessName",
+    AI_DRAFT_LIMITS.businessName,
+  );
+  const businessType = requireNonEmpty(
+    row.businessType,
+    "businessType",
+    AI_DRAFT_LIMITS.businessType,
+  );
+
+  const layoutPreset =
+    row.layoutPreset && typeof row.layoutPreset === "object"
+      ? layoutPresetFromTone(
+          (row.layoutPreset as { id?: string }).id ||
+            (row.brand as { layoutPresetId?: string } | undefined)
+              ?.layoutPresetId,
+        )
+      : layoutPresetFromTone(
+          (row.brand as { layoutPresetId?: string } | undefined)
+            ?.layoutPresetId,
+        );
+
+  const brandRaw =
+    row.brand && typeof row.brand === "object"
+      ? (row.brand as Record<string, unknown>)
+      : {};
+  const brand = {
+    primaryColor:
+      optionalText(brandRaw.primaryColor, 7) || layoutPreset.secondaryColor,
+    accentColor: optionalText(brandRaw.accentColor, 7) || "#3db8a8",
+    secondaryColor:
+      optionalText(brandRaw.secondaryColor, 7) || layoutPreset.secondaryColor,
+    backgroundColor:
+      optionalText(brandRaw.backgroundColor, 7) || layoutPreset.backgroundColor,
+    headingFont:
+      optionalText(brandRaw.headingFont, 40) || layoutPreset.headingFont,
+    bodyFont: optionalText(brandRaw.bodyFont, 40) || layoutPreset.bodyFont,
+    buttonStyle:
+      optionalText(brandRaw.buttonStyle, 40) || layoutPreset.buttonStyle,
+    layoutPresetId: layoutPreset.id,
+  };
+
+  const enabledSections: AiOptionalSectionId[] = Array.isArray(
+    row.enabledSections,
+  )
+    ? AI_OPTIONAL_SECTION_IDS.filter((id) =>
+        (row.enabledSections as unknown[]).includes(id),
+      )
+    : enabledOptionalSections(normalizeOptionalSections(null));
+
+  const optionalState = Object.fromEntries(
+    AI_OPTIONAL_SECTION_IDS.map((id) => [id, enabledSections.includes(id)]),
+  ) as Record<AiOptionalSectionId, boolean>;
+
+  const optionalSections =
+    row.optionalSections && typeof row.optionalSections === "object"
+      ? (row.optionalSections as GeneratedOptionalSections)
+      : {};
+
+  const placeholders = buildMediaPlaceholders({
+    businessName,
+    businessType,
+  });
+  const mediaPlaceholders =
+    row.mediaPlaceholders && typeof row.mediaPlaceholders === "object"
+      ? (row.mediaPlaceholders as GeneratedWebsiteDraft["mediaPlaceholders"])
+      : {
+          hero: placeholders.hero,
+          gallery: optionalState.gallery ? placeholders.gallery : [],
+        };
+
+  const contrastWarnings = Array.isArray(row.contrastWarnings)
+    ? (row.contrastWarnings as GeneratedWebsiteDraft["contrastWarnings"])
+    : [];
+
   return {
-    businessName: requireNonEmpty(
-      row.businessName,
-      "businessName",
-      AI_DRAFT_LIMITS.businessName,
-    ),
-    businessType: requireNonEmpty(
-      row.businessType,
-      "businessType",
-      AI_DRAFT_LIMITS.businessType,
-    ),
+    businessName,
+    businessType,
     description: requireNonEmpty(
       row.description,
       "description",
@@ -228,6 +305,12 @@ export function validateGeneratedWebsiteDraft(
     services,
     contact: validateContact(row.contact),
     seo: validateSeo(row.seo),
+    enabledSections,
+    optionalSections,
+    layoutPreset,
+    brand,
+    mediaPlaceholders,
+    contrastWarnings,
   };
 }
 

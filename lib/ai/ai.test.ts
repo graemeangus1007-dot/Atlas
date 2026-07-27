@@ -63,7 +63,8 @@ describe("mock website generation", () => {
     if (!result.ok) return;
     expect(result.provider).toBe("mock");
     expect(result.draft.businessName).toBe("Cedar & Pine Cafe");
-    expect(result.draft.heroHeadline).toContain("Cedar & Pine Cafe");
+    expect(result.draft.heroEyebrow).toContain("Cedar & Pine Cafe");
+    expect(result.draft.heroHeadline.length).toBeGreaterThan(8);
     expect(result.draft.heroSubheadline.length).toBeGreaterThan(10);
     expect(result.draft.primaryCta.length).toBeGreaterThan(2);
     expect(result.draft.aboutBody).toContain("espresso");

@@ -1,4 +1,9 @@
-/** Client-safe AI questionnaire types (Sprint 20.0B). */
+/** Client-safe AI questionnaire types (Sprint 20.0B / 20.1). */
+
+import {
+  DEFAULT_OPTIONAL_SECTIONS,
+  type AiOptionalSectionsState,
+} from "@/lib/ai/optional-sections";
 
 export const AI_BRAND_TONES = [
   "professional",
@@ -22,6 +27,7 @@ export const AI_QUESTIONNAIRE_STEPS = [
   "business",
   "services",
   "branding",
+  "sections",
   "contact",
   "review",
 ] as const;
@@ -32,6 +38,7 @@ export const AI_STEP_LABELS: Record<AiQuestionnaireStepId, string> = {
   business: "Business",
   services: "Services",
   branding: "Branding",
+  sections: "Sections",
   contact: "Contact",
   review: "Review",
 };
@@ -56,6 +63,8 @@ export type AiQuestionnaireAnswers = {
   website: string;
   facebook: string;
   instagram: string;
+  /** Optional page sections to include in the generated draft. */
+  optionalSections: AiOptionalSectionsState;
 };
 
 export type AiQuestionnaireProgress = {
@@ -85,8 +94,12 @@ export const EMPTY_AI_QUESTIONNAIRE: AiQuestionnaireAnswers = {
   website: "",
   facebook: "",
   instagram: "",
+  optionalSections: { ...DEFAULT_OPTIONAL_SECTIONS },
 };
 
 export type AiQuestionnaireFieldErrors = Partial<
   Record<keyof AiQuestionnaireAnswers, string>
 >;
+
+export { DEFAULT_OPTIONAL_SECTIONS };
+export type { AiOptionalSectionsState };

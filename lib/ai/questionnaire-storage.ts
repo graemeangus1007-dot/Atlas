@@ -7,14 +7,21 @@
  */
 
 import {
+  AI_QUESTIONNAIRE_STEPS,
   EMPTY_AI_QUESTIONNAIRE,
   type AiBrandTone,
   type AiQuestionnaireAnswers,
   type AiQuestionnaireProgress,
 } from "@/components/ai/ai-types";
+import {
+  normalizeOptionalSections,
+  type AiOptionalSectionsState,
+} from "@/lib/ai/optional-sections";
 
 const STORAGE_PREFIX = "atlas.ai.questionnaire.v1:";
 export const AI_QUESTIONNAIRE_STORAGE_EVENT = "atlas-ai-questionnaire";
+
+const MAX_STEP_INDEX = AI_QUESTIONNAIRE_STEPS.length - 1;
 
 /** Stable server/SSR snapshot for useSyncExternalStore. */
 const SERVER_SNAPSHOT: AiQuestionnaireProgress | null = null;
@@ -80,6 +87,7 @@ function parseAnswers(raw: unknown): AiQuestionnaireAnswers {
     website: typeof row.website === "string" ? row.website : "",
     facebook: typeof row.facebook === "string" ? row.facebook : "",
     instagram: typeof row.instagram === "string" ? row.instagram : "",
+    optionalSections: normalizeOptionalSections(row.optionalSections),
   };
 }
 
@@ -92,7 +100,7 @@ function parseProgress(
     if (parsed.version !== 1 || parsed.projectId !== projectId) return null;
     const stepIndex =
       typeof parsed.stepIndex === "number" && Number.isFinite(parsed.stepIndex)
-        ? Math.max(0, Math.min(4, Math.floor(parsed.stepIndex)))
+        ? Math.max(0, Math.min(MAX_STEP_INDEX, Math.floor(parsed.stepIndex)))
         : 0;
     return {
       version: 1,
@@ -109,6 +117,15 @@ function parseProgress(
   }
 }
 
+function optionalSectionsEqual(
+  a: AiOptionalSectionsState,
+  b: AiOptionalSectionsState,
+): boolean {
+  return (Object.keys(a) as Array<keyof AiOptionalSectionsState>).every(
+    (key) => a[key] === b[key],
+  );
+}
+
 function answersEqual(
   a: AiQuestionnaireAnswers,
   b: AiQuestionnaireAnswers,
@@ -116,7 +133,12 @@ function answersEqual(
   const keys = Object.keys(EMPTY_AI_QUESTIONNAIRE) as Array<
     keyof AiQuestionnaireAnswers
   >;
-  return keys.every((key) => a[key] === b[key]);
+  return keys.every((key) => {
+    if (key === "optionalSections") {
+      return optionalSectionsEqual(a.optionalSections, b.optionalSections);
+    }
+    return a[key] === b[key];
+  });
 }
 
 function readRaw(projectId: string): string | null {
@@ -207,8 +229,11 @@ export function saveAiQuestionnaire(input: {
   answers: AiQuestionnaireAnswers;
 }): AiQuestionnaireProgress {
   const projectId = input.projectId.trim();
-  const stepIndex = Math.max(0, Math.min(4, input.stepIndex));
-  const answers = { ...input.answers };
+  const stepIndex = Math.max(0, Math.min(MAX_STEP_INDEX, input.stepIndex));
+  const answers: AiQuestionnaireAnswers = {
+    ...input.answers,
+    optionalSections: normalizeOptionalSections(input.answers.optionalSections),
+  };
 
   const existing = getAiQuestionnaireSnapshot(projectId);
   if (

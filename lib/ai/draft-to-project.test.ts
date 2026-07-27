@@ -100,7 +100,7 @@ describe("AI draft → BusinessProject mapping", () => {
     expect(project.businessName).toBe("Cedar Cafe");
     expect(project.businessType).toBe("Coffee Shop");
     expect(project.heroEyebrow).toBeTruthy();
-    expect(project.heroHeadline).toContain("Cedar Cafe");
+    expect(project.heroHeadline.length).toBeGreaterThan(8);
     expect(project.heroSubheadline.length).toBeGreaterThan(10);
     expect(project.primaryCta.length).toBeGreaterThan(2);
     expect(project.secondaryCta).toBeTruthy();

@@ -69,8 +69,14 @@ function enrichContentWithAiMeta(
     aiMeta: {
       sourceProjectId: meta.sourceProjectId ?? null,
       tone: meta.tone ?? null,
+      layoutPresetId: meta.layoutPresetId ?? null,
       socialLinks: meta.socialLinks,
       aboutBody,
+      enabledSections: meta.enabledSections ?? [],
+      optionalSections: meta.optionalSections ?? {},
+      mediaPlaceholders: meta.mediaPlaceholders ?? null,
+      contrastWarnings: meta.contrastWarnings ?? [],
+      brand: meta.brand ?? null,
     },
   };
 }

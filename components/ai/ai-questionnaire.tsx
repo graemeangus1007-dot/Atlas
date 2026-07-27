@@ -15,6 +15,7 @@ import AiStepBranding from "@/components/ai/ai-step-branding";
 import AiStepBusiness from "@/components/ai/ai-step-business";
 import AiStepContact from "@/components/ai/ai-step-contact";
 import AiStepReview from "@/components/ai/ai-step-review";
+import AiStepSections from "@/components/ai/ai-step-sections";
 import AiStepServices from "@/components/ai/ai-step-services";
 import {
   AI_QUESTIONNAIRE_STEPS,
@@ -261,6 +262,13 @@ export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
             onChange={onChange}
           />
         ) : null}
+        {stepId === "sections" ? (
+          <AiStepSections
+            answers={answers}
+            errors={errors}
+            onChange={onChange}
+          />
+        ) : null}
         {stepId === "contact" ? (
           <AiStepContact
             answers={answers}
@@ -317,10 +325,14 @@ export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
       {draft ? (
         <AiDraftPreview
           draft={draft}
+          projectId={projectId}
+          questionnaire={questionnaireToGenerateInput(projectId, answers)
+            .questionnaire}
           creating={creating}
           createError={createError}
           createSuccess={createSuccess}
           onCreate={() => void handleCreateWebsite()}
+          onDraftChange={setDraft}
         />
       ) : null}
     </div>

@@ -37,6 +37,7 @@ export function questionnaireToGenerateInput(
     website: answers.website.trim() || undefined,
     facebook: answers.facebook.trim() || undefined,
     instagram: answers.instagram.trim() || undefined,
+    optionalSections: { ...answers.optionalSections },
   };
 
   return {
