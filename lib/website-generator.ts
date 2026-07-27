@@ -58,17 +58,17 @@ export function generateWebsiteContent(
     accentColor:
       project.accentColor || project.primaryColor || template.accentColor,
     hero: {
-      eyebrow: businessName,
+      eyebrow: project.heroEyebrow?.trim() || businessName,
       headline: project.heroHeadline.trim() || template.headline,
       subheadline: project.heroSubheadline.trim() || template.subheadline,
       primaryCta: project.primaryCta.trim() || template.primaryCta,
-      secondaryCta: template.secondaryCta,
+      secondaryCta: project.secondaryCta?.trim() || template.secondaryCta,
       imageUrl:
         heroImageUrl || placeholderImageUrl(`${businessName} hero`, 1600, 900),
       isPlaceholder: !heroImageUrl,
     },
     about: {
-      title: template.aboutTitle,
+      title: project.aboutTitle?.trim() || template.aboutTitle,
       description,
     },
     services:

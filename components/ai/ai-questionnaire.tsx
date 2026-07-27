@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import AiDraftPreview from "@/components/ai/ai-draft-preview";
 import AiGenerateButton from "@/components/ai/ai-generate-button";
 import AiProgress from "@/components/ai/ai-progress";
@@ -17,10 +24,13 @@ import {
   type AiQuestionnaireStepId,
 } from "@/components/ai/ai-types";
 import Button from "@/components/ui/button";
+import { useProject } from "@/context/project-context";
+import { AI_CREATE_PROJECT_EDITOR_PATH } from "@/lib/ai/create-project-constants";
 import type { GeneratedWebsiteDraft } from "@/lib/ai/types";
 import { questionnaireToGenerateInput } from "@/lib/ai/questionnaire-map";
 import {
   AI_QUESTIONNAIRE_STORAGE_EVENT,
+  clearAiQuestionnaire,
   loadAiQuestionnaire,
   saveAiQuestionnaire,
 } from "@/lib/ai/questionnaire-storage";
@@ -48,10 +58,19 @@ function subscribeQuestionnaire(onStoreChange: () => void): () => void {
   };
 }
 
+function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `ai-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /**
- * Multi-step AI business questionnaire with autosave + generate.
+ * Multi-step AI business questionnaire with autosave + generate + create.
  */
 export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
+  const router = useRouter();
+  const { openProject, refreshProjects } = useProject();
   const persisted = useSyncExternalStore(
     subscribeQuestionnaire,
     () => loadAiQuestionnaire(projectId),
@@ -63,6 +82,11 @@ export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [draft, setDraft] = useState<GeneratedWebsiteDraft | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const createInFlightRef = useRef(false);
 
   const stepIndex = local?.stepIndex ?? persisted?.stepIndex ?? 0;
   const answers = local?.answers ?? persisted?.answers ?? EMPTY_AI_QUESTIONNAIRE;
@@ -123,6 +147,9 @@ export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
     setGenerating(true);
     setGenerateError(null);
     setDraft(null);
+    setCreateError(null);
+    setCreateSuccess(false);
+    idempotencyKeyRef.current = null;
 
     try {
       const payload = questionnaireToGenerateInput(projectId, answers);
@@ -142,6 +169,7 @@ export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
         );
       }
       setDraft(body.draft);
+      idempotencyKeyRef.current = newIdempotencyKey();
       persist(stepIndex, answers);
     } catch (err) {
       setGenerateError(
@@ -149,6 +177,54 @@ export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
       );
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleCreateWebsite() {
+    if (!draft || createInFlightRef.current || createSuccess) return;
+
+    createInFlightRef.current = true;
+    setCreating(true);
+    setCreateError(null);
+
+    const key = idempotencyKeyRef.current ?? newIdempotencyKey();
+    idempotencyKeyRef.current = key;
+
+    try {
+      const res = await fetch("/api/ai/create-project", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          draft,
+          questionnaire: answers,
+          idempotencyKey: key,
+          sourceProjectId: projectId,
+          replaceExisting: false,
+        }),
+      });
+      const body = (await res.json()) as {
+        projectId?: string;
+        editorPath?: string;
+        error?: { message?: string };
+      };
+      if (!res.ok || !body.projectId) {
+        throw new Error(
+          body.error?.message || "Could not create website from draft.",
+        );
+      }
+
+      setCreateSuccess(true);
+      clearAiQuestionnaire(projectId);
+      await refreshProjects();
+      await openProject(body.projectId);
+      router.push(body.editorPath || AI_CREATE_PROJECT_EDITOR_PATH);
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : "Could not create website.",
+      );
+      createInFlightRef.current = false;
+      setCreating(false);
     }
   }
 
@@ -209,7 +285,7 @@ export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
           {isLast ? (
             <AiGenerateButton
               loading={generating}
-              disabled={!canGenerate}
+              disabled={!canGenerate || creating}
               onGenerate={() => void handleGenerate()}
             />
           ) : (
@@ -236,7 +312,15 @@ export default function AiQuestionnaire({ projectId }: AiQuestionnaireProps) {
         ) : null}
       </div>
 
-      {draft ? <AiDraftPreview draft={draft} /> : null}
+      {draft ? (
+        <AiDraftPreview
+          draft={draft}
+          creating={creating}
+          createError={createError}
+          createSuccess={createSuccess}
+          onCreate={() => void handleCreateWebsite()}
+        />
+      ) : null}
     </div>
   );
 }

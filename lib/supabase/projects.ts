@@ -169,9 +169,12 @@ export function businessProjectToColumns(
   );
 
   const content: ProjectContentJson = {
+    heroEyebrow: project.heroEyebrow ?? null,
     heroHeadline: project.heroHeadline,
     heroSubheadline: project.heroSubheadline,
     primaryCta: project.primaryCta,
+    secondaryCta: project.secondaryCta ?? null,
+    aboutTitle: project.aboutTitle ?? null,
     services: project.services,
     contact: project.contact,
     seo: project.seo ?? null,
@@ -236,9 +239,12 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
     businessType: (row.business_type as BusinessProject["businessType"]) || "",
     description: row.description ?? "",
     goals,
+    heroEyebrow: asString(content.heroEyebrow, ""),
     heroHeadline: asString(content.heroHeadline, base.heroHeadline),
     heroSubheadline: asString(content.heroSubheadline, base.heroSubheadline),
     primaryCta: asString(content.primaryCta, base.primaryCta),
+    secondaryCta: asString(content.secondaryCta, ""),
+    aboutTitle: asString(content.aboutTitle, ""),
     services: Array.isArray(content.services)
       ? (content.services as BusinessProject["services"])
       : base.services,

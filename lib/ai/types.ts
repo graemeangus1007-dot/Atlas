@@ -64,9 +64,13 @@ export type GeneratedWebsiteDraft = {
   businessName: string;
   businessType: string;
   description: string;
+  /** Short label above the hero headline. */
+  heroEyebrow: string;
   heroHeadline: string;
   heroSubheadline: string;
   primaryCta: string;
+  /** Secondary hero CTA (e.g. Learn more). */
+  secondaryCta: string;
   aboutTitle: string;
   aboutBody: string;
   services: GeneratedService[];

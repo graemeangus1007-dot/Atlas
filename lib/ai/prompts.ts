@@ -11,8 +11,8 @@ export function buildWebsiteSystemPrompt(): string {
     "Return ONLY valid JSON matching the Atlas website draft schema.",
     "Do not wrap the JSON in markdown fences.",
     "Keep copy concise, professional, and free of placeholder lorem ipsum.",
-    "Include: businessName, businessType, description, heroHeadline,",
-    "heroSubheadline, primaryCta, aboutTitle, aboutBody, services (3 items),",
+    "Include: businessName, businessType, description, heroEyebrow, heroHeadline,",
+    "heroSubheadline, primaryCta, secondaryCta, aboutTitle, aboutBody, services (3 items),",
     "contact (title, description, phone, email, location, buttonText),",
     "and seo (siteTitle, metaDescription, socialTitle, socialDescription, robotsIndex).",
   ].join(" ");

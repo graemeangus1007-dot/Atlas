@@ -56,12 +56,18 @@ export type BusinessProject = {
   businessType: BusinessType | "";
   description: string;
   goals: WebsiteGoal[];
+  /** Optional hero eyebrow (AI drafts / older projects may omit). */
+  heroEyebrow?: string;
   /** Editable generated homepage headline (source of truth for preview + editor). */
   heroHeadline: string;
   /** Editable generated homepage subheadline. */
   heroSubheadline: string;
   /** Editable primary call-to-action label on the hero. */
   primaryCta: string;
+  /** Optional secondary hero CTA (AI drafts / older projects may omit). */
+  secondaryCta?: string;
+  /** Optional about section heading override. */
+  aboutTitle?: string;
   /** Editable service cards (seeded from the business-type template). */
   services: WebsiteService[];
   /** Editable contact section (title, blurb, phone, email, location). */

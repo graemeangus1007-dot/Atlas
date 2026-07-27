@@ -21,6 +21,25 @@ export {
 } from "@/lib/ai/generator";
 export { buildMockWebsiteDraft, MockAiProvider } from "@/lib/ai/mock-provider";
 export {
+  AI_CREATE_PROJECT_EDITOR_PATH,
+} from "@/lib/ai/create-project-constants";
+// createProjectFromDraft is server-only — import from
+// @/lib/ai/create-project-from-draft in Route Handlers, not the barrel.
+export {
+  mapDraftToBusinessProject,
+  mapDraftToProjectSeo,
+  mapIndustryToBusinessType,
+} from "@/lib/ai/draft-to-project";
+export {
+  allToneDesigns,
+  designFromTone,
+  normalizeBrandTone,
+} from "@/lib/ai/tone-design";
+export {
+  normalizeIdempotencyKey,
+  validateGeneratedWebsiteDraft,
+} from "@/lib/ai/validate-draft";
+export {
   DEFAULT_OPENAI_MODEL,
   OpenAiWebsiteProvider,
 } from "@/lib/ai/openai-provider";
@@ -61,3 +80,14 @@ export type {
   GeneratedService,
   GeneratedWebsiteDraft,
 } from "@/lib/ai/types";
+export type {
+  AiProjectMeta,
+  AiProjectSocialLinks,
+  DraftToProjectInput,
+  MappedAiProject,
+} from "@/lib/ai/draft-to-project";
+export type { ToneDesignDefaults } from "@/lib/ai/tone-design";
+export type {
+  CreateProjectFromDraftInput,
+  CreateProjectFromDraftResult,
+} from "@/lib/ai/create-project-from-draft";

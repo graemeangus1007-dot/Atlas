@@ -101,10 +101,13 @@ export function buildMockWebsiteDraft(
   const email = q?.email?.trim() || `${emailLocal}@example.com`;
   const location = q?.address?.trim() || "Your city, ST";
 
+  const tone = (q?.tone ?? "").toLowerCase();
+
   return {
     businessName,
     businessType,
     description,
+    heroEyebrow: businessName,
     heroHeadline: `Welcome to ${businessName}`,
     heroSubheadline: target
       ? `${businessType} for ${target}${
@@ -112,6 +115,16 @@ export function buildMockWebsiteDraft(
         }.`
       : `Trusted ${businessType.toLowerCase()} service — built around your goals.`,
     primaryCta: toneCta(q?.tone),
+    secondaryCta:
+      tone === "luxury"
+        ? "Explore our work"
+        : tone === "friendly"
+          ? "Meet the team"
+          : tone === "bold"
+            ? "See how it works"
+            : tone === "modern"
+              ? "View services"
+              : "Learn more",
     aboutTitle: `About ${businessName}`,
     aboutBody: aboutBits.join(" "),
     services,

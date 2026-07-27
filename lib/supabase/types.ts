@@ -162,6 +162,30 @@ export type Database = {
           },
         ];
       };
+      ai_draft_creations: {
+        Row: {
+          owner_id: string;
+          idempotency_key: string;
+          project_id: string;
+          created_at: string;
+        };
+        Insert: {
+          owner_id: string;
+          idempotency_key: string;
+          project_id: string;
+          created_at?: string;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "ai_draft_creations_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       publish_versions: {
         Row: PublishVersionRow;
         Insert: PublishVersionInsert;
