@@ -5,6 +5,10 @@ import type {
   DeploymentResult,
   PreviousDeploymentRef,
 } from "@/lib/deployment/types";
+import {
+  isMockPreviewUrl,
+  isVercelPreviewUrl,
+} from "@/lib/deployment/preview-url";
 import type { PublishArtifact } from "@/lib/publishing/types";
 
 export type ActiveDeploymentProviderInfo = {
@@ -195,6 +199,23 @@ export function assertReadyDeployment(
   if (!deployment.previewUrl) {
     throw new Error(
       "Deployment succeeded but no preview URL was returned by the provider.",
+    );
+  }
+  // Never persist/open invented preview.atlas.site hosts from real providers.
+  if (
+    deployment.provider !== "mock-local" &&
+    isMockPreviewUrl(deployment.previewUrl)
+  ) {
+    throw new Error(
+      "Deployment returned an invalid preview hostname. Publish again so Atlas can use the real hosting URL.",
+    );
+  }
+  if (
+    deployment.provider === "vercel" &&
+    !isVercelPreviewUrl(deployment.previewUrl)
+  ) {
+    throw new Error(
+      "Vercel deployment ready but preview URL was not a *.vercel.app address.",
     );
   }
   return deployment;

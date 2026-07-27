@@ -248,7 +248,8 @@ export default function VersionHistoryModal({
                     <div className="flex gap-2">
                       <dt className="w-20 shrink-0">Preview</dt>
                       <dd className="min-w-0 break-all font-mono text-accent">
-                        {version.previewUrl.startsWith("http") ? (
+                        {version.previewUrl.startsWith("http") &&
+                        !version.previewUrl.includes("preview.atlas.site") ? (
                           <a
                             href={version.previewUrl}
                             target="_blank"
@@ -258,7 +259,11 @@ export default function VersionHistoryModal({
                             {version.previewUrl}
                           </a>
                         ) : (
-                          version.previewUrl
+                          <span className="text-muted">
+                            {version.previewUrl.includes("preview.atlas.site")
+                              ? "Legacy placeholder URL (publish again)"
+                              : version.previewUrl}
+                          </span>
                         )}
                       </dd>
                     </div>

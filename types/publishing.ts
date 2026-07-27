@@ -5,6 +5,10 @@ import type {
   DeploymentRecord,
   DeploymentStatus,
 } from "@/lib/deployment/types";
+import {
+  isMockPreviewUrl,
+  isRealHostedPreviewUrl,
+} from "@/lib/deployment/preview-url";
 
 /**
  * Frozen project state captured at publish time.
@@ -109,7 +113,25 @@ export function toPersistedDeployment(
 
 /** Strip bulky artifact files before persisting on the project. */
 export function toPublishRecord(result: PublishResult): PublishRecord {
-  const previewUrl = result.deployment.previewUrl || result.url;
+  let previewUrl = result.deployment.previewUrl || result.url;
+
+  // Never persist invented preview.atlas.site hosts from real providers.
+  if (
+    result.deployment.provider !== "mock-local" &&
+    isMockPreviewUrl(previewUrl)
+  ) {
+    previewUrl = "";
+  }
+
+  // Vercel deployments must store the provider *.vercel.app URL only.
+  if (
+    result.deployment.provider === "vercel" &&
+    previewUrl &&
+    !isRealHostedPreviewUrl(previewUrl)
+  ) {
+    previewUrl = "";
+  }
+
   return {
     slug: result.slug,
     // Top-level url mirrors the provider preview URL (never invent a host).
@@ -118,6 +140,9 @@ export function toPublishRecord(result: PublishResult): PublishRecord {
     snapshot: result.snapshot,
     artifactFingerprint: result.artifact.fingerprint,
     templateId: result.artifact.templateId,
-    deployment: toPersistedDeployment(result.deployment),
+    deployment: {
+      ...toPersistedDeployment(result.deployment),
+      previewUrl,
+    },
   };
 }

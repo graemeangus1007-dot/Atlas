@@ -14,7 +14,8 @@ export function buildDeploymentId(slug: string, fingerprint: string): string {
 
 /**
  * Fake preview URL for the mock provider only.
- * Do not use for Supabase (or any real) hosting — those must return Storage URLs.
+ * Never call this for Vercel/Supabase (or any real host) — those must return
+ * provider URLs (*.vercel.app / Storage). Atlas does not own preview.atlas.site.
  */
 export function buildDeploymentPreviewUrl(slug: string): string {
   const safe = slug.trim().toLowerCase() || "site";

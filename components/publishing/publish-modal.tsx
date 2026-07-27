@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Button from "@/components/ui/button";
 import { useProject } from "@/context/project-context";
 import {
@@ -8,11 +8,16 @@ import {
   type ActiveDeploymentProviderInfo,
 } from "@/lib/deployment/deploy-client";
 import {
+  isMockPreviewUrl,
+  resolveVisitPreviewUrl,
+} from "@/lib/deployment/preview-url";
+import {
   buildPublishedSitePath,
   publisher,
   recordPublishVersionAfterDeploy,
 } from "@/lib/publishing";
 import { ensureProjectLeadForm } from "@/lib/leads/ensure-client";
+import { getLatestPublishVersion } from "@/lib/supabase/publish-versions";
 import {
   PUBLISH_STEPS,
   toPublishRecord,
@@ -125,6 +130,9 @@ export default function PublishModal({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [atlasPreviewUrl, setAtlasPreviewUrl] = useState<string | null>(null);
+  const [latestVersionPreviewUrl, setLatestVersionPreviewUrl] = useState<
+    string | null
+  >(null);
   const [productionUrl, setProductionUrl] = useState<string | null>(null);
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
   const [reusedDeploy, setReusedDeploy] = useState(false);
@@ -154,15 +162,40 @@ export default function PublishModal({
     ? buildPublishedSitePath(publishedSlug)
     : null;
 
-  const displayPreviewUrl =
-    atlasPreviewUrl ??
-    project.publish?.deployment?.previewUrl ??
-    null;
+  const productionHostname =
+    linkedInfo?.status === "active" && linkedInfo.hostname
+      ? linkedInfo.hostname
+      : null;
+
+  const displayPreviewUrl = useMemo(
+    () =>
+      resolveVisitPreviewUrl({
+        deploymentPreviewUrl:
+          atlasPreviewUrl ?? project.publish?.deployment?.previewUrl ?? null,
+        latestVersionPreviewUrl,
+        publishUrl: project.publish?.url ?? null,
+        providerId: shownProvider,
+        productionHostname,
+      }),
+    [
+      atlasPreviewUrl,
+      latestVersionPreviewUrl,
+      productionHostname,
+      project.publish?.deployment?.previewUrl,
+      project.publish?.url,
+      shownProvider,
+    ],
+  );
+
   const displayProductionUrl =
     productionUrl ??
-    (linkedInfo?.status === "active" && linkedInfo.hostname
-      ? `https://${linkedInfo.hostname}`
-      : null);
+    (productionHostname ? `https://${productionHostname}` : null);
+
+  const legacyFakePreviewBlocked =
+    !displayPreviewUrl &&
+    isMockPreviewUrl(
+      atlasPreviewUrl ?? project.publish?.deployment?.previewUrl ?? null,
+    );
 
   useEffect(() => {
     if (!open) {
@@ -174,6 +207,7 @@ export default function PublishModal({
       setError(null);
       setCopied(false);
       setAtlasPreviewUrl(null);
+      setLatestVersionPreviewUrl(null);
       setProductionUrl(null);
       setDeploymentId(null);
       setReusedDeploy(false);
@@ -201,6 +235,13 @@ export default function PublishModal({
 
       const linked = await fetchLinkedDomainInfo(projectId);
       setLinkedInfo(linked);
+
+      if (projectId) {
+        const latest = await getLatestPublishVersion(projectId);
+        if (latest.ok && latest.data?.previewUrl) {
+          setLatestVersionPreviewUrl(latest.data.previewUrl);
+        }
+      }
 
       if (intent === "production") {
         setPhase("confirm_production");
@@ -325,21 +366,33 @@ export default function PublishModal({
       if (runId !== runIdRef.current) return;
 
       const publishRecord = toPublishRecord(result);
-      const previewHostUrl = result.deployment.previewUrl || publishRecord.url;
+      const previewHostUrl = resolveVisitPreviewUrl({
+        deploymentPreviewUrl: result.deployment.previewUrl || publishRecord.url,
+        providerId: result.deployment.provider,
+        productionHostname: activeCustomHostname,
+      });
       const liveUrl = activeCustomHostname
         ? `https://${activeCustomHostname}`
         : null;
 
-      // Persist canonical live URL when custom domain is active; keep .vercel.app
-      // on deployment.previewUrl for the Atlas preview host.
+      // Persist canonical live URL when custom domain is active; keep provider
+      // preview (.vercel.app) on deployment.previewUrl — never invent hosts.
       updateProject({
         status: "published",
         publish: {
           ...publishRecord,
-          url: liveUrl || previewHostUrl,
+          url: liveUrl || previewHostUrl || publishRecord.url,
+          deployment: publishRecord.deployment
+            ? {
+                ...publishRecord.deployment,
+                previewUrl:
+                  previewHostUrl || publishRecord.deployment.previewUrl,
+              }
+            : publishRecord.deployment,
         },
       });
       setAtlasPreviewUrl(previewHostUrl);
+      setLatestVersionPreviewUrl((prev) => previewHostUrl || prev);
       setProductionUrl(liveUrl);
       setDeploymentId(result.deployment.id);
       setProviderId(result.deployment.provider);
@@ -546,6 +599,20 @@ export default function PublishModal({
                     {displayPreviewUrl}
                   </p>
                 </div>
+              ) : legacyFakePreviewBlocked ? (
+                <div
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left"
+                  role="status"
+                >
+                  <p className="text-xs font-medium text-amber-100">
+                    Preview URL unavailable
+                  </p>
+                  <p className="mt-1 text-xs text-amber-100/90">
+                    This project still has a legacy placeholder preview host.
+                    Publish again to get a real hosting URL (for example
+                    *.vercel.app).
+                  </p>
+                </div>
               ) : null}
 
               {displayProductionUrl ? (
@@ -647,7 +714,7 @@ export default function PublishModal({
                   variant="secondary"
                   className="w-full"
                 >
-                  Open Atlas Preview Host
+                  Visit Preview
                 </Button>
               ) : null}
               {atlasPreviewPath ? (

@@ -31,9 +31,13 @@ export {
 export {
   canReusePreviousPreviewUrl,
   isMockPreviewUrl,
+  isRealHostedPreviewUrl,
   isSupabaseStoragePreviewUrl,
+  isUsableVisitPreviewUrl,
   isVercelPreviewUrl,
+  resolveVisitPreviewUrl,
 } from "@/lib/deployment/preview-url";
+export type { ResolveVisitPreviewInput } from "@/lib/deployment/preview-url";
 export {
   isTransientDeploymentError,
   withRetry,
