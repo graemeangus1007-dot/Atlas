@@ -17,6 +17,7 @@ import type { BusinessProject, ProjectStatus } from "@/types/business-project";
 import type { WebsiteGoal } from "@/types/business";
 import type { MediaAsset } from "@/types/media";
 import type { PublishRecord } from "@/types/publishing";
+import { sanitizePublishRecord } from "@/lib/deployment/preview-url";
 import type { TemplateId } from "@/lib/templates/types";
 import type {
   BodyFontId,
@@ -225,13 +226,17 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
   const media = normalizeMediaLibrary(row.media);
 
   const publishRaw = content.publish;
-  const publish: PublishRecord | null =
+  const publishParsed: PublishRecord | null =
     isRecord(publishRaw) &&
     typeof publishRaw.url === "string" &&
     typeof publishRaw.slug === "string" &&
     typeof publishRaw.publishedAt === "string"
       ? (publishRaw as PublishRecord)
       : null;
+  // Discard invented preview.atlas.site hosts on load (heal later from versions).
+  const publish = sanitizePublishRecord(publishParsed, {
+    activeProviderId: null,
+  });
 
   return {
     ...base,

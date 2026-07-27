@@ -1,6 +1,7 @@
 import { resolveFeatures } from "@/lib/billing/entitlements";
 import type { SubscriptionRow } from "@/lib/billing/types";
 import { MockDeploymentProvider } from "@/lib/deployment/mock-provider";
+import { isMockPreviewUrl } from "@/lib/deployment/preview-url";
 import type { DeploymentProvider } from "@/lib/deployment/provider";
 import {
   assertReadyDeployment,
@@ -258,13 +259,19 @@ export class AtlasWebsitePublisher implements WebsitePublisher {
         );
         deployment = assertReadyDeployment(deployResult);
       } else {
-        // Real hosts (vercel / supabase) — server-side only.
+        // Real hosts (vercel / supabase) — never send invented mock preview hosts
+        // as reusable previous URLs (forces a real provider deploy).
+        const previousForServer =
+          previous && isMockPreviewUrl(previous.previewUrl)
+            ? { ...previous, previewUrl: "" }
+            : previous;
+
         const deployResult = await deployViaServerApi(
           {
             projectId: options.projectId ?? null,
             slug,
             artifact,
-            previousDeployment: previous,
+            previousDeployment: previousForServer,
             force: options.force ?? false,
             deployTarget: options.force
               ? "preview"

@@ -157,6 +157,7 @@ export class VercelDeploymentProvider implements DeploymentProvider {
     const token = this.config.token;
 
     // Only reuse when prior deploy was Vercel and still has a valid *.vercel.app URL.
+    // Force Redeploy always bypasses fingerprint reuse.
     if (
       !force &&
       previousDeployment &&

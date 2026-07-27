@@ -374,6 +374,7 @@ export function ProjectProvider({
   }, [project, projectId, user, isConfigured, persistProject]);
 
   const setProject = useCallback((next: BusinessProject) => {
+    projectRef.current = next;
     setProjectState(next);
   }, []);
 
@@ -384,9 +385,13 @@ export function ProjectProvider({
         | ((current: BusinessProject) => Partial<BusinessProject>),
     ) => {
       // Functional updates preserve sibling fields when patches race (e.g. typing).
+      // Keep projectRef in sync immediately so saveNow() after publish persists
+      // the latest preview URL (not a stale pre-publish snapshot).
       setProjectState((current) => {
         const patch = typeof partial === "function" ? partial(current) : partial;
-        return { ...current, ...patch };
+        const next = { ...current, ...patch };
+        projectRef.current = next;
+        return next;
       });
     },
     [],

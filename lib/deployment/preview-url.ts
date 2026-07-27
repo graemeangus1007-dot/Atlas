@@ -49,25 +49,36 @@ export function isRealHostedPreviewUrl(
   return isVercelPreviewUrl(url) || isSupabaseStoragePreviewUrl(url);
 }
 
+function hostnameOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Whether a URL is safe to open as "Visit Preview" for the active provider.
- * Invented `preview.atlas.site` hosts are only allowed for mock-local.
+ * Safe Visit Preview check.
+ * Invented `preview.atlas.site` hosts are ONLY allowed when the *active*
+ * deployment provider (from /api/deployment/provider) is mock-local.
+ * Persisted `deployment.provider === "mock-local"` must not keep fake URLs
+ * alive after Atlas switches to Vercel.
  */
 export function isUsableVisitPreviewUrl(
   url: string | null | undefined,
-  providerId?: string | null,
+  activeProviderId?: string | null,
 ): boolean {
   if (!url?.trim()) return false;
   if (isMockPreviewUrl(url)) {
-    return providerId === "mock-local";
+    return activeProviderId === "mock-local";
   }
-  if (providerId === "vercel") {
+  if (activeProviderId === "vercel") {
     return isVercelPreviewUrl(url);
   }
-  if (providerId === "supabase-preview") {
+  if (activeProviderId === "supabase-preview") {
     return isSupabaseStoragePreviewUrl(url);
   }
-  // Unknown provider: only real hosted previews (heal legacy mock records).
+  // Unknown / not yet loaded: only real hosted previews.
   return isRealHostedPreviewUrl(url);
 }
 
@@ -80,59 +91,122 @@ export type ResolveVisitPreviewInput = {
    * Custom production domains must be passed separately and are never returned.
    */
   publishUrl?: string | null;
-  /** Active provider record id: vercel | supabase-preview | mock-local */
+  /**
+   * Active provider from /api/deployment/provider (vercel | supabase-preview | mock-local).
+   * Do NOT pass the stale persisted deployment.provider alone when env is Vercel.
+   */
   providerId?: string | null;
   /** Active custom production hostname (excluded from preview candidates). */
   productionHostname?: string | null;
 };
 
-function hostnameOf(url: string): string | null {
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Resolve the URL for Visit Preview.
- * Never invents hosts. Never returns production custom domains as preview.
- * Rejects legacy `*.preview.atlas.site` unless the active provider is mock-local.
+ * Real hosted URLs always beat legacy mock hosts. Never invents hosts.
+ * Never returns production custom domains as preview.
  */
 export function resolveVisitPreviewUrl(
   input: ResolveVisitPreviewInput,
 ): string | null {
   const productionHost =
     input.productionHostname?.trim().toLowerCase().replace(/\.+$/, "") || null;
+  const allowMock = input.providerId === "mock-local";
 
   const candidates = [
     input.deploymentPreviewUrl,
     input.latestVersionPreviewUrl,
     input.publishUrl,
-  ];
+  ]
+    .map((raw) => (typeof raw === "string" ? raw.trim() : ""))
+    .filter(Boolean);
 
-  for (const raw of candidates) {
-    const url = typeof raw === "string" ? raw.trim() : "";
-    if (!url) continue;
-
+  const filtered = candidates.filter((url) => {
     const host = hostnameOf(url);
-    if (productionHost && host === productionHost) {
-      // Keep production custom-domain URLs separate from preview.
-      continue;
-    }
+    if (productionHost && host === productionHost) return false;
+    if (isMockPreviewUrl(url) && !allowMock) return false;
+    return true;
+  });
 
+  // Prefer real provider hosts over anything else (heals stale mock records).
+  const real = filtered.find((url) => isRealHostedPreviewUrl(url));
+  if (real) return real;
+
+  for (const url of filtered) {
     if (isUsableVisitPreviewUrl(url, input.providerId)) {
-      return url;
-    }
-
-    // Heal: a real hosted URL from history beats a stale mock deployment URL
-    // even when providerId is missing/ambiguous.
-    if (isRealHostedPreviewUrl(url) && !isMockPreviewUrl(url)) {
       return url;
     }
   }
 
   return null;
+}
+
+/**
+ * Strip invented preview.atlas.site hosts from a persisted publish record.
+ * Optionally heal previewUrl from the latest publish-version URL.
+ */
+export function sanitizePublishRecord<T extends {
+  url: string;
+  deployment?: {
+    previewUrl: string;
+    provider: string;
+  } & Record<string, unknown>;
+}>(
+  publish: T | null | undefined,
+  options?: {
+    activeProviderId?: string | null;
+    latestVersionPreviewUrl?: string | null;
+  },
+): T | null {
+  if (!publish) return null;
+
+  const activeProviderId = options?.activeProviderId ?? null;
+  const allowMock = activeProviderId === "mock-local";
+
+  let previewUrl = publish.deployment?.previewUrl ?? "";
+  let topUrl = publish.url ?? "";
+
+  if (isMockPreviewUrl(previewUrl) && !allowMock) {
+    previewUrl = "";
+  }
+  if (isMockPreviewUrl(topUrl) && !allowMock) {
+    topUrl = "";
+  }
+
+  const healed = resolveVisitPreviewUrl({
+    deploymentPreviewUrl: previewUrl || null,
+    latestVersionPreviewUrl: options?.latestVersionPreviewUrl ?? null,
+    publishUrl: topUrl || null,
+    providerId: activeProviderId,
+  });
+
+  if (healed) {
+    previewUrl = healed;
+    if (!topUrl || isMockPreviewUrl(topUrl)) {
+      topUrl = healed;
+    }
+  }
+
+  if (!publish.deployment) {
+    return {
+      ...publish,
+      url: topUrl,
+    };
+  }
+
+  return {
+    ...publish,
+    url: topUrl || publish.url,
+    deployment: {
+      ...publish.deployment,
+      previewUrl,
+      // If we healed to a Vercel URL, correct the provider stamp.
+      provider:
+        isVercelPreviewUrl(previewUrl) &&
+        publish.deployment.provider === "mock-local"
+          ? "vercel"
+          : publish.deployment.provider,
+    },
+  };
 }
 
 /**

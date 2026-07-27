@@ -6,8 +6,13 @@ import CustomDomainSection from "@/components/publishing/custom-domain-section";
 import VersionHistoryModal from "@/components/publishing/version-history-modal";
 import { useProject } from "@/context/project-context";
 import {
+  fetchActiveDeploymentProvider,
+  type ActiveDeploymentProviderInfo,
+} from "@/lib/deployment/deploy-client";
+import {
   isMockPreviewUrl,
   resolveVisitPreviewUrl,
+  sanitizePublishRecord,
 } from "@/lib/deployment/preview-url";
 import { getLatestPublishVersion } from "@/lib/supabase/publish-versions";
 
@@ -22,6 +27,15 @@ type LinkedDomainSummary = {
   status: string;
 };
 
+function hostnameOrDash(url: string | null | undefined): string {
+  if (!url) return "—";
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "invalid";
+  }
+}
+
 /**
  * Editor sidebar panel for publish — opens the shared PublishModal / Version History.
  */
@@ -29,15 +43,23 @@ export default function EditorPublishPanel({
   onPublish,
   onPublishToProduction,
 }: EditorPublishPanelProps) {
-  const { project, projectId, updateProject } = useProject();
+  const { project, projectId, updateProject, saveNow } = useProject();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [linked, setLinked] = useState<LinkedDomainSummary | null>(null);
   const [latestVersionPreviewUrl, setLatestVersionPreviewUrl] = useState<
     string | null
   >(null);
+  const [activeProvider, setActiveProvider] =
+    useState<ActiveDeploymentProviderInfo | null>(null);
+  const [healedOnce, setHealedOnce] = useState(false);
+
   const record = project.publish;
   const productionHostname =
     linked?.status === "active" && linked.hostname ? linked.hostname : null;
+
+  const activeProviderId =
+    activeProvider?.id ??
+    (record?.deployment?.provider === "vercel" ? "vercel" : null);
 
   const atlasPreviewUrl = useMemo(
     () =>
@@ -45,14 +67,14 @@ export default function EditorPublishPanel({
         deploymentPreviewUrl: record?.deployment?.previewUrl ?? null,
         latestVersionPreviewUrl,
         publishUrl: record?.url ?? null,
-        providerId: record?.deployment?.provider ?? null,
+        providerId: activeProviderId,
         productionHostname,
       }),
     [
+      activeProviderId,
       latestVersionPreviewUrl,
       productionHostname,
       record?.deployment?.previewUrl,
-      record?.deployment?.provider,
       record?.url,
     ],
   );
@@ -67,9 +89,11 @@ export default function EditorPublishPanel({
       ? record.url
       : null;
 
+  const rawPersistedPreview =
+    record?.deployment?.previewUrl ?? record?.url ?? null;
   const legacyFakePreviewBlocked =
-    !atlasPreviewUrl &&
-    isMockPreviewUrl(record?.deployment?.previewUrl ?? record?.url ?? null);
+    !atlasPreviewUrl && isMockPreviewUrl(rawPersistedPreview);
+  const republishRequired = !atlasPreviewUrl && Boolean(record);
 
   const hasUnpublishedRestore =
     project.status === "ready" && Boolean(record);
@@ -116,8 +140,24 @@ export default function EditorPublishPanel({
   }, [loadLinked]);
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const info = await fetchActiveDeploymentProvider();
+        if (!cancelled) setActiveProvider(info);
+      } catch {
+        if (!cancelled) setActiveProvider(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
     if (!projectId) {
       setLatestVersionPreviewUrl(null);
+      setHealedOnce(false);
       return;
     }
     let cancelled = false;
@@ -135,27 +175,38 @@ export default function EditorPublishPanel({
     };
   }, [projectId, record?.deployment?.previewUrl, record?.publishedAt]);
 
-  // Heal persisted fake preview URLs when a real version URL is available.
+  // Heal persisted fake preview URLs from latest version / discard mocks.
   useEffect(() => {
-    if (!record?.deployment || !atlasPreviewUrl) return;
-    if (!isMockPreviewUrl(record.deployment.previewUrl)) return;
-    if (record.deployment.previewUrl === atlasPreviewUrl) return;
-    updateProject({
-      publish: {
-        ...record,
-        deployment: {
-          ...record.deployment,
-          previewUrl: atlasPreviewUrl,
-        },
-        url:
-          productionUrl && !isMockPreviewUrl(record.url)
-            ? record.url
-            : atlasPreviewUrl,
-      },
+    if (!record || healedOnce) return;
+    if (!activeProviderId && !latestVersionPreviewUrl) return;
+
+    const sanitized = sanitizePublishRecord(record, {
+      activeProviderId,
+      latestVersionPreviewUrl,
     });
-    // Intentionally omit `record` / `updateProject` churn — heal once per resolved URL.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atlasPreviewUrl, productionUrl, record?.deployment?.previewUrl, record?.url]);
+    if (!sanitized) return;
+
+    const before = record.deployment?.previewUrl ?? "";
+    const after = sanitized.deployment?.previewUrl ?? "";
+    const urlBefore = record.url ?? "";
+    const urlAfter = sanitized.url ?? "";
+
+    if (before === after && urlBefore === urlAfter) {
+      setHealedOnce(true);
+      return;
+    }
+
+    setHealedOnce(true);
+    updateProject({ publish: sanitized });
+    void saveNow();
+  }, [
+    activeProviderId,
+    healedOnce,
+    latestVersionPreviewUrl,
+    record,
+    saveNow,
+    updateProject,
+  ]);
 
   return (
     <div className="rounded-2xl border border-border bg-surface/60 p-5">
@@ -177,13 +228,14 @@ export default function EditorPublishPanel({
         </p>
       ) : null}
 
-      {legacyFakePreviewBlocked ? (
+      {legacyFakePreviewBlocked || republishRequired ? (
         <p
           className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
           role="status"
         >
-          Legacy placeholder preview URL detected. Publish again to get a real
-          hosting URL (*.vercel.app). Visit Preview is disabled until then.
+          {legacyFakePreviewBlocked
+            ? "Republish required — legacy placeholder preview URL was discarded. Publish again to get a real *.vercel.app URL."
+            : "Republish required — no usable preview URL is available yet."}
         </p>
       ) : null}
 
@@ -221,6 +273,18 @@ export default function EditorPublishPanel({
           ) : null}
         </div>
       ) : null}
+
+      {/* Temporary safe diagnostics for preview URL healing */}
+      <div
+        className="mt-3 rounded-lg border border-border/60 bg-background/40 px-3 py-2 font-mono text-[10px] leading-relaxed text-muted"
+        data-testid="preview-url-diagnostics"
+      >
+        <p>provider: {activeProviderId ?? activeProvider?.provider ?? "unknown"}</p>
+        <p>
+          returned/host: {hostnameOrDash(atlasPreviewUrl)}
+        </p>
+        <p>persisted/host: {hostnameOrDash(rawPersistedPreview)}</p>
+      </div>
 
       <Button type="button" className="mt-4 w-full" onClick={onPublish}>
         {record ? "Publish Again" : "Publish Website"}

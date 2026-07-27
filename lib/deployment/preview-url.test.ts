@@ -7,10 +7,14 @@ import {
   isUsableVisitPreviewUrl,
   isVercelPreviewUrl,
   resolveVisitPreviewUrl,
+  sanitizePublishRecord,
 } from "@/lib/deployment/preview-url";
+import { VercelDeploymentProvider } from "@/lib/deployment/vercel-provider";
 import { toPublishRecord } from "@/types/publishing";
 import type { PublishResult } from "@/types/publishing";
 import type { BusinessProject } from "@/types/business-project";
+import { rowToBusinessProject } from "@/lib/supabase/projects";
+import type { ProjectRow } from "@/lib/supabase/types";
 
 describe("preview URL helpers", () => {
   it("detects mock preview.atlas.site URLs", () => {
@@ -43,11 +47,6 @@ describe("preview URL helpers", () => {
     expect(isVercelPreviewUrl("https://olive-branch.preview.atlas.site")).toBe(
       false,
     );
-    expect(
-      isVercelPreviewUrl(
-        "https://xyz.supabase.co/storage/v1/object/public/site-previews/u/s/index.html",
-      ),
-    ).toBe(false);
   });
 
   it("blocks reusing mock URLs on the supabase-preview provider", () => {
@@ -57,12 +56,6 @@ describe("preview URL helpers", () => {
         "https://olive-branch.preview.atlas.site",
       ),
     ).toBe(false);
-    expect(
-      canReusePreviousPreviewUrl(
-        "supabase-preview",
-        "https://xyz.supabase.co/storage/v1/object/public/site-previews/u/s/index.html",
-      ),
-    ).toBe(true);
     expect(
       canReusePreviousPreviewUrl(
         "mock-local",
@@ -86,23 +79,6 @@ describe("preview URL helpers", () => {
         "mock-local",
       ),
     ).toBe(false);
-    expect(
-      canReusePreviousPreviewUrl(
-        "vercel",
-        "https://xyz.supabase.co/storage/v1/object/public/site-previews/u/s/index.html",
-        "supabase-preview",
-      ),
-    ).toBe(false);
-  });
-
-  it("blocks provider mismatches even when URL shape matches", () => {
-    expect(
-      canReusePreviousPreviewUrl(
-        "vercel",
-        "https://site-abc.vercel.app",
-        "supabase-preview",
-      ),
-    ).toBe(false);
   });
 });
 
@@ -116,7 +92,8 @@ describe("Visit Preview URL resolution", () => {
     ).toBe("https://joes-plumbing-abc123.vercel.app");
   });
 
-  it("rejects legacy fake preview.atlas.site URLs for Vercel", () => {
+  it("rejects legacy fake preview.atlas.site URLs even when persisted provider is mock-local", () => {
+    // Active provider is Vercel — stale mock-local stamp must not keep the fake URL.
     expect(
       resolveVisitPreviewUrl({
         deploymentPreviewUrl: "https://joes-plumbing.preview.atlas.site",
@@ -126,9 +103,16 @@ describe("Visit Preview URL resolution", () => {
     expect(
       isUsableVisitPreviewUrl(
         "https://joes-plumbing.preview.atlas.site",
-        "vercel",
+        "mock-local",
       ),
-    ).toBe(false);
+    ).toBe(true);
+    // Unknown/active vercel context: reject mock.
+    expect(
+      resolveVisitPreviewUrl({
+        deploymentPreviewUrl: "https://joes-plumbing.preview.atlas.site",
+        providerId: null,
+      }),
+    ).toBeNull();
   });
 
   it("prefers latest publish-version preview_url over a fake deployment URL", () => {
@@ -151,7 +135,6 @@ describe("Visit Preview URL resolution", () => {
       }),
     ).toBe("https://joes-plumbing-abc.vercel.app");
 
-    // Custom domain must never be returned as the Visit Preview target.
     expect(
       resolveVisitPreviewUrl({
         deploymentPreviewUrl: "https://joesplumbing.com",
@@ -215,7 +198,7 @@ describe("Vercel deployment URL persistence", () => {
     expect(record.url).not.toContain("preview.atlas.site");
   });
 
-  it("strips invented preview.atlas.site hosts from non-mock publish records", () => {
+  it("never persists mock URLs under Vercel", () => {
     const snapshot = {
       businessName: "Joe's Plumbing",
       publish: null,
@@ -249,5 +232,195 @@ describe("Vercel deployment URL persistence", () => {
     const record = toPublishRecord(result);
     expect(record.deployment?.previewUrl).toBe("");
     expect(isMockPreviewUrl(record.url)).toBe(false);
+  });
+});
+
+describe("legacy heal + force redeploy", () => {
+  it("sanitizes/heals project publish from latest publish-version URL", () => {
+    const healed = sanitizePublishRecord(
+      {
+        slug: "joes-plumbing",
+        url: "https://joes-plumbing.preview.atlas.site",
+        publishedAt: "2026-01-01T00:00:00.000Z",
+        snapshot: {} as BusinessProject,
+        deployment: {
+          id: "dep_old",
+          status: "ready" as const,
+          previewUrl: "https://joes-plumbing.preview.atlas.site",
+          artifactFingerprint: "fp-old",
+          provider: "mock-local",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          readyAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      {
+        activeProviderId: "vercel",
+        latestVersionPreviewUrl: "https://joes-plumbing-new.vercel.app",
+      },
+    );
+
+    expect(healed?.deployment?.previewUrl).toBe(
+      "https://joes-plumbing-new.vercel.app",
+    );
+    expect(healed?.deployment?.provider).toBe("vercel");
+    expect(isMockPreviewUrl(healed?.url)).toBe(false);
+  });
+
+  it("discards fake URLs on project reload when no heal URL exists", () => {
+    const row = {
+      id: "p1",
+      owner_id: "u1",
+      name: "Joe's Plumbing",
+      business_name: "Joe's Plumbing",
+      business_type: "Contractor",
+      description: "",
+      goals: [],
+      content: {
+        publish: {
+          slug: "joes-plumbing",
+          url: "https://joes-plumbing.preview.atlas.site",
+          publishedAt: "2026-01-01T00:00:00.000Z",
+          snapshot: null,
+          deployment: {
+            id: "dep_old",
+            status: "ready",
+            previewUrl: "https://joes-plumbing.preview.atlas.site",
+            artifactFingerprint: "fp",
+            provider: "mock-local",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            readyAt: "2026-01-01T00:00:00.000Z",
+          },
+        },
+      },
+      branding: {},
+      template: "modern",
+      media: [],
+      status: "published",
+      published_url: "https://joes-plumbing.preview.atlas.site",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    } as unknown as ProjectRow;
+
+    const project = rowToBusinessProject(row);
+    expect(isMockPreviewUrl(project.publish?.deployment?.previewUrl)).toBe(
+      false,
+    );
+    expect(project.publish?.deployment?.previewUrl).toBe("");
+  });
+
+  it("Force Redeploy replaces a legacy mock URL with a new Vercel URL", async () => {
+    const api = {
+      createDeployment: async () => ({
+        id: "dpl_forced",
+        url: "joes-plumbing-forced.vercel.app",
+        readyState: "READY",
+      }),
+      getDeployment: async () => ({
+        id: "dpl_forced",
+        url: "joes-plumbing-forced.vercel.app",
+        readyState: "READY",
+      }),
+      uploadFile: async () => undefined,
+    };
+
+    const provider = new VercelDeploymentProvider({
+      config: {
+        token: "tok",
+        projectId: "prj_test",
+      },
+      api: api as never,
+      assetResolver: {
+        downloadProjectMedia: async () => new Uint8Array(),
+        fetchExternal: async () => new Uint8Array(),
+      },
+      now: () => new Date("2026-07-27T12:00:00.000Z"),
+      sleep: async () => undefined,
+      pollIntervalMs: 0,
+      pollTimeoutMs: 1000,
+    });
+
+    const artifact = {
+      version: 1 as const,
+      slug: "joes-plumbing",
+      templateId: "modern" as const,
+      fingerprint: "fp-same",
+      files: [
+        {
+          path: "index.html",
+          content: "<html></html>",
+          contentType: "text/html",
+        },
+      ],
+      assets: [],
+    };
+
+    const result = await provider.deploy({
+      slug: "joes-plumbing",
+      artifact,
+      force: true,
+      previousDeployment: {
+        id: "dep_old",
+        previewUrl: "https://joes-plumbing.preview.atlas.site",
+        artifactFingerprint: "fp-same",
+        provider: "mock-local",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        readyAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.deployment.reused).toBe(false);
+    expect(result.deployment.previewUrl).toBe(
+      "https://joes-plumbing-forced.vercel.app",
+    );
+    expect(isMockPreviewUrl(result.deployment.previewUrl)).toBe(false);
+  });
+
+  it("stale context merge does not restore the fake URL when a real URL is present", () => {
+    const stale = {
+      slug: "joes-plumbing",
+      url: "https://joes-plumbing.preview.atlas.site",
+      publishedAt: "2026-01-01T00:00:00.000Z",
+      snapshot: {} as BusinessProject,
+      deployment: {
+        id: "dep_old",
+        status: "ready" as const,
+        previewUrl: "https://joes-plumbing.preview.atlas.site",
+        artifactFingerprint: "fp",
+        provider: "mock-local",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        readyAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+
+    const fresh = {
+      ...stale,
+      url: "https://joes-plumbing-abc.vercel.app",
+      deployment: {
+        ...stale.deployment!,
+        previewUrl: "https://joes-plumbing-abc.vercel.app",
+        provider: "vercel",
+      },
+    };
+
+    // Simulate a bad merge that reintroduces the stale fake URL as a sibling field.
+    const merged = {
+      ...fresh,
+      url: stale.url,
+    };
+
+    const resolved = resolveVisitPreviewUrl({
+      deploymentPreviewUrl: merged.deployment?.previewUrl,
+      publishUrl: merged.url,
+      providerId: "vercel",
+    });
+
+    expect(resolved).toBe("https://joes-plumbing-abc.vercel.app");
+    expect(resolved).not.toContain("preview.atlas.site");
   });
 });

@@ -122,7 +122,7 @@ export default function PublishModal({
   onClose,
   intent = "preview",
 }: PublishModalProps) {
-  const { project, projectId, updateProject } = useProject();
+  const { project, projectId, updateProject, saveNow } = useProject();
   const [phase, setPhase] = useState<PublishPhase>("idle");
   const [progress, setProgress] = useState(0);
   const [activeStep, setActiveStep] = useState<PublishStepId | null>(null);
@@ -152,10 +152,15 @@ export default function PublishModal({
   const shownDeploymentId =
     deploymentId ?? project.publish?.deployment?.id ?? null;
   const shownProvider =
-    providerId ??
-    project.publish?.deployment?.provider ??
+    providerId ?? activeProvider?.id ?? "mock-local";
+  // Active env provider wins over a stale mock-local stamp on legacy records.
+  const resolveProviderId =
     activeProvider?.id ??
-    "mock-local";
+    providerId ??
+    (isMockPreviewUrl(project.publish?.deployment?.previewUrl)
+      ? null
+      : project.publish?.deployment?.provider) ??
+    null;
   const providerLabel =
     activeProvider?.label ?? labelForProviderRecordId(shownProvider);
   const atlasPreviewPath = publishedSlug
@@ -174,7 +179,7 @@ export default function PublishModal({
           atlasPreviewUrl ?? project.publish?.deployment?.previewUrl ?? null,
         latestVersionPreviewUrl,
         publishUrl: project.publish?.url ?? null,
-        providerId: shownProvider,
+        providerId: resolveProviderId,
         productionHostname,
       }),
     [
@@ -183,7 +188,7 @@ export default function PublishModal({
       productionHostname,
       project.publish?.deployment?.previewUrl,
       project.publish?.url,
-      shownProvider,
+      resolveProviderId,
     ],
   );
 
@@ -366,30 +371,47 @@ export default function PublishModal({
       if (runId !== runIdRef.current) return;
 
       const publishRecord = toPublishRecord(result);
-      const previewHostUrl = resolveVisitPreviewUrl({
-        deploymentPreviewUrl: result.deployment.previewUrl || publishRecord.url,
-        providerId: result.deployment.provider,
-        productionHostname: activeCustomHostname,
-      });
+      const previewHostUrl =
+        resolveVisitPreviewUrl({
+          deploymentPreviewUrl:
+            result.deployment.previewUrl || publishRecord.url,
+          providerId: result.deployment.provider,
+          productionHostname: activeCustomHostname,
+        }) ||
+        (result.deployment.provider !== "mock-local" &&
+        !isMockPreviewUrl(result.deployment.previewUrl)
+          ? result.deployment.previewUrl
+          : null);
       const liveUrl = activeCustomHostname
         ? `https://${activeCustomHostname}`
         : null;
 
+      if (
+        result.deployment.provider === "vercel" &&
+        (!previewHostUrl || isMockPreviewUrl(previewHostUrl))
+      ) {
+        throw new Error(
+          "Vercel deploy finished but no *.vercel.app preview URL was returned. Try Force Redeploy.",
+        );
+      }
+
       // Persist canonical live URL when custom domain is active; keep provider
       // preview (.vercel.app) on deployment.previewUrl — never invent hosts.
+      const nextPublish = {
+        ...publishRecord,
+        url: liveUrl || previewHostUrl || "",
+        deployment: publishRecord.deployment
+          ? {
+              ...publishRecord.deployment,
+              previewUrl: previewHostUrl || "",
+              provider: result.deployment.provider,
+            }
+          : publishRecord.deployment,
+      };
+
       updateProject({
         status: "published",
-        publish: {
-          ...publishRecord,
-          url: liveUrl || previewHostUrl || publishRecord.url,
-          deployment: publishRecord.deployment
-            ? {
-                ...publishRecord.deployment,
-                previewUrl:
-                  previewHostUrl || publishRecord.deployment.previewUrl,
-              }
-            : publishRecord.deployment,
-        },
+        publish: nextPublish,
       });
       setAtlasPreviewUrl(previewHostUrl);
       setLatestVersionPreviewUrl((prev) => previewHostUrl || prev);
@@ -401,6 +423,9 @@ export default function PublishModal({
       setCompletedSteps(PUBLISH_STEPS.map((step) => step.id));
       setActiveStep(null);
       setPhase(result.deployment.reused ? "unchanged" : "success");
+
+      // Flush to Supabase immediately so reload cannot restore a legacy fake URL.
+      await saveNow();
     } catch (err) {
       if (runId !== runIdRef.current) return;
       setError(
@@ -597,6 +622,16 @@ export default function PublishModal({
                   <p className="text-xs text-muted">Atlas preview (.vercel.app)</p>
                   <p className="mt-1 break-all font-mono text-sm text-accent">
                     {displayPreviewUrl}
+                  </p>
+                  <p className="mt-2 font-mono text-[10px] text-muted">
+                    provider: {resolveProviderId ?? shownProvider} · host:{" "}
+                    {(() => {
+                      try {
+                        return new URL(displayPreviewUrl).hostname;
+                      } catch {
+                        return "invalid";
+                      }
+                    })()}
                   </p>
                 </div>
               ) : legacyFakePreviewBlocked ? (

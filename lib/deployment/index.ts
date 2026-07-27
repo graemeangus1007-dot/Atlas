@@ -36,6 +36,7 @@ export {
   isUsableVisitPreviewUrl,
   isVercelPreviewUrl,
   resolveVisitPreviewUrl,
+  sanitizePublishRecord,
 } from "@/lib/deployment/preview-url";
 export type { ResolveVisitPreviewInput } from "@/lib/deployment/preview-url";
 export {

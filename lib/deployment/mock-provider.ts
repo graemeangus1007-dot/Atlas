@@ -99,6 +99,7 @@ export class MockDeploymentProvider implements DeploymentProvider {
     const previewUrl = buildDeploymentPreviewUrl(slug);
 
     // Skip re-upload when the latest successful deploy already matches.
+    // Force Redeploy always creates a new deployment (never fingerprint-reuse).
     if (
       !force &&
       previousDeployment &&
@@ -106,7 +107,7 @@ export class MockDeploymentProvider implements DeploymentProvider {
       previousDeployment.id &&
       canReusePreviousPreviewUrl(
         this.id,
-        previousDeployment.previewUrl || previewUrl,
+        previousDeployment.previewUrl,
         previousDeployment.provider,
       )
     ) {
