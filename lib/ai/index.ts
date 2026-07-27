@@ -46,8 +46,22 @@ export {
 export {
   DEFAULT_OPENAI_MODEL,
   OpenAiWebsiteProvider,
+  WEBSITE_DRAFT_JSON_SCHEMA,
+  WEBSITE_DRAFT_SCHEMA_NAME,
+  buildOpenAiWebsiteResponseParams,
 } from "@/lib/ai/openai-provider";
+export type { OpenAiResponsesClient, OpenAiProviderOptions } from "@/lib/ai/openai-provider";
 export {
+  OPENAI_DEFAULTS,
+  resolveOpenAiRuntimeConfig,
+} from "@/lib/ai/openai-config";
+export {
+  isTransientAiError,
+  withAiRetry,
+} from "@/lib/ai/openai-retry";
+export {
+  buildSafeGenerationPayload,
+  buildWebsiteDeveloperPrompt,
   buildWebsiteSystemPrompt,
   buildWebsiteUserPrompt,
 } from "@/lib/ai/prompts";

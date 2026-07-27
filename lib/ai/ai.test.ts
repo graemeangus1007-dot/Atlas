@@ -10,7 +10,6 @@ import {
   MockAiProvider,
   normalizeGenerateWebsiteInput,
   OpenAiWebsiteProvider,
-  statusForCode,
 } from "@/lib/ai";
 import { validateEnv, resetServerEnvCacheForTests } from "@/lib/env";
 
@@ -119,21 +118,30 @@ describe("generator orchestration", () => {
     expect(result.draft.businessName).toBe("Test Co");
   });
 
-  it("openai provider returns not_implemented for generateWebsite", async () => {
-    const provider = new OpenAiWebsiteProvider({
-      apiKey: "sk-test",
-      model: "gpt-4o-mini",
+  it("openai provider constructs Responses API requests with structured outputs", async () => {
+    const { buildOpenAiWebsiteResponseParams } = await import(
+      "@/lib/ai/openai-provider"
+    );
+    const params = buildOpenAiWebsiteResponseParams({
+      model: "gpt-5.2",
+      temperature: 0.4,
+      maxOutputTokens: 1000,
+      generateInput: {
+        projectId: "p1",
+        businessName: "Test",
+        businessType: "Shop",
+        description: "Desc",
+      },
     });
-    const result = await provider.generateWebsite({
-      projectId: "p1",
-      businessName: "Test",
-      businessType: "Shop",
-      description: "Desc",
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.code).toBe("not_implemented");
-    expect(statusForCode(result.code)).toBe(501);
+    expect(params.text?.format?.type).toBe("json_schema");
+    expect(
+      params.text?.format && "strict" in params.text.format
+        ? params.text.format.strict
+        : null,
+    ).toBe(true);
+    expect(Array.isArray(params.input)).toBe(true);
+    const input = params.input as Array<{ role: string }>;
+    expect(input.some((m) => m.role === "developer")).toBe(true);
   });
 });
 

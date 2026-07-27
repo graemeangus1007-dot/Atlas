@@ -46,6 +46,7 @@ function normalizeQuestionnaire(
     website: raw.website?.trim() || undefined,
     facebook: raw.facebook?.trim() || undefined,
     instagram: raw.instagram?.trim() || undefined,
+    optionalSections: raw.optionalSections,
   };
 }
 

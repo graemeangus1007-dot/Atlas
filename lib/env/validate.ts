@@ -270,7 +270,7 @@ export function validateEnv(
   const openaiModel =
     (source === process.env
       ? trim(process.env.OPENAI_MODEL)
-      : trim(source.OPENAI_MODEL)) || "gpt-4o-mini";
+      : trim(source.OPENAI_MODEL)) || "gpt-5.2";
 
   if (aiProvider === "openai" && !openaiApiKey) {
     errors.push({
