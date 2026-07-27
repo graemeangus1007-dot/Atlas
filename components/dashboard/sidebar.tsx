@@ -4,7 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useProject } from "@/context/project-context";
-import { SIDEBAR_LINKS } from "@/data/dashboard";
+import {
+  getDashboardNavLinks,
+  isDashboardNavActive,
+} from "@/lib/dashboard/nav";
 
 type DashboardSidebarProps = {
   open: boolean;
@@ -14,6 +17,7 @@ type DashboardSidebarProps = {
 /**
  * Left navigation for the product shell.
  * Desktop: fixed rail. Mobile: slide-over drawer.
+ * Both surfaces render the same getDashboardNavLinks() list (no plan/role filter).
  */
 export default function DashboardSidebar({
   open,
@@ -22,6 +26,7 @@ export default function DashboardSidebar({
   const pathname = usePathname();
   const { projectId } = useProject();
   const [unreadCount, setUnreadCount] = useState(0);
+  const links = getDashboardNavLinks();
 
   const loadUnread = useCallback(async () => {
     if (!projectId) {
@@ -79,16 +84,15 @@ export default function DashboardSidebar({
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-1">
-            {SIDEBAR_LINKS.map((link) => {
-              const active =
-                pathname === link.href ||
-                pathname.startsWith(`${link.href}/`);
+            {links.map((link) => {
+              const active = isDashboardNavActive(pathname, link.href);
               const showBadge = link.href === "/leads" && unreadCount > 0;
               return (
                 <li key={link.href}>
                   <Link
                     href={link.href}
                     onClick={onClose}
+                    data-nav={link.href}
                     className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
                       active
                         ? "bg-accent-soft font-medium text-foreground"

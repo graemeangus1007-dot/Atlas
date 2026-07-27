@@ -2,6 +2,15 @@
 
 import type { AiContentField } from "@/types/ai";
 
+export {
+  DASHBOARD_NAV_LINKS,
+  SIDEBAR_LINKS,
+  getDashboardNavLinks,
+  isDashboardNavActive,
+  renderDashboardNavHtml,
+  type DashboardNavLink,
+} from "@/lib/dashboard/nav";
+
 export const MOCK_ACTIVITY = [
   {
     id: "1",
@@ -51,15 +60,3 @@ export const MOCK_SUGGESTIONS: DashboardAiSuggestion[] = [
     field: "primaryCta",
   },
 ];
-
-export const SIDEBAR_LINKS = [
-  { href: "/dashboard", label: "Dashboard", icon: "🏠" },
-  { href: "/projects", label: "Projects", icon: "📁" },
-  { href: "/dashboard/ai", label: "AI Website", icon: "✦" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: "📊" },
-  { href: "/leads", label: "Leads", icon: "📬" },
-  { href: "/editor", label: "Editor", icon: "✏️" },
-  { href: "/dashboard/billing", label: "Billing", icon: "💳" },
-  { href: "/dashboard/system", label: "System", icon: "🩺" },
-  { href: "/profile", label: "Profile", icon: "👤" },
-] as const;
