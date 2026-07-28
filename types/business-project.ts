@@ -10,7 +10,10 @@ import type { TemplateId } from "@/lib/templates/types";
 import type { GalleryImageIds, MediaAsset } from "@/types/media";
 import type { ProjectSeo } from "@/lib/seo/types";
 import type { PublishRecord } from "@/types/publishing";
-import type { ProjectDesignSections } from "@/lib/ai/edit-operations";
+import type { DesignAssistantPersistedMeta } from "@/lib/ai/editor-assistant-types";
+import type {
+  ProjectDesignSections,
+} from "@/lib/ai/edit-operations";
 import type { WebsiteService } from "@/types/website-content";
 
 /** Lifecycle of a generated Atlas website project. */
@@ -117,6 +120,11 @@ export type BusinessProject = {
    * Persisted in content JSON; omitted on older projects.
    */
   designSections?: ProjectDesignSections;
+  /**
+   * Design Assistant conversation + slim revision metadata (Sprint 22.0A).
+   * Restored on refresh via autosave; full undo snapshots live in localStorage.
+   */
+  designAssistant?: DesignAssistantPersistedMeta;
 };
 
 /** Fields collected during the onboarding wizard. */

@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import BrandStudioPanel from "@/components/design/brand-studio-panel";
 import AiAssistantPanel from "@/components/editor/ai-assistant-panel";
-import AtlasAiPanel from "@/components/editor/atlas-ai-panel";
+import AtlasAiPanel, {
+  type AtlasAiUiStatus,
+} from "@/components/editor/atlas-ai-panel";
 import EditorCanvas from "@/components/editor/editor-canvas";
 import EditorSidebar from "@/components/editor/editor-sidebar";
 import EditorTopBar from "@/components/editor/editor-topbar";
@@ -19,15 +21,20 @@ import {
 import {
   appendConversationMessage,
   applyAiFieldValue,
+  buildDesignAssistantMeta,
   canRedoEditorRevision,
   canUndoEditorRevision,
   createAiHistoryEntry,
   createEmptyEditorConversation,
   createEmptyRevisionStack,
+  logDesignAssistantDiagnostic,
   pushEditorRevision,
   redoEditorRevision,
   requestEditorAgentEdit,
+  restoreDesignAssistantState,
+  toLocalStore,
   undoEditorRevision,
+  writeDesignAssistantLocal,
   type EditChangeSummary,
   type EditorConversation,
   type EditorRevisionStack,
@@ -64,8 +71,27 @@ export default function WebsiteEditor() {
   const [lastChanges, setLastChanges] = useState<EditChangeSummary[] | null>(
     null,
   );
-  const [thinking, setThinking] = useState(false);
-  const [agentError, setAgentError] = useState<string | null>(null);
+  const [uiStatus, setUiStatus] = useState<AtlasAiUiStatus>("idle");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const inFlightRef = useRef(false);
+  const hydratedProjectIdRef = useRef<string | null>(null);
+
+  // Restore conversation + revisions when the active project changes / after refresh.
+  useEffect(() => {
+    const key = projectId ?? "local";
+    if (hydratedProjectIdRef.current === key) return;
+    hydratedProjectIdRef.current = key;
+
+    const restored = restoreDesignAssistantState({
+      projectId,
+      projectMeta: project.designAssistant ?? null,
+    });
+    setConversation(restored.conversation);
+    setRevisionStack(restored.revisionStack);
+    setLastChanges(restored.lastChanges);
+    setUiStatus("idle");
+    setStatusMessage(null);
+  }, [projectId, project.designAssistant]);
 
   const displayProject = useMemo<BusinessProject>(() => {
     if (!aiTarget || previewValue === null) return project;
@@ -86,6 +112,30 @@ export default function WebsiteEditor() {
     () => buildSiteDesignStyle(displayProject),
     [displayProject],
   );
+
+  function persistAssistantState(input: {
+    nextProject: BusinessProject;
+    conversation: EditorConversation;
+    revisionStack: EditorRevisionStack;
+    lastChanges: EditChangeSummary[] | null;
+  }) {
+    const meta = buildDesignAssistantMeta({
+      conversation: input.conversation,
+      revisionStack: input.revisionStack,
+      lastChanges: input.lastChanges,
+    });
+    writeDesignAssistantLocal(
+      projectId,
+      toLocalStore(meta, input.revisionStack),
+    );
+    const withMeta: BusinessProject = {
+      ...input.nextProject,
+      designAssistant: meta,
+    };
+    setProject(withMeta);
+    void saveNow();
+    return withMeta;
+  }
 
   function handleSave() {
     void saveNow();
@@ -157,17 +207,21 @@ export default function WebsiteEditor() {
   }
 
   async function handleDesignSend(request: string) {
-    setAgentError(null);
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setUiStatus("sending");
+    setStatusMessage(null);
+
     const withUser = appendConversationMessage(conversation, {
       role: "user",
       content: request,
     });
     setConversation(withUser);
-    setThinking(true);
 
     try {
       const result = await requestEditorAgentEdit({
         project,
+        projectId,
         request,
         history: withUser.messages.map((m) => ({
           role: m.role,
@@ -176,59 +230,183 @@ export default function WebsiteEditor() {
       });
 
       if (!result.ok) {
-        setAgentError(result.message);
-        setConversation((prev) =>
-          appendConversationMessage(prev, {
-            role: "assistant",
-            content: result.message,
-          }),
+        const failedConvo = appendConversationMessage(withUser, {
+          role: "assistant",
+          content: result.message,
+        });
+        setConversation(failedConvo);
+        setUiStatus("failed");
+        setStatusMessage(result.message);
+        writeDesignAssistantLocal(
+          projectId,
+          toLocalStore(
+            buildDesignAssistantMeta({
+              conversation: failedConvo,
+              revisionStack,
+              lastChanges,
+            }),
+            revisionStack,
+          ),
         );
+        logDesignAssistantDiagnostic({
+          requestId: result.requestId,
+          projectId,
+          operationCount: 0,
+          applyResult: "failed",
+          ok: false,
+        });
         return;
       }
 
-      setRevisionStack((stack) =>
-        pushEditorRevision(stack, {
-          before: project,
-          after: result.project,
-          operations: result.operations,
-          changes: result.changes,
-          prompt: request,
-        }),
-      );
-      setProject(result.project);
-      setLastChanges(result.changes);
-      setConversation((prev) =>
-        appendConversationMessage(prev, {
+      if (result.applyStatus === "no_changes" || result.operations.length === 0) {
+        const noChangeConvo = appendConversationMessage(withUser, {
           role: "assistant",
           content: result.explanation,
-          operations: result.operations,
-          changes: result.changes,
-        }),
+        });
+        setConversation(noChangeConvo);
+        setLastChanges([]);
+        setUiStatus("no_changes");
+        setStatusMessage(result.explanation);
+        writeDesignAssistantLocal(
+          projectId,
+          toLocalStore(
+            buildDesignAssistantMeta({
+              conversation: noChangeConvo,
+              revisionStack,
+              lastChanges: [],
+            }),
+            revisionStack,
+          ),
+        );
+        // Also mirror onto the project so refresh keeps the exchange.
+        setProject({
+          ...project,
+          designAssistant: buildDesignAssistantMeta({
+            conversation: noChangeConvo,
+            revisionStack,
+            lastChanges: [],
+          }),
+        });
+        void saveNow();
+        logDesignAssistantDiagnostic({
+          requestId: result.requestId,
+          projectId,
+          operationCount: 0,
+          applyResult: "no_changes",
+          ok: true,
+        });
+        return;
+      }
+
+      const nextStack = pushEditorRevision(revisionStack, {
+        before: project,
+        after: result.project,
+        operations: result.operations,
+        changes: result.changes,
+        prompt: request,
+      });
+      const withAssistant = appendConversationMessage(withUser, {
+        role: "assistant",
+        content: result.explanation,
+        operations: result.operations,
+        changes: result.changes,
+      });
+
+      setRevisionStack(nextStack);
+      setConversation(withAssistant);
+      setLastChanges(result.changes);
+      setUiStatus("applied");
+      setStatusMessage(
+        `${result.changes.length} change${result.changes.length === 1 ? "" : "s"} applied`,
       );
+
+      persistAssistantState({
+        nextProject: result.project,
+        conversation: withAssistant,
+        revisionStack: nextStack,
+        lastChanges: result.changes,
+      });
+
+      logDesignAssistantDiagnostic({
+        requestId: result.requestId,
+        projectId,
+        operationCount: result.operations.length,
+        applyResult: "applied",
+        ok: true,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? "Atlas AI could not apply that design request. Please try again."
+          : "Atlas AI could not apply that design request. Please try again.";
+      const failedConvo = appendConversationMessage(withUser, {
+        role: "assistant",
+        content: message,
+      });
+      setConversation(failedConvo);
+      setUiStatus("failed");
+      setStatusMessage(message);
+      logDesignAssistantDiagnostic({
+        requestId: "client-exception",
+        projectId,
+        operationCount: 0,
+        applyResult: "failed",
+        ok: false,
+      });
     } finally {
-      setThinking(false);
+      inFlightRef.current = false;
     }
   }
 
   function handleDesignUndo() {
+    if (inFlightRef.current) return;
     const undone = undoEditorRevision(revisionStack);
     if (!undone) return;
     setRevisionStack(undone.stack);
-    setProject(undone.project);
     setLastChanges(null);
+    setUiStatus("idle");
+    setStatusMessage(null);
+    persistAssistantState({
+      nextProject: undone.project,
+      conversation,
+      revisionStack: undone.stack,
+      lastChanges: null,
+    });
   }
 
   function handleDesignRedo() {
+    if (inFlightRef.current) return;
     const redone = redoEditorRevision(revisionStack);
     if (!redone) return;
-    setRevisionStack(redone.stack);
-    setProject(redone.project);
     const head = redone.stack.revisions[redone.stack.index];
+    setRevisionStack(redone.stack);
     setLastChanges(head?.changes ?? null);
+    setUiStatus("applied");
+    persistAssistantState({
+      nextProject: redone.project,
+      conversation,
+      revisionStack: redone.stack,
+      lastChanges: head?.changes ?? null,
+    });
   }
 
+  const panel = (
+    <AtlasAiPanel
+      project={project}
+      messages={conversation.messages}
+      status={uiStatus}
+      statusMessage={statusMessage}
+      canUndo={canUndoEditorRevision(revisionStack)}
+      canRedo={canRedoEditorRevision(revisionStack)}
+      lastChanges={lastChanges}
+      onSend={handleDesignSend}
+      onUndo={handleDesignUndo}
+      onRedo={handleDesignRedo}
+    />
+  );
+
   return (
-    <div className="flex min-h-full flex-1 bg-background">
+    <div className="flex min-h-screen flex-1 bg-background">
       <EditorSidebar
         activeId={activePanel}
         onSelect={setActivePanel}
@@ -358,47 +536,20 @@ export default function WebsiteEditor() {
         </div>
       </div>
 
-      <div className="hidden h-full min-h-0 w-80 shrink-0 xl:flex">
-        <AtlasAiPanel
-          project={project}
-          messages={conversation.messages}
-          thinking={thinking}
-          canUndo={canUndoEditorRevision(revisionStack)}
-          canRedo={canRedoEditorRevision(revisionStack)}
-          lastChanges={lastChanges}
-          onSend={handleDesignSend}
-          onUndo={handleDesignUndo}
-          onRedo={handleDesignRedo}
-        />
+      <div className="sticky top-0 hidden h-screen w-80 shrink-0 flex-col xl:flex">
+        {panel}
       </div>
 
-      {/* Mobile Design Assistant entry */}
       <div className="fixed bottom-4 right-4 z-30 xl:hidden">
         <details className="group">
           <summary className="cursor-pointer list-none rounded-full border border-border bg-surface/95 px-4 py-2 text-xs font-medium text-foreground shadow-lg backdrop-blur">
             Atlas AI
           </summary>
           <div className="absolute bottom-12 right-0 h-[min(70vh,32rem)] w-[min(100vw-2rem,22rem)] overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
-            <AtlasAiPanel
-              project={project}
-              messages={conversation.messages}
-              thinking={thinking}
-              canUndo={canUndoEditorRevision(revisionStack)}
-              canRedo={canRedoEditorRevision(revisionStack)}
-              lastChanges={lastChanges}
-              onSend={handleDesignSend}
-              onUndo={handleDesignUndo}
-              onRedo={handleDesignRedo}
-            />
+            {panel}
           </div>
         </details>
       </div>
-
-      {agentError ? (
-        <p className="sr-only" role="alert">
-          {agentError}
-        </p>
-      ) : null}
 
       <AiAssistantPanel
         open={aiOpen}

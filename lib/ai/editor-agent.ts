@@ -15,6 +15,7 @@ import type {
   EditChangeSummary,
   EditOperation,
 } from "@/lib/ai/edit-operations";
+import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
 import { validateEditOperations } from "@/lib/ai/validate-edit-operations";
 import { AiError } from "@/lib/ai/errors";
 import type { BusinessProject } from "@/types/business-project";
@@ -37,6 +38,8 @@ export type EditorAgentResult = {
   operations: EditOperation[];
   changes: EditChangeSummary[];
   project: BusinessProject;
+  /** applied | no_changes — never silent. */
+  applyStatus: "applied" | "no_changes";
 };
 
 export type EditorAgentFailure = {
@@ -200,26 +203,84 @@ export function planEditOperations(input: {
       value: "Refined service, thoughtful details, and an atmosphere designed to impress.",
     });
     notes.push("Applied a luxurious visual direction");
-  } else if (/modern|contemporary|fresh look/.test(text)) {
-    const modern = designFromTone("modern");
-    operations.push({ operation: "setTemplate", value: modern.templateId });
+  } else if (/modern/.test(text) || /contemporary|fresh look/.test(text)) {
+    const wantsProfessional = /professional/.test(text);
+    const tone = designFromTone(wantsProfessional ? "professional" : "modern");
+    const modernType = designFromTone("modern");
+    operations.push({
+      operation: "setTemplate",
+      value: wantsProfessional ? tone.templateId : modernType.templateId,
+    });
     operations.push({
       operation: "setTypography",
-      headingFont: modern.headingFont,
-      bodyFont: modern.bodyFont,
+      headingFont: wantsProfessional ? "manrope" : modernType.headingFont,
+      bodyFont: wantsProfessional ? "inter" : modernType.bodyFont,
     });
-    operations.push({ operation: "setButtonStyle", value: modern.buttonStyle });
+    operations.push({
+      operation: "setButtonStyle",
+      value: wantsProfessional ? "rounded" : modernType.buttonStyle,
+    });
+    operations.push({
+      operation: "setSiteWidth",
+      value: wantsProfessional ? "wide" : modernType.siteWidth,
+    });
+    operations.push({
+      operation: "changeTheme",
+      ...(wantsProfessional
+        ? { primary: "#0f766e", accent: "#0d9488" }
+        : {}),
+      background: tone.backgroundColor,
+      secondary: tone.secondaryColor,
+      theme: tone.theme,
+    });
     operations.push({
       operation: "replaceText",
       target: "hero.title",
-      value: `${name}, reimagined`,
+      value: wantsProfessional
+        ? `${name} — modern & professional`
+        : `${name}, reimagined`,
     });
     operations.push({
       operation: "replaceText",
       target: "hero.subheadline",
-      value: "Clean design, clear messaging, and a modern experience for every visitor.",
+      value: wantsProfessional
+        ? "Clean layout, trustworthy messaging, and a polished experience built to convert."
+        : "Clean design, clear messaging, and a modern experience for every visitor.",
     });
-    notes.push("Modernized the hero and layout");
+    operations.push({
+      operation: "replaceText",
+      target: "hero.primaryCta",
+      value: "Get started",
+    });
+    notes.push(
+      wantsProfessional
+        ? "Applied a modern, professional redesign"
+        : "Modernized the hero and layout",
+    );
+  } else if (/professional/.test(text)) {
+    const professional = designFromTone("professional");
+    operations.push({ operation: "setTemplate", value: professional.templateId });
+    operations.push({
+      operation: "setTypography",
+      headingFont: professional.headingFont,
+      bodyFont: professional.bodyFont,
+    });
+    operations.push({
+      operation: "setButtonStyle",
+      value: professional.buttonStyle,
+    });
+    operations.push({
+      operation: "changeTheme",
+      background: professional.backgroundColor,
+      secondary: professional.secondaryColor,
+      theme: professional.theme,
+    });
+    operations.push({
+      operation: "replaceText",
+      target: "hero.title",
+      value: `${name} — done right`,
+    });
+    notes.push("Applied a professional visual direction");
   }
 
   if (/rewrite.*about|about section|update the about/.test(text)) {
@@ -366,21 +427,11 @@ export function planEditOperations(input: {
   }
 
   if (operations.length === 0) {
-    // Safe default improvement when intent is vague but clearly about design.
-    operations.push({
-      operation: "replaceText",
-      target: "hero.primaryCta",
-      value: input.project.primaryCta.trim() || "Get started",
-    });
-    operations.push({
-      operation: "updateSeo",
-      siteTitle: `${name} | Official Site`.slice(0, 60),
-      metaDescription: (
-        input.project.description.trim() ||
-        `${name} — clear, trustworthy, ready for customers.`
-      ).slice(0, 160),
-    });
-    notes.push("Applied light polish to CTA and SEO");
+    return {
+      operations: [],
+      explanation:
+        "No changes needed — I could not map that request to a safe design edit. Try something more specific like “Make the hero more modern”, “Add an FAQ”, or “Change blue colors to green”.",
+    };
   }
 
   const explanation =
@@ -410,15 +461,30 @@ export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
     history,
   });
 
+  if (planned.operations.length === 0) {
+    return {
+      ok: true,
+      explanation: planned.explanation,
+      operations: [],
+      changes: [],
+      project: input.project,
+      applyStatus: "no_changes",
+    };
+  }
+
   const operations = validateEditOperations(planned.operations);
   const applied = applyEditOperations(input.project, operations);
+  const changed = hasMeaningfulProjectDiff(input.project, applied.project);
 
   return {
     ok: true,
-    explanation: planned.explanation,
-    operations,
-    changes: applied.changes,
-    project: applied.project,
+    explanation: changed
+      ? planned.explanation
+      : "No changes needed — the site already matched that request.",
+    operations: changed ? operations : [],
+    changes: changed ? applied.changes : [],
+    project: changed ? applied.project : input.project,
+    applyStatus: changed ? "applied" : "no_changes",
   };
 }
 

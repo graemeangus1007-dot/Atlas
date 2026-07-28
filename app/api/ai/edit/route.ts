@@ -93,6 +93,8 @@ export async function POST(request: Request) {
         changes: result.changes,
         project: result.project,
         changeCount: result.changes.length,
+        applyStatus: result.applyStatus,
+        operationCount: result.operations.length,
       },
       { requestId },
     );

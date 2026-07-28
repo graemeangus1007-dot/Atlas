@@ -201,3 +201,14 @@ export {
   createAiHistoryEntry,
   readAiFieldValue,
 } from "@/lib/ai/apply-ai-field";
+export {
+  buildDesignAssistantMeta,
+  createEmptyDesignAssistantMeta,
+  hasMeaningfulProjectDiff,
+  logDesignAssistantDiagnostic,
+  readDesignAssistantLocal,
+  restoreDesignAssistantState,
+  toLocalStore,
+  writeDesignAssistantLocal,
+} from "@/lib/ai/editor-assistant-persistence";
+export type { DesignAssistantPersistedMeta } from "@/lib/ai/editor-assistant-types";

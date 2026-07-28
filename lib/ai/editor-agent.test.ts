@@ -144,6 +144,7 @@ describe("editor agent", () => {
       request: "Make the hero more modern and add an FAQ.",
     });
     expect(result.ok).toBe(true);
+    expect(result.applyStatus).toBe("applied");
     expect(result.operations.length).toBeGreaterThan(0);
     expect(result.project.designSections?.enabled).toContain("faq");
     expect(result.explanation.length).toBeGreaterThan(10);
