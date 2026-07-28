@@ -10,6 +10,7 @@ import type { TemplateId } from "@/lib/templates/types";
 import type { GalleryImageIds, MediaAsset } from "@/types/media";
 import type { ProjectSeo } from "@/lib/seo/types";
 import type { PublishRecord } from "@/types/publishing";
+import type { ProjectDesignSections } from "@/lib/ai/edit-operations";
 import type { WebsiteService } from "@/types/website-content";
 
 /** Lifecycle of a generated Atlas website project. */
@@ -111,6 +112,11 @@ export type BusinessProject = {
    * Never stores generated HTML/CSS file bodies.
    */
   publish: PublishRecord | null;
+  /**
+   * Optional AI design sections (testimonials, FAQ, …) managed by the Design Assistant.
+   * Persisted in content JSON; omitted on older projects.
+   */
+  designSections?: ProjectDesignSections;
 };
 
 /** Fields collected during the onboarding wizard. */

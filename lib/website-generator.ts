@@ -134,6 +134,17 @@ export function generateWebsiteContent(
         },
       };
     })(),
+    designSections: project.designSections
+      ? {
+          enabled: [...project.designSections.enabled],
+          testimonials: project.designSections.testimonials,
+          faq: project.designSections.faq,
+          team: project.designSections.team,
+          pricing: project.designSections.pricing,
+          bookingCta: project.designSections.bookingCta,
+          newsletter: project.designSections.newsletter,
+        }
+      : undefined,
   };
 }
 

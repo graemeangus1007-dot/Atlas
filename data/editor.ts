@@ -14,7 +14,7 @@ export type EditorSidebarId = (typeof EDITOR_SIDEBAR_ITEMS)[number]["id"];
 export const EDITOR_PANEL_HINTS: Record<EditorSidebarId, string> = {
   pages: "Page structure is coming soon. Edit homepage content on the canvas.",
   content:
-    "Click text to edit. Use ✨ Improve with AI for headline, about, services, and CTA.",
+    "Click text to edit. Use Atlas AI in the right sidebar to redesign the site, or ✨ Improve with AI for a single field.",
   branding:
     "Use Brand Studio to customize colors, fonts, buttons, overlay, and width.",
   media: "Upload photos, then set a hero image or gallery photos.",

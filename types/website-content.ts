@@ -75,6 +75,21 @@ export type GeneratedWebsiteContent = {
       apiBaseUrl: string;
     };
   };
+  /** Optional Design Assistant sections (testimonials, FAQ, …). */
+  designSections?: {
+    enabled: string[];
+    testimonials?: Array<{ quote: string; author: string; role: string }>;
+    faq?: Array<{ question: string; answer: string }>;
+    team?: Array<{ name: string; role: string; bio: string }>;
+    pricing?: Array<{
+      name: string;
+      price: string;
+      description: string;
+      features: string[];
+    }>;
+    bookingCta?: { title: string; body: string; buttonText: string };
+    newsletter?: { title: string; body: string; buttonText: string };
+  };
 };
 
 /** Type-specific template pieces before business name / description are applied. */

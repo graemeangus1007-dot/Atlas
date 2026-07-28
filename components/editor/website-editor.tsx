@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import BrandStudioPanel from "@/components/design/brand-studio-panel";
 import AiAssistantPanel from "@/components/editor/ai-assistant-panel";
+import AtlasAiPanel from "@/components/editor/atlas-ai-panel";
 import EditorCanvas from "@/components/editor/editor-canvas";
 import EditorSidebar from "@/components/editor/editor-sidebar";
 import EditorTopBar from "@/components/editor/editor-topbar";
@@ -16,9 +17,21 @@ import {
   type EditorSidebarId,
 } from "@/data/editor";
 import {
+  appendConversationMessage,
   applyAiFieldValue,
+  canRedoEditorRevision,
+  canUndoEditorRevision,
   createAiHistoryEntry,
-} from "@/lib/ai/apply-ai-field";
+  createEmptyEditorConversation,
+  createEmptyRevisionStack,
+  pushEditorRevision,
+  redoEditorRevision,
+  requestEditorAgentEdit,
+  undoEditorRevision,
+  type EditChangeSummary,
+  type EditorConversation,
+  type EditorRevisionStack,
+} from "@/lib/ai";
 import { buildSiteDesignStyle } from "@/lib/design-theme";
 import { updateMediaAssetMeta } from "@/lib/media";
 import { generateWebsiteContent } from "@/lib/website-generator";
@@ -26,7 +39,7 @@ import type { AiContentField, AiFieldTarget, AiHistoryEntry } from "@/types/ai";
 import type { BusinessProject } from "@/types/business-project";
 
 /**
- * Website editor shell — Brand Studio, Media, canvas, and AI Copywriter.
+ * Website editor shell — Brand Studio, Media, canvas, and Atlas AI.
  */
 export default function WebsiteEditor() {
   const { project, projectId, updateProject, setProject, saveNow } = useProject();
@@ -41,6 +54,18 @@ export default function WebsiteEditor() {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [previewValue, setPreviewValue] = useState<string | null>(null);
   const [aiHistory, setAiHistory] = useState<AiHistoryEntry | null>(null);
+
+  const [conversation, setConversation] = useState<EditorConversation>(
+    createEmptyEditorConversation,
+  );
+  const [revisionStack, setRevisionStack] = useState<EditorRevisionStack>(
+    createEmptyRevisionStack,
+  );
+  const [lastChanges, setLastChanges] = useState<EditChangeSummary[] | null>(
+    null,
+  );
+  const [thinking, setThinking] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
 
   const displayProject = useMemo<BusinessProject>(() => {
     if (!aiTarget || previewValue === null) return project;
@@ -129,6 +154,77 @@ export default function WebsiteEditor() {
       ),
     );
     setAiHistory(null);
+  }
+
+  async function handleDesignSend(request: string) {
+    setAgentError(null);
+    const withUser = appendConversationMessage(conversation, {
+      role: "user",
+      content: request,
+    });
+    setConversation(withUser);
+    setThinking(true);
+
+    try {
+      const result = await requestEditorAgentEdit({
+        project,
+        request,
+        history: withUser.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+      });
+
+      if (!result.ok) {
+        setAgentError(result.message);
+        setConversation((prev) =>
+          appendConversationMessage(prev, {
+            role: "assistant",
+            content: result.message,
+          }),
+        );
+        return;
+      }
+
+      setRevisionStack((stack) =>
+        pushEditorRevision(stack, {
+          before: project,
+          after: result.project,
+          operations: result.operations,
+          changes: result.changes,
+          prompt: request,
+        }),
+      );
+      setProject(result.project);
+      setLastChanges(result.changes);
+      setConversation((prev) =>
+        appendConversationMessage(prev, {
+          role: "assistant",
+          content: result.explanation,
+          operations: result.operations,
+          changes: result.changes,
+        }),
+      );
+    } finally {
+      setThinking(false);
+    }
+  }
+
+  function handleDesignUndo() {
+    const undone = undoEditorRevision(revisionStack);
+    if (!undone) return;
+    setRevisionStack(undone.stack);
+    setProject(undone.project);
+    setLastChanges(null);
+  }
+
+  function handleDesignRedo() {
+    const redone = redoEditorRevision(revisionStack);
+    if (!redone) return;
+    setRevisionStack(redone.stack);
+    setProject(redone.project);
+    const head = redone.stack.revisions[redone.stack.index];
+    setLastChanges(head?.changes ?? null);
   }
 
   return (
@@ -261,6 +357,48 @@ export default function WebsiteEditor() {
           </div>
         </div>
       </div>
+
+      <div className="hidden h-full min-h-0 w-80 shrink-0 xl:flex">
+        <AtlasAiPanel
+          project={project}
+          messages={conversation.messages}
+          thinking={thinking}
+          canUndo={canUndoEditorRevision(revisionStack)}
+          canRedo={canRedoEditorRevision(revisionStack)}
+          lastChanges={lastChanges}
+          onSend={handleDesignSend}
+          onUndo={handleDesignUndo}
+          onRedo={handleDesignRedo}
+        />
+      </div>
+
+      {/* Mobile Design Assistant entry */}
+      <div className="fixed bottom-4 right-4 z-30 xl:hidden">
+        <details className="group">
+          <summary className="cursor-pointer list-none rounded-full border border-border bg-surface/95 px-4 py-2 text-xs font-medium text-foreground shadow-lg backdrop-blur">
+            Atlas AI
+          </summary>
+          <div className="absolute bottom-12 right-0 h-[min(70vh,32rem)] w-[min(100vw-2rem,22rem)] overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+            <AtlasAiPanel
+              project={project}
+              messages={conversation.messages}
+              thinking={thinking}
+              canUndo={canUndoEditorRevision(revisionStack)}
+              canRedo={canRedoEditorRevision(revisionStack)}
+              lastChanges={lastChanges}
+              onSend={handleDesignSend}
+              onUndo={handleDesignUndo}
+              onRedo={handleDesignRedo}
+            />
+          </div>
+        </details>
+      </div>
+
+      {agentError ? (
+        <p className="sr-only" role="alert">
+          {agentError}
+        </p>
+      ) : null}
 
       <AiAssistantPanel
         open={aiOpen}

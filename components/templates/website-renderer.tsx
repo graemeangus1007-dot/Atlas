@@ -2,6 +2,7 @@
 
 import PreviewAbout from "@/components/preview/preview-about";
 import PreviewContact from "@/components/preview/preview-contact";
+import PreviewDesignSections from "@/components/preview/preview-design-sections";
 import PreviewFeatures from "@/components/preview/preview-features";
 import PreviewGallery from "@/components/preview/preview-gallery";
 import PreviewHero from "@/components/preview/preview-hero";
@@ -104,6 +105,12 @@ export default function WebsiteRenderer({
               return null;
           }
         })}
+        {content.designSections?.enabled?.length ? (
+          <PreviewDesignSections
+            sections={content.designSections}
+            cardStyle={template.cardStyle}
+          />
+        ) : null}
       </main>
     </div>
   );

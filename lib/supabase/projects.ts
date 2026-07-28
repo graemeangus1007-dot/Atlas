@@ -184,6 +184,7 @@ export function businessProjectToColumns(
     heroImageUrl,
     galleryImageIds: project.galleryImageIds,
     publish: project.publish,
+    designSections: project.designSections ?? null,
   };
 
   const branding: ProjectBrandingJson = {
@@ -326,6 +327,9 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
       : base.galleryImageIds,
     status: row.status,
     publish,
+    designSections: isRecord(content.designSections)
+      ? (content.designSections as BusinessProject["designSections"])
+      : undefined,
   };
 }
 

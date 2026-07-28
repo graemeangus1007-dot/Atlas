@@ -138,3 +138,66 @@ export type {
   CreateProjectFromDraftInput,
   CreateProjectFromDraftResult,
 } from "@/lib/ai/create-project-from-draft";
+
+// Sprint 22.0A — Design Assistant foundation
+export {
+  applyEditOperations,
+  mergeOptionalContentIntoDesignSections,
+} from "@/lib/ai/apply-edit-operations";
+export {
+  EDIT_OPERATION_KINDS,
+  EDIT_TEXT_TARGETS,
+  INSERTABLE_SECTION_TYPES,
+  REQUIRED_SECTION_IDS,
+  isEditOperationKind,
+  isEditTextTarget,
+  isInsertableSectionType,
+  isRequiredSectionId,
+} from "@/lib/ai/edit-operations";
+export type {
+  EditChangeSummary,
+  EditOperation,
+  EditOperationKind,
+  EditTextTarget,
+  InsertableSectionType,
+  ProjectDesignSections,
+} from "@/lib/ai/edit-operations";
+export {
+  appendConversationMessage,
+  createEmptyEditorConversation,
+  serializeConversationForAgent,
+} from "@/lib/ai/editor-conversation";
+export type {
+  EditorConversation,
+  EditorConversationMessage,
+} from "@/lib/ai/editor-conversation";
+export {
+  planEditOperations,
+  runEditorAgent,
+  tryRunEditorAgent,
+} from "@/lib/ai/editor-agent";
+export type {
+  EditorAgentFailure,
+  EditorAgentHistoryItem,
+  EditorAgentInput,
+  EditorAgentResult,
+} from "@/lib/ai/editor-agent";
+export {
+  canRedoEditorRevision,
+  canUndoEditorRevision,
+  createEmptyRevisionStack,
+  pushEditorRevision,
+  redoEditorRevision,
+  undoEditorRevision,
+} from "@/lib/ai/editor-revisions";
+export type {
+  EditorRevision,
+  EditorRevisionStack,
+} from "@/lib/ai/editor-revisions";
+export { validateEditOperations } from "@/lib/ai/validate-edit-operations";
+export { requestEditorAgentEdit } from "@/lib/ai/request-editor-edit";
+export {
+  applyAiFieldValue,
+  createAiHistoryEntry,
+  readAiFieldValue,
+} from "@/lib/ai/apply-ai-field";
