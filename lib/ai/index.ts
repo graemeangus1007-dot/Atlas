@@ -367,6 +367,27 @@ export {
   tryRunAtlasBrain,
 } from "@/lib/ai/atlas-brain";
 export {
+  decideWithAtlasBrainEngine,
+  formatNaturalPreferenceNote,
+  stageContinuation,
+  stageExplicitCommand,
+  stageExplicitDesign,
+  stageBusinessGoal,
+  stageQuestion,
+  stageClarification,
+  DECISION_STAGES,
+  COMMAND_KINDS,
+  CONFIDENCE_EXECUTE_IMMEDIATE,
+  CONFIDENCE_EXECUTE_EXPLAIN,
+  CONFIDENCE_CLARIFY,
+} from "@/lib/ai/atlas-brain-decision-engine";
+export type {
+  DecisionStage,
+  CommandKind,
+  AtlasDecisionEngineResult,
+  AtlasDecisionEngineInput,
+} from "@/lib/ai/atlas-brain-decision-engine";
+export {
   inferMemoryFromMessage,
   mergeAtlasMemory,
   updateAtlasMemory,

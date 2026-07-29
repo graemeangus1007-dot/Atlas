@@ -22,10 +22,10 @@ import {
   type AtlasActionMemory,
   type ClarificationDestination,
 } from "@/lib/ai/atlas-action-memory";
+import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
-  formatMemoryContext,
-  updateAtlasMemory,
-} from "@/lib/ai/atlas-brain-memory";
+  formatNaturalPreferenceNote,
+} from "@/lib/ai/atlas-brain-decision-engine";
 import {
   decideAtlasBrain,
   formatExecutionPlanForUser,
@@ -309,9 +309,9 @@ function tryContinueActionMemory(input: {
       );
       const mapped =
         matched?.destination === "visuals"
-          ? "Make the website feel more polished visually"
+          ? "Make this website feel more modern"
           : matched?.destination === "copy"
-            ? "Improve the website copy and headlines"
+            ? "Rewrite the hero headline and subheadline"
             : matched?.destination === "conversions"
               ? "I want more leads and stronger conversions"
               : null;
@@ -484,7 +484,16 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
     history,
   });
 
-  const memoryCtx = formatMemoryContext(input.project.atlasMemory);
+  // Decision engine Stage 1 may surface continue_plan if short-circuit missed.
+  if (decision.intent === "continue_plan") {
+    const again = tryContinueActionMemory({
+      project: input.project,
+      request,
+    });
+    if (again) return again;
+  }
+
+  const preferenceNote = formatNaturalPreferenceNote(input.project.atlasMemory);
   const planText = formatExecutionPlanForUser(decision.executionPlan);
 
   if (decision.needsClarification) {
@@ -534,8 +543,8 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
     };
   }
 
-  // Recommend-only — narrative from Creative Director + Advisor (no auto-apply)
-  if (decision.intent === "recommend") {
+  // Questions / recommend — narrative only (never execute edits)
+  if (decision.intent === "recommend" || decision.intent === "question") {
     const creative = reviewCreativeDirector({ project: input.project, limit: 5 });
     const advisor = reviewBusinessProject({ project: input.project, limit: 3 });
     const creativeRecs = creative.recommendedImprovements.slice(0, 5);
@@ -544,31 +553,48 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
       ...creativeRecs.slice(0, 3).map((r) => `• ${r.title}`),
       ...advisorRecs.slice(0, 2).map((r) => `• ${r.title}`),
     ];
-    const explanation = [
-      "I reviewed your website.",
-      creative.narrative.split("\n")[0] ?? "",
-      "",
-      `Completeness: ${creative.overallCompleteness}% · ${creative.maturityLevel}`,
-      "",
-      "Highest-impact opportunities:",
-      ...bullets,
-      "",
-      "Say Apply All when you’re ready and I’ll make these changes.",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const isRecommend = decision.intent === "recommend";
+    const explanation = isRecommend
+      ? [
+          "I reviewed your website.",
+          creative.narrative.split("\n")[0] ?? "",
+          "",
+          `Completeness: ${creative.overallCompleteness}% · ${creative.maturityLevel}`,
+          "",
+          "Highest-impact opportunities:",
+          ...bullets,
+          "",
+          "Say Apply All when you’re ready and I’ll make these changes.",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : [
+          decision.explanation,
+          "",
+          `Right now the site is about ${creative.overallCompleteness}% complete (${creative.maturityLevel}).`,
+          creative.narrative.split("\n")[0] ?? "",
+          bullets.length
+            ? ["", "If I were improving it next, I’d look at:", ...bullets].join(
+                "\n",
+              )
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
 
-    const actionMemory = storeRecommendations(getActionMemory(input.project), {
-      creative: creativeRecs,
-      advisor: advisorRecs,
-      creativeReport: {
-        overallCompleteness: creative.overallCompleteness,
-        maturityLevel: creative.maturityLevel,
-        fingerprint: creative.fingerprint,
-        reviewedAt: creative.reviewedAt,
-      },
-      executionPlan: decision.executionPlan,
-    });
+    const actionMemory = isRecommend
+      ? storeRecommendations(getActionMemory(input.project), {
+          creative: creativeRecs,
+          advisor: advisorRecs,
+          creativeReport: {
+            overallCompleteness: creative.overallCompleteness,
+            maturityLevel: creative.maturityLevel,
+            fingerprint: creative.fingerprint,
+            reviewedAt: creative.reviewedAt,
+          },
+          executionPlan: decision.executionPlan,
+        })
+      : getActionMemory(input.project);
     const project = withActionMemory(
       withMemory(input.project, request, decision.memoryPatch),
       actionMemory,
@@ -581,11 +607,15 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
       project,
       applyStatus: "no_changes",
       decision,
-      followUpSuggestions: [
-        "Apply All",
-        ...decision.followUpSuggestions.filter((s) => s !== "Apply the top improvement"),
-        "Apply the top improvement",
-      ].slice(0, 4),
+      followUpSuggestions: isRecommend
+        ? [
+            "Apply All",
+            ...decision.followUpSuggestions.filter(
+              (s) => s !== "Apply the top improvement",
+            ),
+            "Apply the top improvement",
+          ].slice(0, 4)
+        : decision.followUpSuggestions,
       executionPlan: decision.executionPlan,
       atlasMemory: project.atlasMemory,
     };
@@ -602,14 +632,63 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
   if (planText && decision.selectedAgents.length > 1) {
     explanation = appendExplanation(planText, explanation);
   }
-  if (memoryCtx) {
-    explanation = appendExplanation(
-      explanation,
-      `(Keeping your preferences in mind: ${memoryCtx}.)`,
-    );
+  if (preferenceNote) {
+    explanation = appendExplanation(explanation, preferenceNote);
   }
 
   const agents = new Set(decision.selectedAgents);
+
+  // Explicit polish commands — apply before broader specialists
+  if (
+    decision.commandKind === "animations" ||
+    decision.intent === "command_animations"
+  ) {
+    try {
+      const ops = validateEditOperations([
+        { operation: "setCreativePolish", motion: true, visualHierarchy: true },
+      ]);
+      const applied = applyEditOperations(project, ops);
+      if (hasMeaningfulProjectDiff(project, applied.project)) {
+        project = applied.project;
+        operations.push(...ops);
+        changes.push(...applied.changes);
+        applyStatus = "applied";
+        explanation = appendExplanation(
+          explanation,
+          "Subtle animations are now enabled across the page.",
+        );
+      } else if (!project.creativePolish?.motion) {
+        project = {
+          ...project,
+          creativePolish: { ...(project.creativePolish ?? {}), motion: true },
+        };
+        applyStatus = "applied";
+        explanation = appendExplanation(
+          explanation,
+          "Subtle animations are now enabled across the page.",
+        );
+      }
+    } catch {
+      // fall through to editor
+    }
+  }
+
+  if (decision.commandKind === "icons" || decision.intent === "command_icons") {
+    try {
+      const ops = validateEditOperations([
+        { operation: "setCreativePolish", serviceIcons: true },
+      ]);
+      const applied = applyEditOperations(project, ops);
+      if (hasMeaningfulProjectDiff(project, applied.project)) {
+        project = applied.project;
+        operations.push(...ops);
+        changes.push(...applied.changes);
+        applyStatus = "applied";
+      }
+    } catch {
+      // fall through
+    }
+  }
 
   // Design System Intelligence — auto-choose language when confidence is high
   if (

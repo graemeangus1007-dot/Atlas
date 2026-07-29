@@ -623,10 +623,21 @@ export function operationsFromDesignReasoning(
         bodyFont: "inter",
       });
       ops.push({
+        operation: "setCreativePolish",
+        spacing: "airy",
+        visualHierarchy: true,
+      });
+      ops.push({
+        operation: "changeTheme",
+        background: project.theme === "dark" ? "#0f1419" : "#f7f8fa",
+        secondary: "#111827",
+        theme: project.theme === "dark" ? "dark" : "light",
+      });
+      ops.push({
         operation: "replaceText",
         target: "hero.subheadline",
         value: project.heroSubheadline.trim()
-          ? shortenSentence(project.heroSubheadline, 140)
+          ? shortenSentence(project.heroSubheadline, 120)
           : "Clear information, easy scanning, and a layout that gives every section room to breathe.",
       });
       break;

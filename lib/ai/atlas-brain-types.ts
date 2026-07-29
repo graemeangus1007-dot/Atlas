@@ -31,7 +31,21 @@ export type AtlasBrainIntent =
   | "feel_direction"
   | "publish"
   | "recommend"
-  | "multi_goal";
+  | "multi_goal"
+  /** Sprint 26.2 — continue Action Memory plan */
+  | "continue_plan"
+  /** Sprint 26.2 — explicit command categories */
+  | "command_seo"
+  | "command_animations"
+  | "command_icons"
+  | "command_readability"
+  | "command_spacing"
+  | "command_typography"
+  | "command_accessibility"
+  | "command_performance"
+  | "command_navigation"
+  | "command_branding"
+  | "command_buttons";
 
 export type AtlasExecutionStep = {
   id: string;
@@ -70,6 +84,10 @@ export type AtlasBrainDecision = {
   followUpSuggestions: string[];
   /** Memory patch inferred from this turn (merged on execute). */
   memoryPatch?: Partial<AtlasProjectMemory>;
+  /** Sprint 26.2 — which decision-engine stage produced this. */
+  decisionStage?: string;
+  /** Sprint 26.2 — explicit command kind when applicable. */
+  commandKind?: string;
 };
 
 export const ATLAS_BRAIN_CLARIFICATION_OPTIONS = [

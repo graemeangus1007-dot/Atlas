@@ -557,6 +557,97 @@ export function planDirectEditOperations(input: {
     notes.push("Improved SEO metadata");
   }
 
+  if (
+    /\b(animations?|motion|scroll\s+animations?|micro[- ]?interactions?)\b/.test(
+      text,
+    )
+  ) {
+    operations.push({
+      operation: "setCreativePolish",
+      motion: true,
+      visualHierarchy: true,
+    });
+    notes.push("Enabled subtle animations");
+  }
+
+  if (/\b(service\s+)?icons?\b/.test(text) && /\b(add|enable|include|show)\b/.test(text)) {
+    operations.push({
+      operation: "setCreativePolish",
+      serviceIcons: true,
+    });
+    notes.push("Enabled service icons");
+  }
+
+  if (
+    /\b(easier\s+to\s+read|hard\s+to\s+read|readability|make\s+the\s+words|simpler\s+copy|clearer\s+(copy|text|words)|too\s+dense|cluttered)\b/.test(
+      text,
+    )
+  ) {
+    operations.push({
+      operation: "setTypography",
+      headingFont: "inter",
+      bodyFont: "inter",
+    });
+    operations.push({ operation: "setSiteWidth", value: "boxed" });
+    operations.push({
+      operation: "setCreativePolish",
+      spacing: "airy",
+      visualHierarchy: true,
+    });
+    operations.push({
+      operation: "changeTheme",
+      background:
+        input.project.theme === "dark" ? "#0f1419" : "#f7f8fa",
+      secondary: "#111827",
+      theme: input.project.theme === "dark" ? "dark" : "light",
+    });
+    operations.push({ operation: "shortenNavigation", maxLabelLength: 10 });
+    const sub = input.project.heroSubheadline.trim();
+    operations.push({
+      operation: "replaceText",
+      target: "hero.subheadline",
+      value: sub
+        ? sub.length > 120
+          ? `${sub.slice(0, 117).trimEnd()}…`
+          : `${sub.replace(/\s+/g, " ").trim()}`
+        : "Clear information, easy scanning, and a layout that gives every section room to breathe.",
+    });
+    notes.push("Improved readability (type, spacing, contrast, and clearer copy)");
+  }
+
+  if (
+    /\b(more\s+whitespace|more\s+space|breathing\s+room|airy|less\s+cramped|increase\s+spacing)\b/.test(
+      text,
+    )
+  ) {
+    operations.push({
+      operation: "setCreativePolish",
+      spacing: "airy",
+      visualHierarchy: true,
+    });
+    operations.push({ operation: "setSiteWidth", value: "wide" });
+    notes.push("Increased spacing and breathing room");
+  }
+
+  if (
+    /\b(buttons?\s+(round|rounded)|make\s+the\s+buttons?\s+(round|rounded))\b/.test(
+      text,
+    )
+  ) {
+    operations.push({ operation: "setButtonStyle", value: "rounded" });
+    notes.push("Made buttons rounded");
+  } else if (
+    /\b(buttons?\s+pill|make\s+the\s+buttons?\s+pill)\b/.test(text)
+  ) {
+    operations.push({ operation: "setButtonStyle", value: "pill" });
+    notes.push("Made buttons pill-shaped");
+  } else if (
+    /\b(buttons?\s+square|make\s+the\s+buttons?\s+square)\b/.test(text)
+  ) {
+    operations.push({ operation: "setButtonStyle", value: "square" });
+    notes.push("Made buttons square");
+  }
+
   if (/dental|dentist|orthodont/.test(text)) {
     operations.push({
       operation: "replaceText",
