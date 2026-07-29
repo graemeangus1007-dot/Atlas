@@ -244,6 +244,17 @@ export {
 } from "@/lib/ai/business-advisor";
 export { DEFAULT_ADVISOR_MODULES } from "@/lib/ai/advisor-modules";
 export { applyAdvisorRecommendation } from "@/lib/ai/apply-advisor-recommendation";
+export {
+  CRITIQUE_CATEGORY_LABELS,
+  CRITIQUE_CATEGORY_WEIGHTS,
+  CRITIQUE_SCORE_CATEGORIES,
+  scoreBusinessProject,
+} from "@/lib/ai/critique-scoring";
+export {
+  critiqueCategoryForFinding,
+  explainAdvisorFinding,
+  impactLabel,
+} from "@/lib/ai/critique-explanations";
 export type {
   AdvisorCategory,
   AdvisorFinding,
@@ -253,4 +264,10 @@ export type {
   BusinessAdvisorReport,
   BusinessRecommendation,
 } from "@/lib/ai/business-advisor-types";
-export type { ApplyAdvisorRecommendationResult } from "@/lib/ai/apply-advisor-recommendation";
+export type {
+  CritiqueCategoryScores,
+  CritiqueScoreBreakdown,
+  CritiqueScoreCategory,
+} from "@/lib/ai/critique-scoring";
+export type { CritiqueExplanation } from "@/lib/ai/critique-explanations";
+export type { ApplyAdvisorRecommendationResult, AdvisorApplyStatus } from "@/lib/ai/apply-advisor-recommendation";

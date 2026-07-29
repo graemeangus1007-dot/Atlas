@@ -2,7 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import Button from "@/components/ui/button";
-import type { BusinessRecommendation } from "@/lib/ai/business-advisor-types";
+import type {
+  BusinessAdvisorReport,
+  BusinessRecommendation,
+} from "@/lib/ai/business-advisor-types";
+import {
+  CRITIQUE_CATEGORY_LABELS,
+  CRITIQUE_SCORE_CATEGORIES,
+  type CritiqueScoreCategory,
+} from "@/lib/ai/critique-scoring";
 import type { EditChangeSummary } from "@/lib/ai/edit-operations";
 import type { EditorConversationMessage } from "@/lib/ai/editor-conversation";
 import type { BusinessProject } from "@/types/business-project";
@@ -15,6 +23,19 @@ export type AtlasAiUiStatus =
   | "needs_clarification"
   | "failed";
 
+export type RecommendationApplyUiStatus =
+  | "idle"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "no_visible_change";
+
+export type RecommendationApplyState = {
+  status: RecommendationApplyUiStatus;
+  message?: string | null;
+  requestId?: string | null;
+};
+
 type AtlasAiPanelProps = {
   project: BusinessProject;
   messages: EditorConversationMessage[];
@@ -23,17 +44,39 @@ type AtlasAiPanelProps = {
   canUndo: boolean;
   canRedo: boolean;
   lastChanges: EditChangeSummary[] | null;
-  recommendations?: BusinessRecommendation[];
-  advisorSummary?: string | null;
+  /** Full Atlas Review report (scores + opportunities). */
+  advisorReport?: BusinessAdvisorReport | null;
   applyingRecommendationId?: string | null;
+  recommendationStates?: Record<string, RecommendationApplyState>;
   onSend: (request: string) => void;
   onUndo: () => void;
   onRedo: () => void;
   onApplyRecommendation?: (recommendation: BusinessRecommendation) => void;
 };
 
+function impactBadgeClass(impact: BusinessRecommendation["impact"]): string {
+  if (impact === "high") return "border-accent/50 text-foreground";
+  if (impact === "medium") return "border-border text-muted";
+  return "border-border/60 text-muted";
+}
+
+function scoreTone(score: number): string {
+  if (score >= 80) return "text-emerald-300";
+  if (score >= 60) return "text-amber-200";
+  return "text-red-200";
+}
+
+function recStatusLabel(state: RecommendationApplyState | undefined): string | null {
+  if (!state || state.status === "idle") return null;
+  if (state.status === "applying") return "Applying";
+  if (state.status === "applied") return "Applied";
+  if (state.status === "failed") return "Failed";
+  if (state.status === "no_visible_change") return "No visible change";
+  return null;
+}
+
 /**
- * Right-rail Atlas AI — Design Assistant + Business Advisor recommendations.
+ * Right-rail Atlas AI — sticky Atlas Review + independently scrolling conversation.
  */
 export default function AtlasAiPanel({
   project,
@@ -43,9 +86,9 @@ export default function AtlasAiPanel({
   canUndo,
   canRedo,
   lastChanges,
-  recommendations = [],
-  advisorSummary = null,
+  advisorReport = null,
   applyingRecommendationId = null,
+  recommendationStates = {},
   onSend,
   onUndo,
   onRedo,
@@ -53,13 +96,22 @@ export default function AtlasAiPanel({
 }: AtlasAiPanelProps) {
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(true);
-  const [recsOpen, setRecsOpen] = useState(true);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(true);
+  const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const sending = status === "sending" || Boolean(applyingRecommendationId);
+  const recommendations = advisorReport?.recommendations ?? [];
+  const hasReview = Boolean(advisorReport);
 
+  // Only auto-scroll the conversation region — never the recommendations.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, status, lastChanges, recommendations]);
+    const node = conversationEndRef.current;
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    }
+  }, [messages, status, lastChanges]);
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -87,13 +139,14 @@ export default function AtlasAiPanel({
       className="flex h-full min-h-0 w-full flex-col border-l border-border bg-surface/95 backdrop-blur-xl"
       aria-label="Atlas AI Design Assistant"
       aria-busy={sending || undefined}
+      data-testid="atlas-ai-panel"
     >
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
         <div>
           <p className="font-[family-name:var(--font-atlas-display)] text-sm font-semibold text-foreground">
             Atlas AI
           </p>
-          <p className="text-xs text-muted">Advisor + design assistant</p>
+          <p className="text-xs text-muted">Review + design assistant</p>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -142,74 +195,213 @@ export default function AtlasAiPanel({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {recommendations.length > 0 ? (
-          <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+      {/* Sticky / bounded Atlas Review — independent of conversation scroll */}
+      {hasReview ? (
+        <div
+          className="shrink-0 border-b border-border bg-surface/90"
+          data-testid="atlas-review-region"
+        >
+          <div className="max-h-[min(42vh,22rem)] overflow-y-auto overscroll-contain px-4 py-3 sm:max-h-[min(46vh,26rem)]">
             <button
               type="button"
               className="flex w-full items-center justify-between text-left"
-              onClick={() => setRecsOpen((v) => !v)}
+              onClick={() => setReviewOpen((v) => !v)}
             >
               <div>
-                <p className="text-xs font-medium text-foreground">
-                  Recommendations
-                </p>
+                <p className="text-xs font-medium text-foreground">Atlas Review</p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-                  {advisorSummary ||
-                    "I noticed a few ways to strengthen this site."}
+                  {advisorReport?.summary}
                 </p>
               </div>
               <span className="ml-2 shrink-0 text-[11px] text-muted">
-                {recsOpen ? "Hide" : "Show"}
+                {reviewOpen ? "Hide" : "Show"}
               </span>
             </button>
 
-            {recsOpen ? (
-              <ul className="mt-3 space-y-3">
-                {recommendations.map((rec) => {
-                  const applying = applyingRecommendationId === rec.id;
-                  return (
-                    <li
-                      key={rec.id}
-                      className="rounded-lg border border-border/60 bg-surface/60 p-3"
+            {reviewOpen ? (
+              <div className="mt-3 space-y-3">
+                <div className="flex items-end justify-between gap-3 rounded-lg border border-border/60 bg-background/50 px-3 py-2.5">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted">
+                      Overall score
+                    </p>
+                    <p
+                      className={`mt-0.5 font-[family-name:var(--font-atlas-display)] text-3xl font-semibold tabular-nums ${scoreTone(advisorReport!.overallScore)}`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium text-foreground">
-                          {rec.title}
-                        </p>
-                        <span className="shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
-                          {rec.impact}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs leading-relaxed text-muted">
-                        <span className="font-medium text-foreground/80">Why · </span>
-                        {rec.why}
-                      </p>
-                      <p className="mt-1 text-[11px] text-muted">
-                        Expected impact · {rec.impact}
-                      </p>
-                      {onApplyRecommendation ? (
-                        <button
-                          type="button"
-                          disabled={sending}
-                          onClick={() => onApplyRecommendation(rec)}
-                          className="mt-2.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/20 disabled:opacity-40"
-                        >
-                          {applying ? "Applying…" : "Apply Improvement"}
-                        </button>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
+                      {advisorReport!.overallScore}
+                      <span className="ml-1 text-sm font-normal text-muted">
+                        /100
+                      </span>
+                    </p>
+                  </div>
+                  <p className="pb-1 text-[11px] text-muted">
+                    {recommendations.length} top opportunit
+                    {recommendations.length === 1 ? "y" : "ies"}
+                  </p>
+                </div>
+
+                <ul className="grid grid-cols-2 gap-1.5">
+                  {CRITIQUE_SCORE_CATEGORIES.map((key: CritiqueScoreCategory) => {
+                    const value = advisorReport!.categoryScores[key];
+                    return (
+                      <li
+                        key={key}
+                        className="rounded-md border border-border/50 bg-background/40 px-2 py-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10px] text-muted">
+                            {CRITIQUE_CATEGORY_LABELS[key]}
+                          </span>
+                          <span
+                            className={`text-[11px] font-medium tabular-nums ${scoreTone(value)}`}
+                          >
+                            {value}
+                          </span>
+                        </div>
+                        <div className="mt-1 h-1 overflow-hidden rounded-full bg-border/60">
+                          <div
+                            className="h-full rounded-full bg-accent/70"
+                            style={{ width: `${value}%` }}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {recommendations.length > 0 ? (
+                  <div>
+                    <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
+                      Top opportunities
+                    </p>
+                    <ul className="space-y-3">
+                      {recommendations.map((rec) => {
+                        const recState = recommendationStates[rec.id];
+                        const applying =
+                          applyingRecommendationId === rec.id ||
+                          recState?.status === "applying";
+                        const label = recStatusLabel(
+                          applying
+                            ? { status: "applying" }
+                            : recState,
+                        );
+                        return (
+                          <li
+                            key={rec.id}
+                            className="rounded-lg border border-border/60 bg-background/50 p-3"
+                            data-testid={`advisor-rec-${rec.id}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-medium leading-snug text-foreground">
+                                {rec.title}
+                              </p>
+                              <span
+                                className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${impactBadgeClass(rec.impact)}`}
+                              >
+                                {rec.impact}
+                              </span>
+                            </div>
+
+                            {label ? (
+                              <p
+                                className={`mt-1.5 text-[11px] font-medium ${
+                                  recState?.status === "failed"
+                                    ? "text-red-200"
+                                    : recState?.status === "no_visible_change"
+                                      ? "text-amber-200"
+                                      : recState?.status === "applied"
+                                        ? "text-emerald-300"
+                                        : "text-muted"
+                                }`}
+                                role={
+                                  recState?.status === "failed"
+                                    ? "alert"
+                                    : "status"
+                                }
+                                data-testid={`advisor-rec-status-${rec.id}`}
+                              >
+                                {label}
+                                {recState?.message ? (
+                                  <span className="mt-0.5 block font-normal opacity-90">
+                                    {recState.message}
+                                  </span>
+                                ) : null}
+                                {recState?.requestId &&
+                                (recState.status === "failed" ||
+                                  recState.status === "no_visible_change") ? (
+                                  <span className="mt-0.5 block font-mono text-[10px] opacity-70">
+                                    Request ID: {recState.requestId}
+                                  </span>
+                                ) : null}
+                              </p>
+                            ) : null}
+
+                            <dl className="mt-2 space-y-1.5 text-xs leading-relaxed text-muted">
+                              <div>
+                                <dt className="font-medium text-foreground/85">
+                                  What I noticed
+                                </dt>
+                                <dd className="mt-0.5">{rec.noticed}</dd>
+                              </div>
+                              <div>
+                                <dt className="font-medium text-foreground/85">
+                                  Why it matters
+                                </dt>
+                                <dd className="mt-0.5">{rec.whyItMatters}</dd>
+                              </div>
+                              <div>
+                                <dt className="font-medium text-foreground/85">
+                                  Expected outcome
+                                </dt>
+                                <dd className="mt-0.5">{rec.expectedOutcome}</dd>
+                              </div>
+                              <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5 text-[11px]">
+                                <span>
+                                  <span className="text-foreground/80">Time · </span>
+                                  {rec.estimatedTime}
+                                </span>
+                                <span>
+                                  <span className="text-foreground/80">Impact · </span>
+                                  {rec.impact === "high"
+                                    ? "High"
+                                    : rec.impact === "medium"
+                                      ? "Medium"
+                                      : "Low"}
+                                </span>
+                              </div>
+                            </dl>
+
+                            {onApplyRecommendation ? (
+                              <button
+                                type="button"
+                                disabled={sending}
+                                onClick={() => onApplyRecommendation(rec)}
+                                className="mt-2.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/20 disabled:opacity-40"
+                              >
+                                {applying ? "Applying…" : "Apply"}
+                              </button>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
-        ) : null}
+        </div>
+      ) : null}
 
-        {messages.length === 0 && recommendations.length === 0 ? (
+      {/* Independently scrolling conversation */}
+      <div
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4"
+        data-testid="atlas-conversation-region"
+      >
+        {messages.length === 0 && !hasReview ? (
           <div className="rounded-xl border border-border/70 bg-background/40 p-3 text-xs leading-relaxed text-muted">
             Ask Atlas to redesign this site, or wait a moment — I’ll review your
-            page and suggest improvements.
+            page and share a scored critique.
           </div>
         ) : null}
 
@@ -278,10 +470,14 @@ export default function AtlasAiPanel({
           </div>
         ) : null}
 
-        <div ref={bottomRef} />
+        <div ref={conversationEndRef} />
       </div>
 
-      <form onSubmit={handleSubmit} className="shrink-0 border-t border-border p-3">
+      <form
+        onSubmit={handleSubmit}
+        className="shrink-0 border-t border-border p-3"
+        data-testid="atlas-prompt-region"
+      >
         <label htmlFor="atlas-ai-prompt" className="sr-only">
           Design request
         </label>

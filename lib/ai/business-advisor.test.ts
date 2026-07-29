@@ -1,5 +1,5 @@
 /**
- * Sprint 23.0A — Atlas Business Advisor regression tests.
+ * Sprint 23.0A / 23.1 — Atlas Business Advisor + Critique Engine regression tests.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,6 +19,11 @@ import type {
   AdvisorModule,
   BusinessRecommendation,
 } from "@/lib/ai/business-advisor-types";
+import { explainAdvisorFinding } from "@/lib/ai/critique-explanations";
+import {
+  CRITIQUE_SCORE_CATEGORIES,
+  scoreBusinessProject,
+} from "@/lib/ai/critique-scoring";
 import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
 
 function sampleProject() {
@@ -72,6 +77,28 @@ function finding(
         value: "Updated",
       },
     ],
+    ...partial,
+  };
+}
+
+function recommendationStub(
+  partial: Partial<BusinessRecommendation> & Pick<BusinessRecommendation, "id">,
+): BusinessRecommendation {
+  return {
+    category: "conversion",
+    title: partial.id,
+    why: "why",
+    noticed: "noticed",
+    whyItMatters: "why it matters",
+    expectedOutcome: "outcome",
+    estimatedTime: "<10 seconds",
+    impact: "low",
+    impactScore: 10,
+    confidence: 0.5,
+    destructive: false,
+    narrative: "noticed",
+    scoreCategory: "conversion",
+    operations: [],
     ...partial,
   };
 }
@@ -237,23 +264,19 @@ describe("one-click apply", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.status).toBe("applied");
     expect(result.changes.length).toBeGreaterThan(0);
     expect(result.explanation).toContain(rec.title);
+    expect(result.requestId).toBeTruthy();
   });
 
   it("rejects destructive recommendations without confirmation", () => {
-    const recommendation: BusinessRecommendation = {
+    const recommendation = recommendationStub({
       id: "destructive.demo",
-      category: "conversion",
       title: "Remove FAQ",
-      why: "test",
-      impact: "low",
-      impactScore: 10,
-      confidence: 0.5,
       destructive: true,
-      narrative: "I recommend removing FAQ.",
       operations: [{ operation: "removeSection", type: "faq" }],
-    };
+    });
 
     const blocked = applyAdvisorRecommendation({
       project: sampleProject(),
@@ -261,7 +284,9 @@ describe("one-click apply", () => {
     });
     expect(blocked.ok).toBe(false);
     if (blocked.ok) return;
+    expect(blocked.status).toBe("failed");
     expect(blocked.message).toMatch(/confirmation/i);
+    expect(blocked.requestId).toBeTruthy();
 
     const allowed = applyAdvisorRecommendation({
       project: sampleProject(),
@@ -269,25 +294,25 @@ describe("one-click apply", () => {
       confirmDestructive: true,
     });
     expect(allowed.ok).toBe(true);
+    if (!allowed.ok) return;
+    expect(allowed.status).toBe("applied");
   });
 
   it("rejects recommendations with no operations", () => {
     const result = applyAdvisorRecommendation({
       project: sampleProject(),
-      recommendation: {
+      recommendation: recommendationStub({
         id: "empty",
         category: "seo",
         title: "Think about SEO",
-        why: "advice only",
-        impact: "low",
-        impactScore: 1,
-        confidence: 0.4,
-        destructive: false,
-        narrative: "I noticed an SEO opportunity.",
+        scoreCategory: "seo",
         operations: [],
-      },
+      }),
     });
     expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe("failed");
+    expect(result.requestId).toBeTruthy();
   });
 });
 
@@ -318,5 +343,108 @@ describe("advisor pipeline", () => {
       project: sampleProject(),
     });
     expect(plugged.recommendations[0]?.id).toBe("perf.demo");
+  });
+});
+
+describe("score calculation", () => {
+  it("returns 0–100 overall and category scores", () => {
+    const scores = scoreBusinessProject(sampleProject());
+    expect(scores.overall).toBeGreaterThanOrEqual(0);
+    expect(scores.overall).toBeLessThanOrEqual(100);
+    for (const key of CRITIQUE_SCORE_CATEGORIES) {
+      expect(scores.categories[key]).toBeGreaterThanOrEqual(0);
+      expect(scores.categories[key]).toBeLessThanOrEqual(100);
+    }
+
+    const report = reviewBusinessProject({ project: sampleProject() });
+    expect(report.overallScore).toBe(scores.overall);
+    expect(report.categoryScores).toEqual(scores.categories);
+  });
+
+  it("improves conversion score when CTAs and contact cues strengthen", () => {
+    const weak = sampleProject();
+    const strong = {
+      ...weak,
+      primaryCta: "Call now",
+      heroSubheadline: `Call ${weak.contact.phone} today for catering`,
+      contact: { ...weak.contact, buttonText: "Request a quote" },
+    };
+    expect(scoreBusinessProject(strong).categories.conversion).toBeGreaterThan(
+      scoreBusinessProject(weak).categories.conversion,
+    );
+  });
+});
+
+describe("stable scores", () => {
+  it("returns identical scores for the same project across refreshes", () => {
+    const project = sampleProject();
+    const a = scoreBusinessProject(project);
+    const b = scoreBusinessProject(project);
+    const reportA = reviewBusinessProject({ project });
+    const reportB = reviewBusinessProject({ project });
+
+    expect(a).toEqual(b);
+    expect(reportA.overallScore).toBe(reportB.overallScore);
+    expect(reportA.categoryScores).toEqual(reportB.categoryScores);
+    expect(reportA.recommendations.map((r) => r.id)).toEqual(
+      reportB.recommendations.map((r) => r.id),
+    );
+  });
+});
+
+describe("explanation generation", () => {
+  it("produces designer-style critique fields without jargon-heavy diagnostics", () => {
+    const report = reviewBusinessProject({ project: sampleProject() });
+    expect(report.recommendations.length).toBeGreaterThan(0);
+
+    for (const rec of report.recommendations) {
+      expect(rec.noticed.length).toBeGreaterThan(12);
+      expect(rec.whyItMatters.length).toBeGreaterThan(12);
+      expect(rec.expectedOutcome.length).toBeGreaterThan(12);
+      expect(rec.estimatedTime.length).toBeGreaterThan(0);
+      expect(rec.noticed.toLowerCase()).not.toMatch(/\bwcag\b|\brgb\b|\bhex\b/);
+      expect(rec.whyItMatters.toLowerCase()).not.toMatch(/\bwcag\b|\bnull\b/);
+    }
+
+    const cta = explainAdvisorFinding(
+      finding({
+        id: "cta.weak-primary",
+        category: "cta_effectiveness",
+        title: "Strengthen your primary call to action",
+        impact: "high",
+      }),
+    );
+    expect(cta.noticed).toMatch(/button|wording|overlook/i);
+    expect(cta.expectedOutcome).toMatch(/contact|visibility/i);
+    expect(cta.estimatedTime).toBe("<10 seconds");
+  });
+});
+
+describe("score refresh after apply", () => {
+  it("recalculates scores after a recommendation is applied", () => {
+    const before = sampleProject();
+    const report = reviewBusinessProject({ project: before });
+    const brandingRec = report.recommendations.find(
+      (r) => r.id === "branding.same-accent" || r.scoreCategory === "branding",
+    );
+    const ctaRec = report.recommendations.find((r) => r.id === "cta.weak-primary");
+    const target = brandingRec ?? ctaRec ?? report.recommendations[0]!;
+
+    const applied = applyAdvisorRecommendation({
+      project: before,
+      recommendation: target,
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+
+    const afterReport = reviewBusinessProject({ project: applied.project });
+    expect(shouldRefreshAdvisorReport(report, applied.project)).toBe(true);
+    expect(afterReport.fingerprint).not.toBe(report.fingerprint);
+
+    // At least one scored surface should move, or overall should not stay stuck
+    // on the pre-apply fingerprint (scores are deterministic from project).
+    const beforeScores = scoreBusinessProject(before);
+    const afterScores = scoreBusinessProject(applied.project);
+    expect(afterScores).not.toEqual(beforeScores);
   });
 });

@@ -180,7 +180,10 @@ export const sectionsAdvisor: AdvisorModule = {
   review(ctx) {
     const findings: AdvisorFinding[] = [];
     const enabled = ctx.project.designSections?.enabled ?? [];
-    if (!enabled.includes("faq")) {
+    const hasFaq =
+      enabled.includes("faq") &&
+      (ctx.project.designSections?.faq?.length ?? 0) > 0;
+    if (!hasFaq) {
       findings.push({
         id: "sections.faq",
         category: "missing_sections",

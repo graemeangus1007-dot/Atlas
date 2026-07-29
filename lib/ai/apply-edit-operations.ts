@@ -312,9 +312,13 @@ export function applyEditOperations(
         }
         if (op.type !== "gallery") {
           const defaults = defaultSectionContent(op.type, next.businessName);
+          const existing = (design as Record<string, unknown>)[op.type];
+          const missingOrEmpty =
+            existing == null ||
+            (Array.isArray(existing) && existing.length === 0);
           if (op.content !== undefined) {
             (design as Record<string, unknown>)[op.type] = op.content;
-          } else if (!(design as Record<string, unknown>)[op.type]) {
+          } else if (missingOrEmpty) {
             Object.assign(design, defaults);
           }
         }

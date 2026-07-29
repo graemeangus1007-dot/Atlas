@@ -5,6 +5,7 @@ import BrandStudioPanel from "@/components/design/brand-studio-panel";
 import AiAssistantPanel from "@/components/editor/ai-assistant-panel";
 import AtlasAiPanel, {
   type AtlasAiUiStatus,
+  type RecommendationApplyState,
 } from "@/components/editor/atlas-ai-panel";
 import EditorCanvas from "@/components/editor/editor-canvas";
 import EditorSidebar from "@/components/editor/editor-sidebar";
@@ -83,6 +84,9 @@ export default function WebsiteEditor() {
   const [applyingRecommendationId, setApplyingRecommendationId] = useState<
     string | null
   >(null);
+  const [recommendationStates, setRecommendationStates] = useState<
+    Record<string, RecommendationApplyState>
+  >({});
   const inFlightRef = useRef(false);
   const hydratedProjectIdRef = useRef<string | null>(null);
   const lastAdvisorFingerprintRef = useRef<string | null>(null);
@@ -102,26 +106,31 @@ export default function WebsiteEditor() {
     setLastChanges(restored.lastChanges);
     setUiStatus("idle");
     setStatusMessage(null);
+    setRecommendationStates({});
     lastAdvisorFingerprintRef.current = null;
   }, [projectId, project.designAssistant]);
 
   // Continuous Business Advisor review — silently refresh when the site changes.
   useEffect(() => {
-    if (
-      !shouldRefreshAdvisorReport(
-        lastAdvisorFingerprintRef.current
-          ? {
-              fingerprint: lastAdvisorFingerprintRef.current,
-              recommendations: [],
-              summary: "",
-              reviewedAt: "",
-            }
-          : null,
-        project,
-      )
-    ) {
-      return;
-    }
+    const previous = lastAdvisorFingerprintRef.current
+      ? ({
+          fingerprint: lastAdvisorFingerprintRef.current,
+          recommendations: [],
+          summary: "",
+          reviewedAt: "",
+          overallScore: 0,
+          categoryScores: {
+            conversion: 0,
+            trust: 0,
+            seo: 0,
+            accessibility: 0,
+            mobile: 0,
+            branding: 0,
+          },
+        } satisfies BusinessAdvisorReport)
+      : null;
+
+    if (!shouldRefreshAdvisorReport(previous, project)) return;
 
     const report = reviewBusinessProject({
       project,
@@ -447,6 +456,10 @@ export default function WebsiteEditor() {
     if (inFlightRef.current || applyingRecommendationId) return;
     inFlightRef.current = true;
     setApplyingRecommendationId(recommendation.id);
+    setRecommendationStates((current) => ({
+      ...current,
+      [recommendation.id]: { status: "applying", message: null, requestId: null },
+    }));
     setUiStatus("sending");
     setStatusMessage(null);
 
@@ -457,13 +470,42 @@ export default function WebsiteEditor() {
       });
 
       if (!result.ok) {
+        const detail = `${result.message} (Request ID: ${result.requestId})`;
         const failedConvo = appendConversationMessage(conversation, {
           role: "assistant",
-          content: result.message,
+          content: detail,
         });
         setConversation(failedConvo);
         setUiStatus("failed");
-        setStatusMessage(result.message);
+        setStatusMessage(detail);
+        setRecommendationStates((current) => ({
+          ...current,
+          [recommendation.id]: {
+            status: "failed",
+            message: result.message,
+            requestId: result.requestId,
+          },
+        }));
+        return;
+      }
+
+      if (result.status === "no_visible_change") {
+        const detail = `${result.explanation} (Request ID: ${result.requestId})`;
+        const noOpConvo = appendConversationMessage(conversation, {
+          role: "assistant",
+          content: detail,
+        });
+        setConversation(noOpConvo);
+        setUiStatus("no_changes");
+        setStatusMessage(detail);
+        setRecommendationStates((current) => ({
+          ...current,
+          [recommendation.id]: {
+            status: "no_visible_change",
+            message: result.explanation,
+            requestId: result.requestId,
+          },
+        }));
         return;
       }
 
@@ -488,13 +530,51 @@ export default function WebsiteEditor() {
       setStatusMessage(
         `${result.changes.length} change${result.changes.length === 1 ? "" : "s"} applied`,
       );
+      setRecommendationStates((current) => ({
+        ...current,
+        [recommendation.id]: {
+          status: "applied",
+          message: result.explanation,
+          requestId: result.requestId,
+        },
+      }));
 
+      // Apply to editor immediately + force persistence.
       persistAssistantState({
         nextProject: result.project,
         conversation: withAssistant,
         revisionStack: nextStack,
         lastChanges: result.changes,
       });
+
+      // Refresh Atlas Review from the post-apply project so satisfied
+      // recommendations disappear instead of flashing back unchanged.
+      const refreshed = reviewBusinessProject({
+        project: result.project,
+        history: withAssistant.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+      });
+      lastAdvisorFingerprintRef.current = refreshed.fingerprint;
+      setAdvisorReport(refreshed);
+    } catch (error) {
+      const requestId = `advisor-apply-client-${Date.now().toString(36)}`;
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not apply that improvement. Please try again.";
+      const detail = `${message} (Request ID: ${requestId})`;
+      setUiStatus("failed");
+      setStatusMessage(detail);
+      setRecommendationStates((current) => ({
+        ...current,
+        [recommendation.id]: {
+          status: "failed",
+          message,
+          requestId,
+        },
+      }));
     } finally {
       inFlightRef.current = false;
       setApplyingRecommendationId(null);
@@ -510,9 +590,9 @@ export default function WebsiteEditor() {
       canUndo={canUndoEditorRevision(revisionStack)}
       canRedo={canRedoEditorRevision(revisionStack)}
       lastChanges={lastChanges}
-      recommendations={advisorReport?.recommendations ?? []}
-      advisorSummary={advisorReport?.summary ?? null}
+      advisorReport={advisorReport}
       applyingRecommendationId={applyingRecommendationId}
+      recommendationStates={recommendationStates}
       onSend={handleDesignSend}
       onUndo={handleDesignUndo}
       onRedo={handleDesignRedo}
@@ -651,7 +731,7 @@ export default function WebsiteEditor() {
         </div>
       </div>
 
-      <div className="sticky top-0 hidden h-screen w-80 shrink-0 flex-col xl:flex">
+      <div className="sticky top-0 hidden h-screen min-h-0 w-80 shrink-0 flex-col overflow-hidden xl:flex">
         {panel}
       </div>
 
@@ -660,7 +740,7 @@ export default function WebsiteEditor() {
           <summary className="cursor-pointer list-none rounded-full border border-border bg-surface/95 px-4 py-2 text-xs font-medium text-foreground shadow-lg backdrop-blur">
             Atlas AI
           </summary>
-          <div className="absolute bottom-12 right-0 h-[min(70vh,32rem)] w-[min(100vw-2rem,22rem)] overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+          <div className="absolute bottom-12 right-0 flex h-[min(78vh,36rem)] w-[min(100vw-2rem,22rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
             {panel}
           </div>
         </details>

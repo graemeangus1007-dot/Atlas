@@ -1,8 +1,12 @@
 /**
- * Atlas Business Advisor contracts (Sprint 23.0A).
+ * Atlas Business Advisor / Critique Engine contracts (Sprint 23.0A / 23.1).
  * Future advisor modules (SEO, Accessibility, Performance, …) plug into this shape.
  */
 
+import type {
+  CritiqueCategoryScores,
+  CritiqueScoreCategory,
+} from "@/lib/ai/critique-scoring";
 import type { EditOperation } from "@/lib/ai/edit-operations";
 import type { EditorConversationMessage } from "@/lib/ai/editor-conversation";
 import type { BusinessProject } from "@/types/business-project";
@@ -73,8 +77,18 @@ export type AdvisorModule = {
 export type BusinessRecommendation = {
   id: string;
   category: AdvisorCategory;
+  /** Short label (legacy / conversation). */
   title: string;
+  /** @deprecated Prefer whyItMatters — kept for Sprint 23.0A callers. */
   why: string;
+  /** “What I noticed” */
+  noticed: string;
+  /** “Why it matters” */
+  whyItMatters: string;
+  /** “Expected business outcome” */
+  expectedOutcome: string;
+  /** Estimated time to apply, e.g. “<10 seconds”. */
+  estimatedTime: string;
   impact: AdvisorImpact;
   impactScore: number;
   confidence: number;
@@ -82,9 +96,15 @@ export type BusinessRecommendation = {
   destructive: boolean;
   /** Natural, non-robotic lead-in for conversation tone. */
   narrative: string;
+  /** Scored critique bucket this opportunity affects. */
+  scoreCategory: CritiqueScoreCategory;
 };
 
 export type BusinessAdvisorReport = {
+  /** Overall website score 0–100 (deterministic). */
+  overallScore: number;
+  /** Category scores for the Atlas Review. */
+  categoryScores: CritiqueCategoryScores;
   recommendations: BusinessRecommendation[];
   /** Conversational summary (“I noticed…”). */
   summary: string;

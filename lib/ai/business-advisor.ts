@@ -1,6 +1,6 @@
 /**
- * Atlas Business Advisor (Sprint 23.0A).
- * Proactively reviews a BusinessProject and returns ranked, one-click improvements.
+ * Atlas Business Advisor + Critique Engine (Sprint 23.0A / 23.1).
+ * Proactively reviews a BusinessProject and returns scored, ranked improvements.
  */
 
 import { DEFAULT_ADVISOR_MODULES } from "@/lib/ai/advisor-modules";
@@ -11,6 +11,8 @@ import type {
   BusinessAdvisorReport,
   BusinessRecommendation,
 } from "@/lib/ai/business-advisor-types";
+import { explainAdvisorFinding, critiqueCategoryForFinding } from "@/lib/ai/critique-explanations";
+import { scoreBusinessProject } from "@/lib/ai/critique-scoring";
 import type { EditorConversationMessage } from "@/lib/ai/editor-conversation";
 import type { BusinessProject } from "@/types/business-project";
 
@@ -75,33 +77,6 @@ export function advisorProjectFingerprint(project: BusinessProject): string {
   return JSON.stringify(slice);
 }
 
-function narrativeFor(finding: AdvisorFinding): string {
-  switch (finding.category) {
-    case "conversion":
-      return `I noticed a conversion opportunity: ${finding.title.toLowerCase()}.`;
-    case "trust":
-      return `You could improve trust here — ${finding.title.toLowerCase()}.`;
-    case "seo":
-      return `I recommend a quick SEO win: ${finding.title.toLowerCase()}.`;
-    case "accessibility":
-      return `I noticed an accessibility gap: ${finding.title.toLowerCase()}.`;
-    case "cta_effectiveness":
-      return `Your calls to action could work harder — ${finding.title.toLowerCase()}.`;
-    case "missing_sections":
-      return `I recommend filling a content gap: ${finding.title.toLowerCase()}.`;
-    case "readability":
-      return `For easier reading, ${finding.title.toLowerCase()}.`;
-    case "mobile_usability":
-      return `On mobile, ${finding.title.toLowerCase()}.`;
-    case "visual_hierarchy":
-      return `I noticed the visual hierarchy could be clearer — ${finding.title.toLowerCase()}.`;
-    case "branding_consistency":
-      return `For stronger branding, ${finding.title.toLowerCase()}.`;
-    default:
-      return `I recommend: ${finding.title}.`;
-  }
-}
-
 /**
  * Suppress duplicate findings (same id) — keeps the higher-scoring copy.
  */
@@ -138,29 +113,38 @@ export function limitTopRecommendations<T>(items: T[], limit = ADVISOR_TOP_N): T
 }
 
 function toRecommendation(finding: AdvisorFinding): BusinessRecommendation {
+  const explanation = explainAdvisorFinding(finding);
   return {
     id: finding.id,
     category: finding.category,
     title: finding.title,
-    why: finding.why,
+    why: explanation.whyItMatters,
+    noticed: explanation.noticed,
+    whyItMatters: explanation.whyItMatters,
+    expectedOutcome: explanation.expectedOutcome,
+    estimatedTime: explanation.estimatedTime,
     impact: finding.impact,
     impactScore: finding.impactScore,
     confidence: finding.confidence,
     operations: finding.operations,
     destructive: Boolean(finding.destructive),
-    narrative: narrativeFor(finding),
+    narrative: explanation.noticed,
+    scoreCategory: critiqueCategoryForFinding(finding.category),
   };
 }
 
-function buildSummary(recs: BusinessRecommendation[]): string {
+function buildSummary(
+  recs: BusinessRecommendation[],
+  overallScore: number,
+): string {
   if (recs.length === 0) {
-    return "Looking good for now — I don’t see any urgent improvements.";
+    return `Your site scores ${overallScore}/100 — I don’t see any urgent improvements right now.`;
   }
   const top = recs[0]!;
   if (recs.length === 1) {
-    return `${top.narrative} ${top.why}`;
+    return `Your site scores ${overallScore}/100. ${top.noticed} ${top.whyItMatters}`;
   }
-  return `I noticed ${recs.length} ways to strengthen this site. Top of the list: ${top.title.toLowerCase()}.`;
+  return `Your site scores ${overallScore}/100. I found ${recs.length} high-leverage opportunities — starting with: ${top.title.toLowerCase()}.`;
 }
 
 /**
@@ -190,9 +174,13 @@ export function createAdvisorPipeline(modules: AdvisorModule[]) {
       input.limit ?? ADVISOR_TOP_N,
     ).map(toRecommendation);
 
+    const scores = scoreBusinessProject(input.project);
+
     return {
+      overallScore: scores.overall,
+      categoryScores: scores.categories,
       recommendations: top,
-      summary: buildSummary(top),
+      summary: buildSummary(top, scores.overall),
       reviewedAt: new Date().toISOString(),
       fingerprint: advisorProjectFingerprint(input.project),
     };
@@ -202,7 +190,7 @@ export function createAdvisorPipeline(modules: AdvisorModule[]) {
 const defaultPipeline = createAdvisorPipeline(DEFAULT_ADVISOR_MODULES);
 
 /**
- * Review the current website and return the top prioritized recommendations.
+ * Review the current website and return a scored Atlas Critique report.
  */
 export function reviewBusinessProject(
   input: ReviewBusinessProjectInput,

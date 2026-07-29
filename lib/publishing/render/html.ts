@@ -453,6 +453,112 @@ function renderSection(
   }
 }
 
+function renderDesignSections(
+  sections: NonNullable<GeneratedWebsiteContent["designSections"]>,
+  cardStyle: CardStyle,
+): string {
+  const parts: string[] = [];
+  const card = cardClass(cardStyle);
+
+  if (sections.enabled.includes("testimonials") && sections.testimonials?.length) {
+    const items = sections.testimonials
+      .map(
+        (item) => `<blockquote class="${card}">
+      <p>“${escapeHtml(item.quote)}”</p>
+      <footer><strong>${escapeHtml(item.author)}</strong>${
+          item.role ? ` · ${escapeHtml(item.role)}` : ""
+        }</footer>
+    </blockquote>`,
+      )
+      .join("");
+    parts.push(`<section id="testimonials" class="site-section site-section-bordered">
+  <div class="site-shell">
+    ${headingBlock("Testimonials", "What customers say")}
+    <div class="site-card-grid">${items}</div>
+  </div>
+</section>`);
+  }
+
+  if (sections.enabled.includes("faq") && sections.faq?.length) {
+    const items = sections.faq
+      .map(
+        (item) => `<details class="${card}">
+      <summary>${escapeHtml(item.question)}</summary>
+      <p>${escapeHtml(item.answer)}</p>
+    </details>`,
+      )
+      .join("");
+    parts.push(`<section id="faq" class="site-section">
+  <div class="site-shell">
+    ${headingBlock("FAQ", "Frequently asked questions")}
+    <div class="site-stack">${items}</div>
+  </div>
+</section>`);
+  }
+
+  if (sections.enabled.includes("team") && sections.team?.length) {
+    const items = sections.team
+      .map(
+        (member) => `<div class="${card}">
+      <h3 class="site-heading">${escapeHtml(member.name)}</h3>
+      <p>${escapeHtml(member.role)}</p>
+      <p>${escapeHtml(member.bio)}</p>
+    </div>`,
+      )
+      .join("");
+    parts.push(`<section id="team" class="site-section site-section-bordered">
+  <div class="site-shell">
+    ${headingBlock("Team", "Meet the team")}
+    <div class="site-card-grid">${items}</div>
+  </div>
+</section>`);
+  }
+
+  if (sections.enabled.includes("pricing") && sections.pricing?.length) {
+    const items = sections.pricing
+      .map(
+        (plan) => `<div class="${card}">
+      <h3 class="site-heading">${escapeHtml(plan.name)}</h3>
+      <p class="site-price">${escapeHtml(plan.price)}</p>
+      <p>${escapeHtml(plan.description)}</p>
+    </div>`,
+      )
+      .join("");
+    parts.push(`<section id="pricing" class="site-section">
+  <div class="site-shell">
+    ${headingBlock("Pricing", "Pricing")}
+    <div class="site-card-grid">${items}</div>
+  </div>
+</section>`);
+  }
+
+  if (sections.enabled.includes("bookingCta") && sections.bookingCta) {
+    parts.push(`<section id="booking" class="site-section site-section-bordered">
+  <div class="site-shell">
+    <div class="${card}" style="text-align:center;padding:2rem">
+      <h2 class="site-heading">${escapeHtml(sections.bookingCta.title)}</h2>
+      <p>${escapeHtml(sections.bookingCta.body)}</p>
+      <a class="site-button site-button-primary" href="#contact">${escapeHtml(sections.bookingCta.buttonText)}</a>
+    </div>
+  </div>
+</section>`);
+  }
+
+  if (sections.enabled.includes("newsletter") && sections.newsletter) {
+    parts.push(`<section id="newsletter" class="site-section">
+  <div class="site-shell">
+    <div class="${card}" style="text-align:center;padding:2rem">
+      <h2 class="site-heading">${escapeHtml(sections.newsletter.title)}</h2>
+      <p>${escapeHtml(sections.newsletter.body)}</p>
+      <a class="site-button site-button-primary" href="#contact">${escapeHtml(sections.newsletter.buttonText)}</a>
+    </div>
+  </div>
+</section>`);
+  }
+
+  return parts.join("\n");
+}
+
 /**
  * Render the full document body for a template + resolved content.
  * Section order and layout variants come from WebsiteTemplate (extensible).
@@ -464,11 +570,16 @@ export function renderStaticSiteBody(
   const sections = template.sectionOrder
     .map((sectionId) => renderSection(sectionId, content, template))
     .join("\n");
+  const designHtml =
+    content.designSections?.enabled?.length
+      ? renderDesignSections(content.designSections, template.cardStyle)
+      : "";
 
   return `<div class="site-canvas" data-template="${escapeAttr(template.id)}" data-card-style="${escapeAttr(template.cardStyle)}" data-hero-layout="${escapeAttr(template.heroLayout)}" data-nav-style="${escapeAttr(template.navStyle)}" data-gallery-layout="${escapeAttr(template.galleryLayout)}" data-footer-layout="${escapeAttr(template.footerLayout)}">
 ${renderNav(content.businessName, template.navStyle)}
 <main>
 ${sections}
+${designHtml}
 </main>
 </div>`;
 }
