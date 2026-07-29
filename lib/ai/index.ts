@@ -355,3 +355,51 @@ export type {
   ApplyAllCreativeResult,
   CreativeApplyStatus,
 } from "@/lib/ai/apply-creative-recommendation";
+export {
+  decideAtlasBrain,
+  formatExecutionPlanForUser,
+  planAtlasBrain,
+  runAtlasBrain,
+  tryRunAtlasBrain,
+} from "@/lib/ai/atlas-brain";
+export {
+  inferMemoryFromMessage,
+  mergeAtlasMemory,
+  updateAtlasMemory,
+  formatMemoryContext,
+  seedMemoryFromProject,
+} from "@/lib/ai/atlas-brain-memory";
+export type {
+  AtlasAgentId,
+  AtlasBrainDecision,
+  AtlasBrainIntent,
+  AtlasExecutionPlan,
+  AtlasExecutionStep,
+  AtlasProjectMemory,
+} from "@/lib/ai/atlas-brain-types";
+export { ATLAS_AGENT_IDS, ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
+export type { AtlasBrainResult } from "@/lib/ai/atlas-brain";
+export {
+  resolveDesignSystem,
+  designSystemToOperations,
+  designSystemInputFromProject,
+  detectPreferredLanguage,
+  attachDesignSystem,
+  imageryKeywordsForProject,
+  formatDesignSystemReference,
+  isDesignLanguageId,
+  DESIGN_LANGUAGES,
+  AUTO_APPLY_CONFIDENCE,
+} from "@/lib/ai/design-system-intelligence";
+export { DESIGN_LANGUAGE_IDS } from "@/lib/ai/design-system-types";
+export type {
+  DesignLanguageId,
+  DesignSystem,
+  DesignSystemInput,
+  DesignSystemResolution,
+  PersistedDesignSystem,
+  TypographyStrategy,
+  ColorStrategy,
+  ImageryStyle,
+  MotionStyle,
+} from "@/lib/ai/design-system-types";

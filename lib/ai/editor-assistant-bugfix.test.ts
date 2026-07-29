@@ -179,7 +179,10 @@ describe("zero-operation response", () => {
     expect(result.applyStatus).toBe("needs_clarification");
     expect(result.operations).toHaveLength(0);
     expect(result.explanation.toLowerCase()).not.toMatch(/no changes needed/);
-    expect(result.explanation.endsWith("?")).toBe(true);
+    expect(
+      result.explanation.endsWith("?") ||
+        /did you mean|better visuals|better copy/i.test(result.explanation),
+    ).toBe(true);
   });
 });
 

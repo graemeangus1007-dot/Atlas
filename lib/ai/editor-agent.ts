@@ -4,7 +4,7 @@
  * Never returns arbitrary code or raw project JSON patches from the model.
  */
 
-import { applyEditOperations } from "@/lib/ai/apply-edit-operations";
+import { registerEditorPlanner, runAtlasBrain } from "@/lib/ai/atlas-brain";
 import { planExplicitContentEdits } from "@/lib/ai/content-edit-planner";
 import {
   operationsFromDesignReasoning,
@@ -13,7 +13,6 @@ import {
 } from "@/lib/ai/design-reasoner";
 import { designFromTone } from "@/lib/ai/tone-design";
 import {
-  serializeConversationForAgent,
   type EditorConversation,
   type EditorConversationMessage,
 } from "@/lib/ai/editor-conversation";
@@ -21,12 +20,7 @@ import type {
   EditChangeSummary,
   EditOperation,
 } from "@/lib/ai/edit-operations";
-import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
-import {
-  isImageEditRequest,
-  runImageAgent,
-  type ImageEditorState,
-} from "@/lib/ai/image-agent";
+import type { ImageEditorState } from "@/lib/ai/image-agent";
 import type { ImageOperation } from "@/lib/ai/image-operations";
 import {
   routeIntent,
@@ -36,7 +30,6 @@ import {
   parseThemeColorIntent,
   wantsPreserveWording,
 } from "@/lib/ai/named-colors";
-import { validateEditOperations } from "@/lib/ai/validate-edit-operations";
 import { AiError } from "@/lib/ai/errors";
 import type { BusinessProject } from "@/types/business-project";
 
@@ -70,6 +63,14 @@ export type EditorAgentResult = {
   reasoning?: DesignReasoningResult;
   /** Image agent follow-up cues. */
   imageEditorState?: ImageEditorState;
+  /** Atlas Brain follow-up chips (Sprint 26.0A). */
+  followUpSuggestions?: string[];
+  /** Multi-step plan shown in conversation (no specialist names). */
+  executionPlan?: {
+    goal: string;
+    steps: Array<{ id: string; label: string }>;
+    estimatedImpact: "high" | "medium" | "low";
+  };
 };
 
 export type EditorAgentFailure = {
@@ -77,30 +78,6 @@ export type EditorAgentFailure = {
   code: string;
   message: string;
 };
-
-function normalizeHistory(
-  history: EditorAgentInput["history"],
-): EditorAgentHistoryItem[] {
-  if (!history) return [];
-  if (Array.isArray(history)) {
-    return history
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const role = (item as { role?: unknown }).role;
-        const content = (item as { content?: unknown }).content;
-        if (
-          (role === "user" || role === "assistant") &&
-          typeof content === "string" &&
-          content.trim()
-        ) {
-          return { role, content: content.trim() };
-        }
-        return null;
-      })
-      .filter((x): x is EditorAgentHistoryItem => x !== null);
-  }
-  return serializeConversationForAgent(history);
-}
 
 function recentContext(history: EditorAgentHistoryItem[]): string {
   return history
@@ -704,7 +681,8 @@ export function planDirectEditOperations(input: {
 }
 
 /**
- * Run the Design Assistant agent: reason → plan → validate → apply.
+ * Run Atlas (Sprint 26.0A) — every turn flows through Atlas Brain.
+ * Specialists stay internal; callers receive a unified EditorAgentResult.
  */
 export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
   const request = input.request?.trim();
@@ -715,64 +693,36 @@ export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
     throw new AiError("bad_request", "A current project is required.");
   }
 
-  const history = normalizeHistory(input.history);
+  // Ensure Brain can invoke the editor specialist (idempotent).
+  registerEditorPlanner(planEditOperations);
 
-  // Sprint 24.0A — Visual Designer routes image language to the Image Agent first.
-  if (isImageEditRequest(request)) {
-    const imageResult = runImageAgent({
-      project: input.project,
-      request,
-      history,
-      editorState: input.imageEditorState,
-    });
-    return {
-      ok: true,
-      explanation: imageResult.explanation,
-      operations: imageResult.operations,
-      changes: imageResult.changes,
-      project: imageResult.project,
-      applyStatus: imageResult.applyStatus,
-      imageEditorState: imageResult.editorState,
-    };
-  }
-
-  const planned = planEditOperations({
-    project: input.project,
-    request,
-    history,
-  });
-
-  if (planned.needsClarification || planned.operations.length === 0) {
-    const needsClarification =
-      planned.needsClarification ||
-      Boolean(planned.reasoning && !planned.reasoning.shouldAct);
-    return {
-      ok: true,
-      explanation: planned.explanation,
-      operations: [],
-      changes: [],
-      project: input.project,
-      applyStatus: needsClarification ? "needs_clarification" : "no_changes",
-      reasoning: planned.reasoning,
-    };
-  }
-
-  const operations = validateEditOperations(planned.operations);
-  const applied = applyEditOperations(input.project, operations);
-  const changed = hasMeaningfulProjectDiff(input.project, applied.project);
+  const result = runAtlasBrain(input);
 
   return {
     ok: true,
-    explanation: changed
-      ? planned.explanation
-      : "No changes needed — the site already matched that request.",
-    operations: changed ? operations : [],
-    changes: changed ? applied.changes : [],
-    project: changed ? applied.project : input.project,
-    applyStatus: changed ? "applied" : "no_changes",
-    reasoning: planned.reasoning,
+    explanation: result.explanation,
+    operations: result.operations,
+    changes: result.changes,
+    project: result.project,
+    applyStatus: result.applyStatus,
+    reasoning: result.reasoning,
+    imageEditorState: result.imageEditorState,
+    followUpSuggestions: result.followUpSuggestions,
+    executionPlan: result.executionPlan
+      ? {
+          goal: result.executionPlan.goal,
+          steps: result.executionPlan.steps.map((step) => ({
+            id: step.id,
+            label: step.label,
+          })),
+          estimatedImpact: result.executionPlan.estimatedImpact,
+        }
+      : undefined,
   };
 }
+
+// Register the editor specialist planner for Atlas Brain (breaks circular import).
+registerEditorPlanner(planEditOperations);
 
 /** Safe wrapper that never throws across the HTTP boundary. */
 export function tryRunEditorAgent(

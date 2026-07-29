@@ -102,6 +102,7 @@ export default function WebsiteEditor() {
   >({});
   const [imageEditorState, setImageEditorState] =
     useState<ImageEditorState | null>(null);
+  const [followUpSuggestions, setFollowUpSuggestions] = useState<string[]>([]);
   const inFlightRef = useRef(false);
   const hydratedProjectIdRef = useRef<string | null>(null);
   const lastAdvisorFingerprintRef = useRef<string | null>(null);
@@ -330,8 +331,12 @@ export default function WebsiteEditor() {
       if (result.ok && result.imageEditorState) {
         setImageEditorState(result.imageEditorState);
       }
+      if (result.ok) {
+        setFollowUpSuggestions(result.followUpSuggestions ?? []);
+      }
 
       if (!result.ok) {
+        setFollowUpSuggestions([]);
         const failedConvo = appendConversationMessage(withUser, {
           role: "assistant",
           content: result.message,
@@ -360,22 +365,14 @@ export default function WebsiteEditor() {
         return;
       }
 
-      if (
-        result.applyStatus === "needs_clarification" ||
-        result.applyStatus === "no_changes" ||
-        result.operations.length === 0
-      ) {
+      if (result.applyStatus === "needs_clarification") {
         const noChangeConvo = appendConversationMessage(withUser, {
           role: "assistant",
           content: result.explanation,
         });
         setConversation(noChangeConvo);
         setLastChanges([]);
-        setUiStatus(
-          result.applyStatus === "needs_clarification"
-            ? "needs_clarification"
-            : "no_changes",
-        );
+        setUiStatus("needs_clarification");
         setStatusMessage(result.explanation);
         writeDesignAssistantLocal(
           projectId,
@@ -388,9 +385,8 @@ export default function WebsiteEditor() {
             revisionStack,
           ),
         );
-        // Also mirror onto the project so refresh keeps the exchange.
         setProject({
-          ...project,
+          ...result.project,
           designAssistant: buildDesignAssistantMeta({
             conversation: noChangeConvo,
             revisionStack,
@@ -402,10 +398,47 @@ export default function WebsiteEditor() {
           requestId: result.requestId,
           projectId,
           operationCount: 0,
-          applyResult:
-            result.applyStatus === "needs_clarification"
-              ? "no_changes"
-              : "no_changes",
+          applyResult: "no_changes",
+          ok: true,
+        });
+        return;
+      }
+
+      if (result.applyStatus !== "applied") {
+        const noChangeConvo = appendConversationMessage(withUser, {
+          role: "assistant",
+          content: result.explanation,
+        });
+        setConversation(noChangeConvo);
+        setLastChanges([]);
+        setUiStatus("no_changes");
+        setStatusMessage(result.explanation);
+        // Persist memory even when no visual edits landed.
+        setProject({
+          ...result.project,
+          designAssistant: buildDesignAssistantMeta({
+            conversation: noChangeConvo,
+            revisionStack,
+            lastChanges: [],
+          }),
+        });
+        void saveNow();
+        writeDesignAssistantLocal(
+          projectId,
+          toLocalStore(
+            buildDesignAssistantMeta({
+              conversation: noChangeConvo,
+              revisionStack,
+              lastChanges: [],
+            }),
+            revisionStack,
+          ),
+        );
+        logDesignAssistantDiagnostic({
+          requestId: result.requestId,
+          projectId,
+          operationCount: 0,
+          applyResult: "no_changes",
           ok: true,
         });
         return;
@@ -855,6 +888,10 @@ export default function WebsiteEditor() {
       onCompleteWebsite={handleCompleteWebsite}
       onApplyAllCreative={handleApplyAllCreative}
       onDismissCompletePlan={() => setCompleteWebsitePlan(null)}
+      followUpSuggestions={followUpSuggestions}
+      onFollowUpSuggestion={(suggestion) => {
+        void handleDesignSend(suggestion);
+      }}
     />
   );
 

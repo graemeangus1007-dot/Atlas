@@ -92,7 +92,10 @@ describe("emotional feedback", () => {
     });
     expect(result.applyStatus).toBe("needs_clarification");
     expect(result.operations).toHaveLength(0);
-    expect(result.explanation).toMatch(/feels off|colors|layout|wording/i);
+    // Atlas Brain asks a concise multiple-choice clarification.
+    expect(result.explanation).toMatch(
+      /feels off|colors|layout|wording|Did you mean|Better visuals|Better copy/i,
+    );
     expect(result.project.heroHeadline).toBe(sampleProject().heroHeadline);
   });
 });

@@ -143,6 +143,32 @@ export type BusinessProject = {
     spacing?: "default" | "comfortable" | "airy";
   };
   /**
+   * Atlas Brain durable preferences (layout, tone, goals, imagery).
+   * Sprint 26.0A — updated every conversation turn.
+   */
+  atlasMemory?: {
+    preferredLayouts?: string[];
+    preferredThemes?: string[];
+    primaryGoal?: string;
+    businessTone?: string;
+    imageStyle?: string;
+    notes?: string[];
+    updatedAt?: string;
+  };
+  /**
+   * Active Design System language (Sprint 27.0A).
+   * Source of truth for typography, color, imagery, motion, hierarchy.
+   */
+  designSystem?: {
+    language: string;
+    label: string;
+    imageryStyle: string;
+    motionStyle: string;
+    explanation: string;
+    confidence: number;
+    selectedAt: string;
+  };
+  /**
    * Design Assistant conversation + slim revision metadata (Sprint 22.0A).
    * Restored on refresh via autosave; full undo snapshots live in localStorage.
    */

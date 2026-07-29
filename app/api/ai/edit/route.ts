@@ -99,6 +99,8 @@ export async function POST(request: Request) {
         applyStatus: result.applyStatus,
         operationCount: result.operations.length,
         imageEditorState: result.imageEditorState,
+        followUpSuggestions: result.followUpSuggestions ?? [],
+        executionPlan: result.executionPlan ?? null,
       },
       { requestId },
     );

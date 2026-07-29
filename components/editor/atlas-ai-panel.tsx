@@ -67,6 +67,9 @@ type AtlasAiPanelProps = {
   onCompleteWebsite?: () => void;
   onApplyAllCreative?: () => void;
   onDismissCompletePlan?: () => void;
+  /** Atlas Brain follow-up suggestion chips. */
+  followUpSuggestions?: string[];
+  onFollowUpSuggestion?: (suggestion: string) => void;
 };
 
 function impactBadgeClass(impact: BusinessRecommendation["impact"]): string {
@@ -148,6 +151,8 @@ export default function AtlasAiPanel({
   onCompleteWebsite,
   onApplyAllCreative,
   onDismissCompletePlan,
+  followUpSuggestions = [],
+  onFollowUpSuggestion,
 }: AtlasAiPanelProps) {
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(true);
@@ -227,7 +232,7 @@ export default function AtlasAiPanel({
           <p className="font-[family-name:var(--font-atlas-display)] text-sm font-semibold text-foreground">
             Atlas AI
           </p>
-          <p className="text-xs text-muted">Review + design assistant</p>
+          <p className="text-xs text-muted">Your design partner</p>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -357,6 +362,26 @@ export default function AtlasAiPanel({
                 ))}
               </ul>
             ) : null}
+          </div>
+        ) : null}
+
+        {followUpSuggestions.length > 0 && onFollowUpSuggestion ? (
+          <div
+            className="flex flex-wrap gap-1.5 px-1"
+            data-testid="atlas-follow-up-suggestions"
+          >
+            <p className="w-full text-[11px] text-muted">Would you like me to…</p>
+            {followUpSuggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                disabled={sending}
+                onClick={() => onFollowUpSuggestion(suggestion)}
+                className="rounded-full border border-border/70 bg-background/50 px-2.5 py-1 text-[11px] text-foreground transition-colors hover:border-accent/40 hover:bg-accent/10 disabled:opacity-40"
+              >
+                {suggestion}
+              </button>
+            ))}
           </div>
         ) : null}
 

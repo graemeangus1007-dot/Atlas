@@ -189,6 +189,8 @@ export function businessProjectToColumns(
     publish: project.publish,
     designSections: project.designSections ?? null,
     creativePolish: project.creativePolish ?? null,
+    atlasMemory: project.atlasMemory ?? null,
+    designSystem: project.designSystem ?? null,
     designAssistant: project.designAssistant ?? null,
   };
 
@@ -347,6 +349,12 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
       : undefined,
     creativePolish: isRecord(content.creativePolish)
       ? (content.creativePolish as BusinessProject["creativePolish"])
+      : undefined,
+    atlasMemory: isRecord(content.atlasMemory)
+      ? (content.atlasMemory as BusinessProject["atlasMemory"])
+      : undefined,
+    designSystem: isRecord(content.designSystem)
+      ? (content.designSystem as BusinessProject["designSystem"])
       : undefined,
     designAssistant: isRecord(content.designAssistant)
       ? (content.designAssistant as BusinessProject["designAssistant"])

@@ -19,6 +19,7 @@ import type {
 } from "@/lib/ai/image-operations";
 import { validateImageOperations } from "@/lib/ai/validate-image-operations";
 import { AiError } from "@/lib/ai/errors";
+import { imageryKeywordsForProject } from "@/lib/ai/design-system-intelligence";
 import type { BusinessProject } from "@/types/business-project";
 import type { MediaAsset } from "@/types/media";
 import { GALLERY_SLOT_COUNT } from "@/types/media";
@@ -119,20 +120,28 @@ function recentContext(history: ImageAgentHistoryItem[]): string {
 function findLibraryAsset(
   library: MediaAsset[],
   hint: string,
+  styleKeywords: string[] = [],
 ): MediaAsset | null {
   const needle = hint.toLowerCase().replace(/['"]/g, "").trim();
-  if (!needle) return null;
+  if (!needle && styleKeywords.length === 0) return null;
   const scored = library
     .filter((asset) => !asset.unavailable)
     .map((asset) => {
       const hay = `${asset.title} ${asset.name} ${asset.alt} ${asset.description}`.toLowerCase();
       let score = 0;
-      if (hay === needle) score = 100;
-      else if (hay.includes(needle)) score = 80;
-      else {
-        const parts = needle.split(/\s+/).filter(Boolean);
-        const hits = parts.filter((p) => hay.includes(p)).length;
-        score = hits * 20;
+      if (needle) {
+        if (hay === needle) score = 100;
+        else if (hay.includes(needle)) score = 80;
+        else {
+          const parts = needle.split(/\s+/).filter(Boolean);
+          const hits = parts.filter((p) => hay.includes(p)).length;
+          score = hits * 20;
+        }
+      }
+      // Sprint 27.0A — bias toward Design System imagery language
+      for (const keyword of styleKeywords) {
+        const k = keyword.toLowerCase().trim();
+        if (k && hay.includes(k)) score += 12;
       }
       return { asset, score };
     })
@@ -267,8 +276,9 @@ function requireAssetOrClarify(
   project: BusinessProject,
   hint: string | null,
 ): { asset: MediaAsset } | { clarify: string } {
+  const styleKeywords = imageryKeywordsForProject(project);
   if (hint) {
-    const found = findLibraryAsset(project.mediaLibrary, hint);
+    const found = findLibraryAsset(project.mediaLibrary, hint, styleKeywords);
     if (found) return { asset: found };
     const fallback = firstLibraryAsset(project);
     if (fallback && /this|that|it|our\s+image|the\s+image/i.test(hint)) {
@@ -284,7 +294,8 @@ function requireAssetOrClarify(
       clarify: `I couldn’t find “${hint}” in your library. Which image should I use?`,
     };
   }
-  const fallback = firstLibraryAsset(project);
+  const styled = findLibraryAsset(project.mediaLibrary, "", styleKeywords);
+  const fallback = styled ?? firstLibraryAsset(project);
   if (!fallback) {
     return {
       clarify:

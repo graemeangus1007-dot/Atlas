@@ -21,6 +21,10 @@ import type {
 } from "@/lib/ai/creative-director-types";
 import { COMPLETE_WEBSITE_THRESHOLD } from "@/lib/ai/creative-director-types";
 import type { CreativeDirectorOperation } from "@/lib/ai/creative-director-types";
+import {
+  designSystemInputFromProject,
+  resolveDesignSystem,
+} from "@/lib/ai/design-system-intelligence";
 import type { BusinessProject } from "@/types/business-project";
 import { GALLERY_SLOT_COUNT } from "@/types/media";
 
@@ -395,7 +399,10 @@ export function buildCreativeRecommendations(
     );
   }
 
-  return out;
+  return out.map((item) => ({
+    ...item,
+    explanation: withDesignSystemVoice(project, item.explanation),
+  }));
 }
 
 export function suppressDuplicateCreativeRecommendations(
@@ -515,16 +522,37 @@ function buildNarrative(
     ? "Your copy is strong, but visually the site still feels incomplete."
     : "The structure is coming together — a few targeted upgrades will push it over the line.";
 
+  const resolved = resolveDesignSystem(designSystemInputFromProject(project));
+  const languageLine = project.designSystem?.label
+    ? `Design language: ${project.designSystem.label}.`
+    : `Suggested design language: ${resolved.designSystem.label} — ${resolved.designSystem.explanation}`;
+
   return [
     "I reviewed your website.",
     strengthLead.replace(/\.$/, "") + ".",
     mid,
+    languageLine,
     "",
     `Overall completeness: ${completeness}% · ${maturity}`,
     "",
     "The biggest opportunities are:",
     ...top,
   ].join("\n");
+}
+
+function withDesignSystemVoice(
+  project: BusinessProject,
+  explanation: string,
+): string {
+  const label =
+    project.designSystem?.label ??
+    resolveDesignSystem(designSystemInputFromProject(project)).designSystem
+      .label;
+  if (!label) return explanation;
+  if (explanation.toLowerCase().includes(label.toLowerCase())) {
+    return explanation;
+  }
+  return `${explanation} This aligns with your ${label.toLowerCase()} design language.`;
 }
 
 /**

@@ -31,6 +31,8 @@ type ApiEditSuccessBody = {
   changeCount?: number;
   applyStatus?: "applied" | "no_changes" | "needs_clarification";
   imageEditorState?: ImageEditorState;
+  followUpSuggestions?: string[];
+  executionPlan?: EditorAgentResult["executionPlan"];
 };
 
 /**
@@ -131,6 +133,10 @@ export async function requestEditorAgentEdit(input: {
       project: data.project,
       applyStatus,
       imageEditorState: data.imageEditorState,
+      followUpSuggestions: Array.isArray(data.followUpSuggestions)
+        ? data.followUpSuggestions.filter((item) => typeof item === "string")
+        : undefined,
+      executionPlan: data.executionPlan,
       requestId: headerId,
     };
   } catch {
