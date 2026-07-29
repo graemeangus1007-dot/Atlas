@@ -28,7 +28,7 @@ type ApiEditSuccessBody = {
   changes: EditorAgentResult["changes"];
   project: BusinessProject;
   changeCount?: number;
-  applyStatus?: "applied" | "no_changes";
+  applyStatus?: "applied" | "no_changes" | "needs_clarification";
 };
 
 /**
@@ -116,9 +116,11 @@ export async function requestEditorAgentEdit(input: {
       explanation:
         typeof data.explanation === "string"
           ? data.explanation
-          : applyStatus === "no_changes"
-            ? "No changes needed."
-            : "Design updates applied.",
+          : applyStatus === "needs_clarification"
+            ? "Could you tell me a bit more?"
+            : applyStatus === "no_changes"
+              ? "No changes needed."
+              : "Design updates applied.",
       operations,
       changes,
       project: data.project,

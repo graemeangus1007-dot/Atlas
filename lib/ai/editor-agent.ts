@@ -5,6 +5,11 @@
  */
 
 import { applyEditOperations } from "@/lib/ai/apply-edit-operations";
+import {
+  operationsFromDesignReasoning,
+  reasonAboutDesign,
+  type DesignReasoningResult,
+} from "@/lib/ai/design-reasoner";
 import { designFromTone } from "@/lib/ai/tone-design";
 import {
   serializeConversationForAgent,
@@ -36,14 +41,20 @@ export type EditorAgentInput = {
   history?: EditorAgentHistoryItem[] | EditorConversation | EditorConversationMessage[];
 };
 
+export type EditorAgentApplyStatus =
+  | "applied"
+  | "no_changes"
+  | "needs_clarification";
+
 export type EditorAgentResult = {
   ok: true;
   explanation: string;
   operations: EditOperation[];
   changes: EditChangeSummary[];
   project: BusinessProject;
-  /** applied | no_changes — never silent. */
-  applyStatus: "applied" | "no_changes";
+  applyStatus: EditorAgentApplyStatus;
+  /** Present when goal-based reasoning ran. */
+  reasoning?: DesignReasoningResult;
 };
 
 export type EditorAgentFailure = {
@@ -92,6 +103,69 @@ export function planEditOperations(input: {
   project: BusinessProject;
   request: string;
   history?: EditorAgentHistoryItem[];
+}): {
+  operations: EditOperation[];
+  explanation: string;
+  reasoning?: DesignReasoningResult;
+  needsClarification?: boolean;
+} {
+  const request = input.request.trim();
+  if (!request) {
+    throw new AiError("bad_request", "A design request is required.");
+  }
+
+  // Goal-based reasoning first — business language, not technical design jargon.
+  const reasoning = reasonAboutDesign({
+    request,
+    project: input.project,
+    history: input.history,
+  });
+
+  const direct = planDirectEditOperations(input);
+
+  // Prefer explicit design commands when the user already spoke in edit language.
+  if (direct.operations.length > 0) {
+    return {
+      ...direct,
+      reasoning,
+    };
+  }
+
+  if (reasoning.shouldAct) {
+    const goalOps = operationsFromDesignReasoning(reasoning, input.project);
+    if (goalOps.length > 0) {
+      return {
+        operations: goalOps,
+        explanation: `I focused on “${reasoning.inferredGoal}”: ${reasoning.designStrategy}`,
+        reasoning,
+      };
+    }
+  }
+
+  if (reasoning.followUpQuestion) {
+    return {
+      operations: [],
+      explanation: reasoning.followUpQuestion,
+      reasoning,
+      needsClarification: true,
+    };
+  }
+
+  return {
+    operations: [],
+    explanation: direct.explanation,
+    reasoning,
+    needsClarification: reasoning.goal === "unknown",
+  };
+}
+
+/**
+ * Deterministic keyword/direct-command planner (theme colors, FAQ, etc.).
+ */
+export function planDirectEditOperations(input: {
+  project: BusinessProject;
+  request: string;
+  history?: EditorAgentHistoryItem[];
 }): { operations: EditOperation[]; explanation: string } {
   const request = input.request.trim();
   if (!request) {
@@ -112,6 +186,7 @@ export function planEditOperations(input: {
   const notes: string[] = [];
   const name = input.project.businessName || "your business";
 
+  // --- begin retained direct-intent body (from former planEditOperations) ---
   if (themeColors) {
     operations.push({
       operation: "changeTheme",
@@ -497,7 +572,7 @@ export function planEditOperations(input: {
 }
 
 /**
- * Run the Design Assistant agent: plan → validate → apply.
+ * Run the Design Assistant agent: reason → plan → validate → apply.
  */
 export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
   const request = input.request?.trim();
@@ -515,14 +590,18 @@ export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
     history,
   });
 
-  if (planned.operations.length === 0) {
+  if (planned.needsClarification || planned.operations.length === 0) {
+    const needsClarification =
+      planned.needsClarification ||
+      Boolean(planned.reasoning && !planned.reasoning.shouldAct);
     return {
       ok: true,
       explanation: planned.explanation,
       operations: [],
       changes: [],
       project: input.project,
-      applyStatus: "no_changes",
+      applyStatus: needsClarification ? "needs_clarification" : "no_changes",
+      reasoning: planned.reasoning,
     };
   }
 
@@ -539,6 +618,7 @@ export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
     changes: changed ? applied.changes : [],
     project: changed ? applied.project : input.project,
     applyStatus: changed ? "applied" : "no_changes",
+    reasoning: planned.reasoning,
   };
 }
 

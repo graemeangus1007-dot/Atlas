@@ -258,14 +258,22 @@ export default function WebsiteEditor() {
         return;
       }
 
-      if (result.applyStatus === "no_changes" || result.operations.length === 0) {
+      if (
+        result.applyStatus === "needs_clarification" ||
+        result.applyStatus === "no_changes" ||
+        result.operations.length === 0
+      ) {
         const noChangeConvo = appendConversationMessage(withUser, {
           role: "assistant",
           content: result.explanation,
         });
         setConversation(noChangeConvo);
         setLastChanges([]);
-        setUiStatus("no_changes");
+        setUiStatus(
+          result.applyStatus === "needs_clarification"
+            ? "needs_clarification"
+            : "no_changes",
+        );
         setStatusMessage(result.explanation);
         writeDesignAssistantLocal(
           projectId,
@@ -292,7 +300,10 @@ export default function WebsiteEditor() {
           requestId: result.requestId,
           projectId,
           operationCount: 0,
-          applyResult: "no_changes",
+          applyResult:
+            result.applyStatus === "needs_clarification"
+              ? "no_changes"
+              : "no_changes",
           ok: true,
         });
         return;

@@ -11,6 +11,7 @@ export type AtlasAiUiStatus =
   | "sending"
   | "applied"
   | "no_changes"
+  | "needs_clarification"
   | "failed";
 
 type AtlasAiPanelProps = {
@@ -65,9 +66,11 @@ export default function AtlasAiPanel({
         ? "Applied"
         : status === "no_changes"
           ? "No changes needed"
-          : status === "failed"
-            ? "Failed"
-            : null;
+          : status === "needs_clarification"
+            ? "Quick question"
+            : status === "failed"
+              ? "Failed"
+              : null;
 
   return (
     <aside
@@ -111,7 +114,9 @@ export default function AtlasAiPanel({
               ? "border-red-500/30 bg-red-500/10 text-red-200"
               : status === "no_changes"
                 ? "border-border bg-background/50 text-muted"
-                : status === "applied"
+                : status === "needs_clarification"
+                  ? "border-amber-500/30 bg-amber-500/10 text-foreground"
+                  : status === "applied"
                   ? "border-accent/30 bg-accent/10 text-foreground"
                   : "border-border bg-background/40 text-muted"
           }`}

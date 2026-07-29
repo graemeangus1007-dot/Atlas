@@ -173,15 +173,27 @@ export type {
 } from "@/lib/ai/editor-conversation";
 export {
   planEditOperations,
+  planDirectEditOperations,
   runEditorAgent,
   tryRunEditorAgent,
 } from "@/lib/ai/editor-agent";
 export type {
+  EditorAgentApplyStatus,
   EditorAgentFailure,
   EditorAgentHistoryItem,
   EditorAgentInput,
   EditorAgentResult,
 } from "@/lib/ai/editor-agent";
+export {
+  DESIGN_GOAL_CATEGORIES,
+  operationsFromDesignReasoning,
+  reasonAboutDesign,
+} from "@/lib/ai/design-reasoner";
+export type {
+  DesignGoalCategory,
+  DesignReasonerInput,
+  DesignReasoningResult,
+} from "@/lib/ai/design-reasoner";
 export {
   canRedoEditorRevision,
   canUndoEditorRevision,

@@ -169,16 +169,17 @@ describe("API failure surfaces an error", () => {
 });
 
 describe("zero-operation response", () => {
-  it("displays no-changes instead of appearing broken", () => {
+  it("asks a follow-up instead of appearing broken", () => {
     const result = tryRunEditorAgent({
       project: sampleProject(),
       request: "asdf qwerty zxcv unrelated gibberish",
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.applyStatus).toBe("no_changes");
+    expect(result.applyStatus).toBe("needs_clarification");
     expect(result.operations).toHaveLength(0);
-    expect(result.explanation.toLowerCase()).toMatch(/no changes needed/);
+    expect(result.explanation.toLowerCase()).not.toMatch(/no changes needed/);
+    expect(result.explanation.endsWith("?")).toBe(true);
   });
 });
 
