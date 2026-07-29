@@ -584,6 +584,7 @@ export default function WebsiteEditor() {
   const panel = (
     <AtlasAiPanel
       project={project}
+      projectId={projectId}
       messages={conversation.messages}
       status={uiStatus}
       statusMessage={statusMessage}

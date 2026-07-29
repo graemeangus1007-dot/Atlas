@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * Sprint 23.0A — Atlas AI panel keeps recommendations mounted while conversation scrolls.
+ * Atlas AI panel layout — conversation primary, prompt sticky, Review below.
  */
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AtlasAiPanel from "@/components/editor/atlas-ai-panel";
 import type { BusinessAdvisorReport } from "@/lib/ai/business-advisor-types";
@@ -11,6 +11,7 @@ import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
 });
 
 vi.mock("@/components/ui/button", () => ({
@@ -24,7 +25,7 @@ vi.mock("@/components/ui/button", () => ({
   ),
 }));
 
-function sampleReport(): BusinessAdvisorReport {
+function sampleReport(count = 2): BusinessAdvisorReport {
   return {
     overallScore: 62,
     categoryScores: {
@@ -38,31 +39,29 @@ function sampleReport(): BusinessAdvisorReport {
     summary: "I noticed a few ways to strengthen this site.",
     reviewedAt: "2026-01-01T00:00:00.000Z",
     fingerprint: "fp-test",
-    recommendations: [
-      {
-        id: "trust.testimonials",
-        category: "trust",
-        title: "Add testimonials",
-        why: "Builds trust",
-        noticed: "No testimonials yet",
-        whyItMatters: "People look for proof",
-        expectedOutcome: "More inquiries",
-        estimatedTime: "~30 seconds",
-        impact: "high",
-        impactScore: 91,
-        confidence: 0.9,
-        destructive: false,
-        narrative: "No testimonials yet",
-        scoreCategory: "trust",
-        operations: [{ operation: "insertSection", type: "testimonials" }],
-      },
-    ],
+    recommendations: Array.from({ length: count }, (_, i) => ({
+      id: i === 0 ? "trust.testimonials" : `rec.${i}`,
+      category: "trust" as const,
+      title: i === 0 ? "Add testimonials" : `Opportunity ${i}`,
+      why: "why",
+      noticed: "noticed",
+      whyItMatters: "why",
+      expectedOutcome: "outcome",
+      estimatedTime: "~30 seconds",
+      impact: "high" as const,
+      impactScore: 91 - i,
+      confidence: 0.9,
+      destructive: false,
+      narrative: "noticed",
+      scoreCategory: "trust" as const,
+      operations: [{ operation: "insertSection" as const, type: "testimonials" as const }],
+    })),
   };
 }
 
-describe("recommendations remain mounted while conversation scrolls", () => {
-  it("keeps Atlas Review outside the conversation scroll region", () => {
-    const messages = Array.from({ length: 12 }, (_, i) => ({
+describe("Atlas AI panel layout", () => {
+  it("gives conversation most height, keeps prompt reachable, Review below prompt", () => {
+    const messages = Array.from({ length: 8 }, (_, i) => ({
       id: `m-${i}`,
       role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
       content: `Message ${i}`,
@@ -70,15 +69,16 @@ describe("recommendations remain mounted while conversation scrolls", () => {
     }));
 
     render(
-      <div style={{ height: 640 }}>
+      <div style={{ height: 720, display: "flex" }}>
         <AtlasAiPanel
           project={MOCK_BUSINESS_PROJECT}
+          projectId="proj-layout"
           messages={messages}
           status="idle"
           canUndo={false}
           canRedo={false}
           lastChanges={null}
-          advisorReport={sampleReport()}
+          advisorReport={sampleReport(2)}
           onSend={() => {}}
           onUndo={() => {}}
           onRedo={() => {}}
@@ -87,21 +87,66 @@ describe("recommendations remain mounted while conversation scrolls", () => {
     );
 
     const panel = screen.getByTestId("atlas-ai-panel");
-    const review = within(panel).getByTestId("atlas-review-region");
     const conversation = within(panel).getByTestId("atlas-conversation-region");
     const prompt = within(panel).getByTestId("atlas-prompt-region");
+    const review = within(panel).getByTestId("atlas-review-region");
 
-    expect(review).toBeTruthy();
-    expect(conversation).toBeTruthy();
-    expect(prompt).toBeTruthy();
-    expect(review.contains(conversation)).toBe(false);
-    expect(conversation.contains(review)).toBe(false);
-
-    // Recommendations stay queryable even with a long conversation history.
-    expect(
-      within(review).getByTestId("advisor-rec-trust.testimonials"),
-    ).toBeTruthy();
-    expect(within(conversation).getByText("Message 11")).toBeTruthy();
+    expect(conversation.className).toMatch(/flex-1/);
+    expect(conversation.className).toMatch(/min-h-\[12rem\]/);
     expect(within(prompt).getByLabelText("Design request")).toBeTruthy();
+
+    // DOM order: conversation → prompt → review
+    const children = Array.from(panel.children);
+    const conversationIndex = children.indexOf(conversation);
+    const promptIndex = children.indexOf(prompt);
+    const reviewIndex = children.indexOf(review);
+    expect(conversationIndex).toBeLessThan(promptIndex);
+    expect(promptIndex).toBeLessThan(reviewIndex);
+
+    expect(within(review).getByText(/Atlas Review/)).toBeTruthy();
+    expect(within(review).getByText(/2 opportunities/)).toBeTruthy();
+  });
+
+  it("collapses and expands Atlas Review", () => {
+    render(
+      <AtlasAiPanel
+        project={MOCK_BUSINESS_PROJECT}
+        projectId="proj-toggle"
+        messages={[
+          {
+            id: "m1",
+            role: "user",
+            content: "Hello",
+            createdAt: new Date().toISOString(),
+          },
+        ]}
+        status="idle"
+        canUndo={false}
+        canRedo={false}
+        lastChanges={null}
+        advisorReport={sampleReport(2)}
+        onSend={() => {}}
+        onUndo={() => {}}
+        onRedo={() => {}}
+      />,
+    );
+
+    const toggle = screen.getByTestId("atlas-review-toggle");
+    // After chatting begins with no stored preference → collapsed.
+    expect(screen.queryByTestId("atlas-review-body")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("atlas-review-body")).toBeTruthy();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(window.localStorage.getItem("atlas-review-expanded:proj-toggle")).toBe(
+      "1",
+    );
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("atlas-review-body")).toBeNull();
+    expect(window.localStorage.getItem("atlas-review-expanded:proj-toggle")).toBe(
+      "0",
+    );
   });
 });

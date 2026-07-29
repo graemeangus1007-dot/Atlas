@@ -50,7 +50,11 @@ export default function PreviewDesignSections({
       ) : null}
 
       {sections.enabled.includes("faq") && sections.faq?.length ? (
-        <section className="site-section px-6 py-16">
+        <section
+          className="site-section px-6 py-16"
+          data-testid="design-section-faq"
+          aria-label="Frequently asked questions"
+        >
           <div className="mx-auto max-w-3xl">
             <h2 className="font-[family-name:var(--font-atlas-display)] text-2xl font-semibold text-foreground">
               Frequently asked questions

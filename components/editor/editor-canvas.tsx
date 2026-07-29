@@ -3,6 +3,7 @@
 import EditableText from "@/components/editor/editable-text";
 import EditorContact from "@/components/editor/editor-contact";
 import EditorServices from "@/components/editor/editor-services";
+import PreviewDesignSections from "@/components/preview/preview-design-sections";
 import PreviewFeatures from "@/components/preview/preview-features";
 import PreviewGallery from "@/components/preview/preview-gallery";
 import { useTemplate } from "@/context/template-context";
@@ -179,6 +180,12 @@ export default function EditorCanvas({
         galleryLayout={template.galleryLayout}
         onTitleChange={onGalleryTitleChange}
       />
+      {content.designSections?.enabled?.length ? (
+        <PreviewDesignSections
+          sections={content.designSections}
+          cardStyle={template.cardStyle}
+        />
+      ) : null}
       <EditorContact
         contact={contact}
         projectId={projectId}

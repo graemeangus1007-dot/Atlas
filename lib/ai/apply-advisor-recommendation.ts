@@ -1,14 +1,17 @@
 /**
  * Apply a Business Advisor recommendation through the structured edit pipeline.
- * Never claims success when the project did not meaningfully change.
+ * Never claims success when the project did not meaningfully change, or when
+ * an inserted section would not render (e.g. empty FAQ).
  */
 
 import { applyEditOperations } from "@/lib/ai/apply-edit-operations";
 import { advisorProjectFingerprint } from "@/lib/ai/business-advisor";
 import type { BusinessRecommendation } from "@/lib/ai/business-advisor-types";
-import type { EditChangeSummary } from "@/lib/ai/edit-operations";
+import { assertInsertedSectionsVisible, isDesignSectionVisibleInContent } from "@/lib/ai/design-sections-canonical";
+import type { EditChangeSummary, InsertableSectionType } from "@/lib/ai/edit-operations";
 import { AiError } from "@/lib/ai/errors";
 import { validateEditOperations } from "@/lib/ai/validate-edit-operations";
+import { generateWebsiteContent } from "@/lib/website-generator";
 import type { BusinessProject } from "@/types/business-project";
 
 export type AdvisorApplyStatus =
@@ -45,10 +48,29 @@ function createAdvisorApplyRequestId(): string {
   return `advisor-apply-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function insertedSectionsRenderInContent(
+  project: BusinessProject,
+  operations: Array<{ operation: string; type?: string }>,
+): boolean {
+  const content = generateWebsiteContent(project);
+  for (const op of operations) {
+    if (op.operation !== "insertSection" || !op.type) continue;
+    if (
+      !isDesignSectionVisibleInContent(
+        content,
+        op.type as InsertableSectionType,
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
- * One-click apply — runs validate → applyEditOperations.
+ * One-click apply — runs validate → applyEditOperations → visibility assertion.
  * Destructive recommendations are rejected unless confirmDestructive is true.
- * No-op edits are reported as `no_visible_change` (never silent “success”).
+ * No-op / invisible inserts are reported as `no_visible_change` (never “Applied”).
  */
 export function applyAdvisorRecommendation(input: {
   project: BusinessProject;
@@ -96,6 +118,33 @@ export function applyAdvisorRecommendation(input: {
         changes: [],
         explanation:
           "No visible change — that improvement didn’t alter the live page.",
+      };
+    }
+
+    const visibility = assertInsertedSectionsVisible(
+      applied.project,
+      operations,
+    );
+    if (!visibility.ok) {
+      return {
+        ok: true,
+        status: "no_visible_change",
+        requestId,
+        project: applied.project,
+        changes: [],
+        explanation: `No visible change — ${visibility.missing.join(", ")} did not appear on the page.`,
+      };
+    }
+
+    if (!insertedSectionsRenderInContent(applied.project, operations)) {
+      return {
+        ok: true,
+        status: "no_visible_change",
+        requestId,
+        project: applied.project,
+        changes: [],
+        explanation:
+          "No visible change — the inserted section is not present in the rendered site.",
       };
     }
 

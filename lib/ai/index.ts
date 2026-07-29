@@ -245,6 +245,14 @@ export {
 export { DEFAULT_ADVISOR_MODULES } from "@/lib/ai/advisor-modules";
 export { applyAdvisorRecommendation } from "@/lib/ai/apply-advisor-recommendation";
 export {
+  assertInsertedSectionsVisible,
+  createDefaultFaqItems,
+  createDefaultTestimonials,
+  isDesignSectionVisibleInContent,
+  isDesignSectionVisibleInProject,
+} from "@/lib/ai/design-sections-canonical";
+export type { CanonicalFaqItem } from "@/lib/ai/design-sections-canonical";
+export {
   CRITIQUE_CATEGORY_LABELS,
   CRITIQUE_CATEGORY_WEIGHTS,
   CRITIQUE_SCORE_CATEGORIES,

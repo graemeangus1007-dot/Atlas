@@ -12,8 +12,11 @@ import type {
 import type {
   GeneratedFaqItem,
   GeneratedOptionalSections,
-  GeneratedTestimonial,
 } from "@/lib/ai/types";
+import {
+  createDefaultFaqItems,
+  createDefaultTestimonials,
+} from "@/lib/ai/design-sections-canonical";
 import { defaultProjectSeo } from "@/lib/seo/defaults";
 
 const BLUE_TOKENS = ["blue", "#2563eb", "#3b82f6", "#1d4ed8", "#60a5fa", "#1e40af"];
@@ -57,38 +60,11 @@ function defaultSectionContent(
   switch (type) {
     case "testimonials":
       return {
-        testimonials: [
-          {
-            quote: `${businessName} exceeded our expectations from the first visit.`,
-            author: "Alex R.",
-            role: "Customer",
-          },
-          {
-            quote: "Clear communication, quality work, and a team that cares.",
-            author: "Jordan M.",
-            role: "Local business owner",
-          },
-        ] satisfies GeneratedTestimonial[],
+        testimonials: createDefaultTestimonials(businessName),
       };
     case "faq":
       return {
-        faq: [
-          {
-            question: `How do I get started with ${businessName}?`,
-            answer:
-              "Share a few details about your goals and we will recommend the right next step — usually within one business day.",
-          },
-          {
-            question: "What areas do you serve?",
-            answer:
-              "We work with customers in our primary service area and can discuss nearby regions on request.",
-          },
-          {
-            question: "Do you offer consultations?",
-            answer:
-              "Yes — most new customers begin with a short consult so we can understand your needs.",
-          },
-        ] satisfies GeneratedFaqItem[],
+        faq: createDefaultFaqItems(businessName) satisfies GeneratedFaqItem[],
       };
     case "team":
       return {
