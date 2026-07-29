@@ -1,9 +1,12 @@
 /**
  * Per-project AI questionnaire persistence (localStorage).
- * Client-only — safe for resume after refresh.
+ * Client-only — safe for resume after refresh / tab switches.
  *
  * Snapshots used by useSyncExternalStore MUST be referentially stable when
  * localStorage contents have not changed (React error #185 / max update depth).
+ *
+ * Sprint fix: last-write-wins via revision/updatedAt, BroadcastChannel + storage
+ * sync, and APIs that support flush-before-hide.
  */
 
 import {
@@ -20,6 +23,7 @@ import {
 
 const STORAGE_PREFIX = "atlas.ai.questionnaire.v1:";
 export const AI_QUESTIONNAIRE_STORAGE_EVENT = "atlas-ai-questionnaire";
+export const AI_QUESTIONNAIRE_BROADCAST_CHANNEL = "atlas-ai-questionnaire";
 
 const MAX_STEP_INDEX = AI_QUESTIONNAIRE_STEPS.length - 1;
 
@@ -34,8 +38,21 @@ type SnapshotCacheEntry = {
 
 const snapshotCache = new Map<string, SnapshotCacheEntry>();
 
+type BroadcastPayload = {
+  projectId: string;
+  revision: number;
+  updatedAt: string;
+  reason: "save" | "clear";
+};
+
+let broadcastChannel: BroadcastChannel | null | undefined;
+
 function storageKey(projectId: string): string {
   return `${STORAGE_PREFIX}${projectId}`;
+}
+
+export function aiQuestionnaireStorageKey(projectId: string): string {
+  return storageKey(projectId.trim());
 }
 
 function isTone(value: unknown): value is AiBrandTone {
@@ -102,6 +119,10 @@ function parseProgress(
       typeof parsed.stepIndex === "number" && Number.isFinite(parsed.stepIndex)
         ? Math.max(0, Math.min(MAX_STEP_INDEX, Math.floor(parsed.stepIndex)))
         : 0;
+    const revision =
+      typeof parsed.revision === "number" && Number.isFinite(parsed.revision)
+        ? Math.max(0, Math.floor(parsed.revision))
+        : 0;
     return {
       version: 1,
       projectId,
@@ -111,6 +132,7 @@ function parseProgress(
         typeof parsed.updatedAt === "string"
           ? parsed.updatedAt
           : new Date().toISOString(),
+      revision,
     };
   } catch {
     return null;
@@ -163,6 +185,59 @@ export function clearAiQuestionnaireSnapshotCache(): void {
 }
 
 /**
+ * True when `candidate` is strictly newer than `base` (revision, then updatedAt).
+ */
+export function isAiQuestionnaireNewer(
+  candidate: Pick<AiQuestionnaireProgress, "revision" | "updatedAt">,
+  base: Pick<AiQuestionnaireProgress, "revision" | "updatedAt"> | null | undefined,
+): boolean {
+  if (!base) return true;
+  if (candidate.revision !== base.revision) {
+    return candidate.revision > base.revision;
+  }
+  return candidate.updatedAt > base.updatedAt;
+}
+
+function getBroadcastChannel(): BroadcastChannel | null {
+  if (typeof window === "undefined") return null;
+  if (typeof BroadcastChannel === "undefined") return null;
+  if (broadcastChannel === undefined) {
+    try {
+      broadcastChannel = new BroadcastChannel(AI_QUESTIONNAIRE_BROADCAST_CHANNEL);
+    } catch {
+      broadcastChannel = null;
+    }
+  }
+  return broadcastChannel ?? null;
+}
+
+function notifyQuestionnaireChange(
+  projectId: string,
+  meta: { revision: number; updatedAt: string; reason: "save" | "clear" },
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(AI_QUESTIONNAIRE_STORAGE_EVENT, {
+      detail: { projectId, ...meta },
+    }),
+  );
+  const channel = getBroadcastChannel();
+  if (channel) {
+    const payload: BroadcastPayload = {
+      projectId,
+      revision: meta.revision,
+      updatedAt: meta.updatedAt,
+      reason: meta.reason,
+    };
+    try {
+      channel.postMessage(payload);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
  * Referentially stable snapshot for useSyncExternalStore.
  * Re-parses only when the underlying localStorage string changes.
  */
@@ -190,27 +265,49 @@ export function getAiQuestionnaireServerSnapshot(): AiQuestionnaireProgress | nu
 
 /**
  * Subscribe to questionnaire storage updates for one project.
- * Custom events from other project ids are ignored.
+ * Custom events / BroadcastChannel / storage events from other project ids are ignored.
  */
 export function subscribeAiQuestionnaire(
   projectId: string,
   onStoreChange: () => void,
 ): () => void {
   const id = projectId.trim();
+  const key = storageKey(id);
+
   const handler = (event: Event) => {
     if (typeof window === "undefined") return;
+
+    if (event.type === "storage") {
+      const storageEvent = event as StorageEvent;
+      // null key = clear(); otherwise only our project key
+      if (storageEvent.key != null && storageEvent.key !== key) return;
+      onStoreChange();
+      return;
+    }
+
     if (event.type === AI_QUESTIONNAIRE_STORAGE_EVENT) {
       const detail = (event as CustomEvent<{ projectId?: string }>).detail;
       if (detail?.projectId && detail.projectId !== id) return;
+      onStoreChange();
     }
+  };
+
+  const onBroadcast = (event: MessageEvent<BroadcastPayload>) => {
+    const data = event.data;
+    if (!data || data.projectId !== id) return;
     onStoreChange();
   };
 
   window.addEventListener(AI_QUESTIONNAIRE_STORAGE_EVENT, handler);
   window.addEventListener("storage", handler);
+
+  const channel = getBroadcastChannel();
+  channel?.addEventListener("message", onBroadcast);
+
   return () => {
     window.removeEventListener(AI_QUESTIONNAIRE_STORAGE_EVENT, handler);
     window.removeEventListener("storage", handler);
+    channel?.removeEventListener("message", onBroadcast);
   };
 }
 
@@ -223,11 +320,27 @@ export function loadAiQuestionnaire(
   return getAiQuestionnaireSnapshot(projectId);
 }
 
+export type SaveAiQuestionnaireResult = {
+  progress: AiQuestionnaireProgress;
+  /** True when localStorage (or cache) was written. */
+  wrote: boolean;
+  /** True when a newer tab/revision rejected this write. */
+  rejectedStale: boolean;
+};
+
 export function saveAiQuestionnaire(input: {
   projectId: string;
   stepIndex: number;
   answers: AiQuestionnaireAnswers;
-}): AiQuestionnaireProgress {
+  /**
+   * Caller’s last-seen revision/updatedAt. If storage is newer, the write is
+   * rejected so a stale tab cannot overwrite a fresher draft.
+   */
+  baseRevision?: number | null;
+  baseUpdatedAt?: string | null;
+  /** Bypass last-write-wins (tests / explicit recovery). */
+  force?: boolean;
+}): SaveAiQuestionnaireResult {
   const projectId = input.projectId.trim();
   const stepIndex = Math.max(0, Math.min(MAX_STEP_INDEX, input.stepIndex));
   const answers: AiQuestionnaireAnswers = {
@@ -236,13 +349,29 @@ export function saveAiQuestionnaire(input: {
   };
 
   const existing = getAiQuestionnaireSnapshot(projectId);
+
   if (
     existing &&
     existing.stepIndex === stepIndex &&
     answersEqual(existing.answers, answers)
   ) {
     // No-op: avoid rewriting localStorage / dispatching (prevents store churn).
-    return existing;
+    return { progress: existing, wrote: false, rejectedStale: false };
+  }
+
+  if (
+    !input.force &&
+    existing &&
+    (input.baseRevision != null || input.baseUpdatedAt != null)
+  ) {
+    const base = {
+      revision: input.baseRevision ?? existing.revision,
+      updatedAt: input.baseUpdatedAt ?? existing.updatedAt,
+    };
+    // Storage moved ahead of what this tab last loaded/saved.
+    if (isAiQuestionnaireNewer(existing, base)) {
+      return { progress: existing, wrote: false, rejectedStale: true };
+    }
   }
 
   const progress: AiQuestionnaireProgress = {
@@ -251,6 +380,7 @@ export function saveAiQuestionnaire(input: {
     stepIndex,
     answers,
     updatedAt: new Date().toISOString(),
+    revision: (existing?.revision ?? 0) + 1,
   };
 
   if (typeof window !== "undefined" && projectId) {
@@ -258,34 +388,40 @@ export function saveAiQuestionnaire(input: {
       const raw = JSON.stringify(progress);
       window.localStorage.setItem(storageKey(projectId), raw);
       writeCache(projectId, raw, progress);
-      window.dispatchEvent(
-        new CustomEvent(AI_QUESTIONNAIRE_STORAGE_EVENT, {
-          detail: { projectId },
-        }),
-      );
+      notifyQuestionnaireChange(projectId, {
+        revision: progress.revision,
+        updatedAt: progress.updatedAt,
+        reason: "save",
+      });
     } catch {
       // Quota / private mode — keep in-memory cache so the wizard still works.
       writeCache(projectId, null, progress);
+      notifyQuestionnaireChange(projectId, {
+        revision: progress.revision,
+        updatedAt: progress.updatedAt,
+        reason: "save",
+      });
     }
   } else {
     writeCache(projectId, null, progress);
   }
 
-  return progress;
+  return { progress, wrote: true, rejectedStale: false };
 }
 
 export function clearAiQuestionnaire(projectId: string): void {
   if (typeof window === "undefined") return;
   const id = projectId.trim();
   if (!id) return;
+  const updatedAt = new Date().toISOString();
   try {
     window.localStorage.removeItem(storageKey(id));
     writeCache(id, null, null);
-    window.dispatchEvent(
-      new CustomEvent(AI_QUESTIONNAIRE_STORAGE_EVENT, {
-        detail: { projectId: id },
-      }),
-    );
+    notifyQuestionnaireChange(id, {
+      revision: 0,
+      updatedAt,
+      reason: "clear",
+    });
   } catch {
     writeCache(id, null, null);
   }

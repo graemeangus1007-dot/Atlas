@@ -17,6 +17,7 @@ import {
   getAiQuestionnaireSnapshot,
   loadAiQuestionnaire,
   saveAiQuestionnaire,
+  subscribeAiQuestionnaire,
 } from "@/lib/ai/questionnaire-storage";
 import {
   isAiQuestionnaireComplete,
@@ -89,12 +90,14 @@ describe("AI questionnaire validation", () => {
 describe("AI questionnaire autosave & resume", () => {
   afterEach(() => {
     clearAiQuestionnaire("proj-1");
+    clearAiQuestionnaire("proj-2");
     clearAiQuestionnaireSnapshotCache();
     vi.unstubAllGlobals();
   });
 
   function stubStorage() {
     const store = new Map<string, string>();
+    const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
     vi.stubGlobal("window", {
       localStorage: {
         getItem: (k: string) => store.get(k) ?? null,
@@ -105,9 +108,29 @@ describe("AI questionnaire autosave & resume", () => {
           store.delete(k);
         },
       },
-      dispatchEvent: () => true,
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
+      dispatchEvent: (event: Event) => {
+        const set = listeners.get(event.type);
+        if (set) {
+          for (const listener of set) {
+            if (typeof listener === "function") listener(event);
+            else listener.handleEvent(event);
+          }
+        }
+        return true;
+      },
+      addEventListener: (
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+      ) => {
+        if (!listeners.has(type)) listeners.set(type, new Set());
+        listeners.get(type)!.add(listener);
+      },
+      removeEventListener: (
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+      ) => {
+        listeners.get(type)?.delete(listener);
+      },
     });
     return store;
   }
@@ -116,12 +139,13 @@ describe("AI questionnaire autosave & resume", () => {
     stubStorage();
 
     const answers = completeAnswers();
-    saveAiQuestionnaire({
+    const { progress } = saveAiQuestionnaire({
       projectId: "proj-1",
       stepIndex: 2,
       answers,
     });
 
+    expect(progress.revision).toBe(1);
     const loaded = loadAiQuestionnaire("proj-1");
     expect(loaded).not.toBeNull();
     expect(loaded?.stepIndex).toBe(2);
@@ -133,13 +157,12 @@ describe("AI questionnaire autosave & resume", () => {
 
   it("returns a referentially stable snapshot when storage is unchanged", () => {
     stubStorage();
-    saveAiQuestionnaire({
+    const { progress: first } = saveAiQuestionnaire({
       projectId: "proj-1",
       stepIndex: 1,
       answers: completeAnswers(),
     });
 
-    const first = getAiQuestionnaireSnapshot("proj-1");
     const second = getAiQuestionnaireSnapshot("proj-1");
     expect(first).not.toBeNull();
     expect(second).toBe(first);
@@ -150,8 +173,139 @@ describe("AI questionnaire autosave & resume", () => {
       stepIndex: 1,
       answers: completeAnswers(),
     });
-    expect(saved).toBe(first);
+    expect(saved.progress).toBe(first);
+    expect(saved.wrote).toBe(false);
     expect(getAiQuestionnaireSnapshot("proj-1")).toBe(first);
+  });
+
+  it("flushes a pending draft before debounce when forced save runs", () => {
+    stubStorage();
+    vi.useFakeTimers();
+    try {
+      // Simulate tab A typing (would be debounced in UI) then flushing.
+      const first = saveAiQuestionnaire({
+        projectId: "proj-1",
+        stepIndex: 0,
+        answers: completeAnswers({ businessName: "Partial" }),
+      });
+      expect(first.wrote).toBe(true);
+
+      const second = saveAiQuestionnaire({
+        projectId: "proj-1",
+        stepIndex: 1,
+        answers: completeAnswers({ businessName: "Flushed Cafe" }),
+        baseRevision: first.progress.revision,
+        baseUpdatedAt: first.progress.updatedAt,
+      });
+      expect(second.wrote).toBe(true);
+      expect(loadAiQuestionnaire("proj-1")?.answers.businessName).toBe(
+        "Flushed Cafe",
+      );
+      expect(loadAiQuestionnaire("proj-1")?.stepIndex).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("notifies subscribers when another tab saves (storage event key filter)", () => {
+    stubStorage();
+    let calls = 0;
+    const unsub = subscribeAiQuestionnaire("proj-1", () => {
+      calls += 1;
+    });
+
+    saveAiQuestionnaire({
+      projectId: "proj-1",
+      stepIndex: 0,
+      answers: completeAnswers({ businessName: "Tab B" }),
+    });
+    expect(calls).toBeGreaterThan(0);
+
+    const before = calls;
+    // Unrelated storage key must not notify
+    const unrelated = new Event("storage") as Event & { key: string };
+    unrelated.key = "unrelated-key";
+    window.dispatchEvent(unrelated);
+    expect(calls).toBe(before);
+
+    unsub();
+  });
+
+  it("rejects stale tab writes so they cannot overwrite newer data", () => {
+    stubStorage();
+    const newer = saveAiQuestionnaire({
+      projectId: "proj-1",
+      stepIndex: 2,
+      answers: completeAnswers({ businessName: "Newest" }),
+    });
+    expect(newer.progress.revision).toBe(1);
+
+    const stale = saveAiQuestionnaire({
+      projectId: "proj-1",
+      stepIndex: 0,
+      answers: completeAnswers({ businessName: "Stale" }),
+      baseRevision: 0,
+      baseUpdatedAt: "2000-01-01T00:00:00.000Z",
+    });
+    expect(stale.rejectedStale).toBe(true);
+    expect(stale.wrote).toBe(false);
+    expect(loadAiQuestionnaire("proj-1")?.answers.businessName).toBe("Newest");
+    expect(loadAiQuestionnaire("proj-1")?.revision).toBe(1);
+  });
+
+  it("refresh restores the latest draft snapshot", () => {
+    stubStorage();
+    saveAiQuestionnaire({
+      projectId: "proj-1",
+      stepIndex: 3,
+      answers: completeAnswers({ businessName: "After Refresh" }),
+    });
+    clearAiQuestionnaireSnapshotCache();
+    const restored = loadAiQuestionnaire("proj-1");
+    expect(restored?.answers.businessName).toBe("After Refresh");
+    expect(restored?.stepIndex).toBe(3);
+  });
+
+  it("keeps project drafts isolated", () => {
+    stubStorage();
+    saveAiQuestionnaire({
+      projectId: "proj-1",
+      stepIndex: 1,
+      answers: completeAnswers({ businessName: "Project One" }),
+    });
+    saveAiQuestionnaire({
+      projectId: "proj-2",
+      stepIndex: 2,
+      answers: completeAnswers({ businessName: "Project Two" }),
+    });
+    expect(loadAiQuestionnaire("proj-1")?.answers.businessName).toBe(
+      "Project One",
+    );
+    expect(loadAiQuestionnaire("proj-2")?.answers.businessName).toBe(
+      "Project Two",
+    );
+    clearAiQuestionnaire("proj-1");
+    expect(loadAiQuestionnaire("proj-1")).toBeNull();
+    expect(loadAiQuestionnaire("proj-2")?.answers.businessName).toBe(
+      "Project Two",
+    );
+  });
+
+  it("successful creation clearing only removes the completed project draft", () => {
+    stubStorage();
+    saveAiQuestionnaire({
+      projectId: "proj-1",
+      stepIndex: 5,
+      answers: completeAnswers({ businessName: "Done" }),
+    });
+    saveAiQuestionnaire({
+      projectId: "proj-2",
+      stepIndex: 1,
+      answers: completeAnswers({ businessName: "Other" }),
+    });
+    clearAiQuestionnaire("proj-1");
+    expect(loadAiQuestionnaire("proj-1")).toBeNull();
+    expect(loadAiQuestionnaire("proj-2")?.answers.businessName).toBe("Other");
   });
 });
 
@@ -298,6 +452,9 @@ describe("AI questionnaire UI & API contracts", () => {
     expect(wizard).toContain("useSyncExternalStore");
     expect(wizard).toContain("getAiQuestionnaireSnapshot");
     expect(wizard).toContain("subscribeAiQuestionnaire");
+    expect(wizard).toContain("visibilitychange");
+    expect(wizard).toContain("pagehide");
+    expect(wizard).toContain("Updated in another tab");
     expect(wizard).not.toMatch(
       /useSyncExternalStore\(\s*subscribeQuestionnaire,\s*\(\)\s*=>\s*loadAiQuestionnaire/,
     );

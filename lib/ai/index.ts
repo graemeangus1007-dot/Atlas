@@ -74,14 +74,18 @@ export {
 export { questionnaireToGenerateInput } from "@/lib/ai/questionnaire-map";
 export {
   AI_QUESTIONNAIRE_STORAGE_EVENT,
+  AI_QUESTIONNAIRE_BROADCAST_CHANNEL,
   clearAiQuestionnaire,
   clearAiQuestionnaireSnapshotCache,
   getAiQuestionnaireServerSnapshot,
   getAiQuestionnaireSnapshot,
+  isAiQuestionnaireNewer,
   loadAiQuestionnaire,
   saveAiQuestionnaire,
   subscribeAiQuestionnaire,
+  aiQuestionnaireStorageKey,
 } from "@/lib/ai/questionnaire-storage";
+export type { SaveAiQuestionnaireResult } from "@/lib/ai/questionnaire-storage";
 export {
   isAiQuestionnaireComplete,
   isAiQuestionnaireStepValid,

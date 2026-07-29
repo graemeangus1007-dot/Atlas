@@ -73,6 +73,8 @@ export type AiQuestionnaireProgress = {
   stepIndex: number;
   answers: AiQuestionnaireAnswers;
   updatedAt: string;
+  /** Monotonic revision for last-write-wins across tabs. */
+  revision: number;
 };
 
 export const EMPTY_AI_QUESTIONNAIRE: AiQuestionnaireAnswers = {
