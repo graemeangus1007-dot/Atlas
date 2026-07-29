@@ -16,6 +16,10 @@ import type {
   EditOperation,
 } from "@/lib/ai/edit-operations";
 import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
+import {
+  parseThemeColorIntent,
+  wantsPreserveWording,
+} from "@/lib/ai/named-colors";
 import { validateEditOperations } from "@/lib/ai/validate-edit-operations";
 import { AiError } from "@/lib/ai/errors";
 import type { BusinessProject } from "@/types/business-project";
@@ -96,15 +100,34 @@ export function planEditOperations(input: {
 
   const text = request.toLowerCase();
   const ctx = recentContext(input.history ?? []);
-  const operations: EditOperation[] = [];
-  const notes: string[] = [];
-  const name = input.project.businessName || "your business";
-
   const mentionsSite =
     /\b(it|this|the site|the website|the page|everything)\b/.test(text) ||
     ctx.includes("website") ||
     ctx.includes("modern") ||
     ctx.includes("site");
+  const preserveWording = wantsPreserveWording(text);
+  const themeColors = parseThemeColorIntent(text);
+  let appliedNamedTheme = false;
+  const operations: EditOperation[] = [];
+  const notes: string[] = [];
+  const name = input.project.businessName || "your business";
+
+  if (themeColors) {
+    operations.push({
+      operation: "changeTheme",
+      ...(themeColors.primary ? { primary: themeColors.primary } : {}),
+      ...(themeColors.secondary ? { secondary: themeColors.secondary } : {}),
+      ...(themeColors.accent ? { accent: themeColors.accent } : {}),
+      ...(themeColors.background ? { background: themeColors.background } : {}),
+      ...(themeColors.theme ? { theme: themeColors.theme } : {}),
+    });
+    appliedNamedTheme = true;
+    notes.push(
+      themeColors.labels.length > 0
+        ? `Applied ${themeColors.labels.join(" with ")}`
+        : "Updated theme colors",
+    );
+  }
 
   if (/testimonial/.test(text)) {
     operations.push({ operation: "insertSection", type: "testimonials" });
@@ -127,14 +150,18 @@ export function planEditOperations(input: {
     notes.push("Added a pricing section");
   }
 
-  if (/blue/.test(text) && /green/.test(text)) {
+  if (!appliedNamedTheme && /blue/.test(text) && /green/.test(text)) {
     operations.push({
       operation: "replaceColors",
       from: "blue",
       to: "#0f766e",
     });
     notes.push("Shifted blue brand colors to green");
-  } else if (/green/.test(text) && /color|colours|colors|accent|primary/.test(text)) {
+  } else if (
+    !appliedNamedTheme &&
+    /green/.test(text) &&
+    /color|colours|colors|accent|primary/.test(text)
+  ) {
     operations.push({
       operation: "changeTheme",
       primary: "#0f766e",
@@ -143,7 +170,11 @@ export function planEditOperations(input: {
     notes.push("Updated brand colors toward green");
   }
 
-  if (/darker|make it dark|dark mode|darker theme/.test(text) || (/dark/.test(text) && mentionsSite)) {
+  if (
+    !appliedNamedTheme &&
+    (/darker|make it dark|dark mode|darker theme/.test(text) ||
+      (/dark/.test(text) && mentionsSite))
+  ) {
     operations.push({
       operation: "changeTheme",
       background: "#07090d",
@@ -153,7 +184,7 @@ export function planEditOperations(input: {
     notes.push("Moved the site to a darker theme");
   }
 
-  if (/lighter|make it light|light mode/.test(text)) {
+  if (!appliedNamedTheme && /lighter|make it light|light mode/.test(text)) {
     operations.push({
       operation: "changeTheme",
       background: "#f7f8fa",
@@ -434,12 +465,35 @@ export function planEditOperations(input: {
     };
   }
 
+  const filtered = preserveWording
+    ? operations.filter(
+        (op) =>
+          op.operation !== "replaceText" &&
+          op.operation !== "rewriteServices" &&
+          op.operation !== "updateSeo" &&
+          op.operation !== "shortenNavigation",
+      )
+    : operations;
+
+  if (preserveWording && !notes.some((n) => /wording|unchanged/i.test(n))) {
+    notes.push("Kept all wording unchanged");
+  }
+
+  if (filtered.length === 0) {
+    return {
+      operations: [],
+      explanation: preserveWording
+        ? "No design changes were needed while keeping your wording unchanged."
+        : "No changes needed — I could not map that request to a safe design edit. Try something more specific like “Make the hero more modern”, “Add an FAQ”, or “Change blue colors to green”.",
+    };
+  }
+
   const explanation =
     notes.length > 0
       ? `I updated the website: ${notes.join("; ")}.`
       : "I applied structured design edits to the current website.";
 
-  return { operations, explanation };
+  return { operations: filtered, explanation };
 }
 
 /**

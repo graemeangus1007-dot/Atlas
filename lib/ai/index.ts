@@ -197,6 +197,14 @@ export type {
 export { validateEditOperations } from "@/lib/ai/validate-edit-operations";
 export { requestEditorAgentEdit } from "@/lib/ai/request-editor-edit";
 export {
+  NAMED_COLORS,
+  namedColorHex,
+  parseThemeColorIntent,
+  resolveNamedColor,
+  wantsPreserveWording,
+} from "@/lib/ai/named-colors";
+export type { NamedColorId, ParsedThemeColors } from "@/lib/ai/named-colors";
+export {
   applyAiFieldValue,
   createAiHistoryEntry,
   readAiFieldValue,
