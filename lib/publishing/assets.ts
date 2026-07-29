@@ -250,7 +250,7 @@ export function planStaticSiteAssets(
 
   const logoAsset = resolveLibraryAsset(
     project.mediaLibrary,
-    seo.localBusiness.logoAssetId,
+    project.logoAssetId ?? seo.localBusiness.logoAssetId,
   );
   const logoExt = logoAsset ? extensionForAsset(logoAsset) : "png";
   const logoPlan = buildAssetEntry({
@@ -265,6 +265,23 @@ export function planStaticSiteAssets(
   });
   if (logoPlan.entry) assets.push(logoPlan.entry);
 
+  const aboutAsset = resolveLibraryAsset(
+    project.mediaLibrary,
+    project.sectionImages?.about ?? null,
+  );
+  const aboutExt = aboutAsset ? extensionForAsset(aboutAsset) : "jpg";
+  const aboutPlan = buildAssetEntry({
+    path: `assets/about.${aboutExt}`,
+    role: "about",
+    alt: content.about.title,
+    asset: aboutAsset,
+    placeholderLabel: `${content.businessName} about`,
+    placeholderWidth: 1200,
+    placeholderHeight: 900,
+    optional: true,
+  });
+  if (aboutPlan.entry) assets.push(aboutPlan.entry);
+
   return {
     content: {
       ...content,
@@ -273,7 +290,15 @@ export function planStaticSiteAssets(
         imageUrl: heroPlan.href || content.hero.imageUrl,
         isPlaceholder: heroPlan.entry?.source.type === "inline",
       },
+      about: {
+        ...content.about,
+        imageUrl: aboutPlan.href || content.about.imageUrl || null,
+        isPlaceholder: aboutAsset
+          ? false
+          : Boolean(content.about.isPlaceholder),
+      },
       gallery,
+      logoUrl: logoPlan.href || content.logoUrl || null,
     },
     assets,
     inlineFiles,

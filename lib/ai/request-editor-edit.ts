@@ -9,6 +9,7 @@ import {
   type EditorAgentHistoryItem,
   type EditorAgentResult,
 } from "@/lib/ai/editor-agent";
+import type { ImageEditorState } from "@/lib/ai/image-agent";
 import type { BusinessProject } from "@/types/business-project";
 
 export type EditorEditClientResult = (EditorAgentResult | EditorAgentFailure) & {
@@ -29,6 +30,7 @@ type ApiEditSuccessBody = {
   project: BusinessProject;
   changeCount?: number;
   applyStatus?: "applied" | "no_changes" | "needs_clarification";
+  imageEditorState?: ImageEditorState;
 };
 
 /**
@@ -40,6 +42,7 @@ export async function requestEditorAgentEdit(input: {
   request: string;
   history?: EditorAgentHistoryItem[];
   projectId?: string | null;
+  imageEditorState?: ImageEditorState | null;
 }): Promise<EditorEditClientResult> {
   const requestId = createClientRequestId();
 
@@ -55,6 +58,7 @@ export async function requestEditorAgentEdit(input: {
         projectId: input.projectId ?? undefined,
         request: input.request,
         history: input.history,
+        imageEditorState: input.imageEditorState ?? undefined,
       }),
     });
 
@@ -66,6 +70,7 @@ export async function requestEditorAgentEdit(input: {
         project: input.project,
         request: input.request,
         history: input.history,
+        imageEditorState: input.imageEditorState,
       });
       return { ...local, requestId: headerId };
     }
@@ -125,6 +130,7 @@ export async function requestEditorAgentEdit(input: {
       changes,
       project: data.project,
       applyStatus,
+      imageEditorState: data.imageEditorState,
       requestId: headerId,
     };
   } catch {
@@ -133,6 +139,7 @@ export async function requestEditorAgentEdit(input: {
       project: input.project,
       request: input.request,
       history: input.history,
+      imageEditorState: input.imageEditorState,
     });
     return { ...local, requestId };
   }

@@ -47,7 +47,11 @@ function headingBlock(
     </div>`;
 }
 
-function renderNav(businessName: string, navStyle: NavStyle): string {
+function renderNav(
+  businessName: string,
+  navStyle: NavStyle,
+  logoUrl?: string | null,
+): string {
   const headerMod =
     navStyle === "minimal"
       ? "site-header-minimal"
@@ -74,9 +78,13 @@ function renderNav(businessName: string, navStyle: NavStyle): string {
       `<li><a href="${link.href}">${escapeHtml(link.label)}</a></li>`,
   ).join("");
 
+  const brandInner = logoUrl
+    ? `<img class="site-logo" src="${escapeAttr(logoUrl)}" alt="" />${escapeHtml(businessName)}`
+    : escapeHtml(businessName);
+
   return `<header class="site-header ${headerMod}">
   <nav class="site-shell site-nav" aria-label="Website">
-    <a class="site-heading site-link site-brand" href="#home">${escapeHtml(businessName)}</a>
+    <a class="site-heading site-link site-brand" href="#home">${brandInner}</a>
     <ul class="site-nav-desktop${navStyle === "pill" ? " pill" : ""}">${links}</ul>
     <details class="site-nav-details">
       <summary class="site-nav-toggle site-button" aria-label="Toggle menu">☰</summary>
@@ -137,12 +145,18 @@ function renderAbout(
   about: GeneratedWebsiteContent["about"],
   cardStyle: CardStyle,
 ): string {
+  const imageHtml = about.imageUrl
+    ? `<img class="site-about-image" src="${escapeAttr(about.imageUrl)}" alt="" />`
+    : "";
   return `<section id="about" class="site-section site-section-bordered">
   <div class="site-shell site-about-grid">
     ${headingBlock("About", about.title, undefined, "left")}
-    <div class="site-about-card ${cardClass(cardStyle)}">
-      <p>${escapeHtml(about.description)}</p>
-      <p class="site-about-signoff">— The team at ${escapeHtml(businessName)}</p>
+    <div class="site-about-media">
+      ${imageHtml}
+      <div class="site-about-card ${cardClass(cardStyle)}">
+        <p>${escapeHtml(about.description)}</p>
+        <p class="site-about-signoff">— The team at ${escapeHtml(businessName)}</p>
+      </div>
     </div>
   </div>
 </section>`;
@@ -563,23 +577,71 @@ function renderDesignSections(
  * Render the full document body for a template + resolved content.
  * Section order and layout variants come from WebsiteTemplate (extensible).
  */
+function renderDesignSectionById(
+  sectionId: string,
+  sections: NonNullable<GeneratedWebsiteContent["designSections"]>,
+  cardStyle: CardStyle,
+): string {
+  return renderDesignSections(
+    { ...sections, enabled: [sectionId] },
+    cardStyle,
+  );
+}
+
 export function renderStaticSiteBody(
   content: GeneratedWebsiteContent,
   template: WebsiteTemplate,
 ): string {
-  const sections = template.sectionOrder
-    .map((sectionId) => renderSection(sectionId, content, template))
+  const order =
+    content.sectionOrder && content.sectionOrder.length > 0
+      ? content.sectionOrder
+      : template.sectionOrder;
+  const coreIds = new Set(template.sectionOrder);
+  const renderedDesign = new Set<string>();
+
+  const sections = order
+    .map((sectionId) => {
+      if (coreIds.has(sectionId as TemplateSectionId)) {
+        return renderSection(
+          sectionId as TemplateSectionId,
+          content,
+          template,
+        );
+      }
+      if (
+        content.designSections?.enabled?.includes(sectionId) &&
+        content.designSections
+      ) {
+        renderedDesign.add(sectionId);
+        return renderDesignSectionById(
+          sectionId,
+          content.designSections,
+          template.cardStyle,
+        );
+      }
+      return "";
+    })
+    .filter(Boolean)
     .join("\n");
-  const designHtml =
+
+  const remainingDesign =
     content.designSections?.enabled?.length
-      ? renderDesignSections(content.designSections, template.cardStyle)
+      ? renderDesignSections(
+          {
+            ...content.designSections,
+            enabled: content.designSections.enabled.filter(
+              (id) => !renderedDesign.has(id),
+            ),
+          },
+          template.cardStyle,
+        )
       : "";
 
   return `<div class="site-canvas" data-template="${escapeAttr(template.id)}" data-card-style="${escapeAttr(template.cardStyle)}" data-hero-layout="${escapeAttr(template.heroLayout)}" data-nav-style="${escapeAttr(template.navStyle)}" data-gallery-layout="${escapeAttr(template.galleryLayout)}" data-footer-layout="${escapeAttr(template.footerLayout)}">
-${renderNav(content.businessName, template.navStyle)}
+${renderNav(content.businessName, template.navStyle, content.logoUrl)}
 <main>
 ${sections}
-${designHtml}
+${remainingDesign}
 </main>
 </div>`;
 }

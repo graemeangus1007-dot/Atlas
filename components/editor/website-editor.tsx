@@ -44,6 +44,7 @@ import {
   type EditChangeSummary,
   type EditorConversation,
   type EditorRevisionStack,
+  type ImageEditorState,
 } from "@/lib/ai";
 import { buildSiteDesignStyle } from "@/lib/design-theme";
 import { updateMediaAssetMeta } from "@/lib/media";
@@ -87,6 +88,8 @@ export default function WebsiteEditor() {
   const [recommendationStates, setRecommendationStates] = useState<
     Record<string, RecommendationApplyState>
   >({});
+  const [imageEditorState, setImageEditorState] =
+    useState<ImageEditorState | null>(null);
   const inFlightRef = useRef(false);
   const hydratedProjectIdRef = useRef<string | null>(null);
   const lastAdvisorFingerprintRef = useRef<string | null>(null);
@@ -278,7 +281,11 @@ export default function WebsiteEditor() {
           role: m.role,
           content: m.content,
         })),
+        imageEditorState,
       });
+      if (result.ok && result.imageEditorState) {
+        setImageEditorState(result.imageEditorState);
+      }
 
       if (!result.ok) {
         const failedConvo = appendConversationMessage(withUser, {

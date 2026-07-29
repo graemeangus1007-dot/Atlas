@@ -7,6 +7,7 @@ import type { NavStyle } from "@/lib/templates";
 type PreviewNavProps = {
   businessName: string;
   navStyle?: NavStyle;
+  logoUrl?: string | null;
 };
 
 const NAV_LINKS = [
@@ -22,6 +23,7 @@ const NAV_LINKS = [
 export default function PreviewNav({
   businessName,
   navStyle = "standard",
+  logoUrl = null,
 }: PreviewNavProps) {
   const [open, setOpen] = useState(false);
   const linkClass = navLinkClass(navStyle);
@@ -36,9 +38,20 @@ export default function PreviewNav({
       >
         <a
           href="#home"
-          className="site-heading site-link atlas-display-text truncate text-lg font-semibold tracking-tight text-[color:var(--site-primary)]"
+          className="site-heading site-link atlas-display-text flex min-w-0 items-center gap-2 truncate text-lg font-semibold tracking-tight text-[color:var(--site-primary)]"
         >
-          {businessName}
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logoUrl}
+              alt=""
+              className="h-8 w-auto max-w-[9rem] object-contain"
+              data-testid="site-logo"
+            />
+          ) : null}
+          <span className={logoUrl ? "sr-only sm:not-sr-only sm:inline" : undefined}>
+            {businessName}
+          </span>
         </a>
 
         <ul

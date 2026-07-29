@@ -37,7 +37,13 @@ export type PublishAssetSource =
     };
 
 /** Image (or placeholder) referenced by the generated site. */
-export type PublishAssetRole = "hero" | "gallery" | "favicon" | "og" | "logo";
+export type PublishAssetRole =
+  | "hero"
+  | "gallery"
+  | "favicon"
+  | "og"
+  | "logo"
+  | "about";
 
 export type PublishAssetEntry = {
   path: string;

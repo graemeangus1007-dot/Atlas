@@ -70,6 +70,14 @@ export function generateWebsiteContent(
     about: {
       title: project.aboutTitle?.trim() || template.aboutTitle,
       description,
+      imageUrl: (() => {
+        const aboutId = project.sectionImages?.about ?? null;
+        return resolveMediaUrl(project.mediaLibrary, aboutId);
+      })(),
+      isPlaceholder: !resolveMediaUrl(
+        project.mediaLibrary,
+        project.sectionImages?.about ?? null,
+      ),
     },
     services:
       project.services.length > 0
@@ -145,6 +153,13 @@ export function generateWebsiteContent(
           newsletter: project.designSections.newsletter,
         }
       : undefined,
+    sectionOrder: project.sectionOrder?.length
+      ? [...project.sectionOrder]
+      : undefined,
+    logoUrl:
+      resolveMediaUrl(project.mediaLibrary, project.logoAssetId ?? null) ||
+      project.logo ||
+      null,
   };
 }
 

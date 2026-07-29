@@ -4,6 +4,9 @@
 
 import type { BusinessProject } from "@/types/business-project";
 import type { EditChangeSummary, EditOperation } from "@/lib/ai/edit-operations";
+import type { ImageOperation } from "@/lib/ai/image-operations";
+
+export type AtlasAiOperation = EditOperation | ImageOperation;
 
 export type EditorRevision = {
   id: string;
@@ -12,7 +15,7 @@ export type EditorRevision = {
   before: BusinessProject;
   /** Project snapshot after this AI edit was applied. */
   after: BusinessProject;
-  operations: EditOperation[];
+  operations: AtlasAiOperation[];
   changes: EditChangeSummary[];
   prompt: string;
 };

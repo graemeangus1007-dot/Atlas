@@ -188,6 +188,32 @@ export {
   findFaqIndexByQuestion,
   planExplicitContentEdits,
 } from "@/lib/ai/content-edit-planner";
+export {
+  IMAGE_OPERATION_KINDS,
+  SECTION_IMAGE_SLOTS,
+  isImageOperationKind,
+  isSectionImageSlot,
+} from "@/lib/ai/image-operations";
+export type {
+  ImageOperation,
+  ImageOperationKind,
+  ImageTargetRef,
+  SectionImageSlot,
+} from "@/lib/ai/image-operations";
+export { validateImageOperations } from "@/lib/ai/validate-image-operations";
+export { applyImageOperations } from "@/lib/ai/apply-image-operations";
+export {
+  isImageEditRequest,
+  planImageOperations,
+  runImageAgent,
+  tryRunImageAgent,
+} from "@/lib/ai/image-agent";
+export type {
+  ImageAgentInput,
+  ImageAgentResult,
+  ImageEditorState,
+} from "@/lib/ai/image-agent";
+export type { AtlasAiOperation } from "@/lib/ai/editor-revisions";
 export type {
   EditorAgentApplyStatus,
   EditorAgentFailure,

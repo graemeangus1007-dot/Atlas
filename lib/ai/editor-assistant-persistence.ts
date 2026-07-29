@@ -5,14 +5,13 @@
  */
 
 import type { DesignAssistantPersistedMeta } from "@/lib/ai/editor-assistant-types";
-import type { EditChangeSummary, EditOperation } from "@/lib/ai/edit-operations";
+import type { EditChangeSummary } from "@/lib/ai/edit-operations";
 import {
   createEmptyEditorConversation,
   type EditorConversation,
   type EditorConversationMessage,
 } from "@/lib/ai/editor-conversation";
 import {
-  createEmptyRevisionStack,
   type EditorRevision,
   type EditorRevisionStack,
 } from "@/lib/ai/editor-revisions";
@@ -225,6 +224,13 @@ export function hasMeaningfulProjectDiff(
     theme: p.theme,
     pages: p.pages.map((page) => ({ id: page.id, title: page.title })),
     designSections: p.designSections ?? null,
+    // Sprint 24.0A — Visual Designer image assignments
+    heroImageId: p.heroImageId ?? null,
+    galleryImageIds: p.galleryImageIds ?? [],
+    sectionImages: p.sectionImages ?? null,
+    sectionOrder: p.sectionOrder ?? null,
+    logoAssetId: p.logoAssetId ?? null,
+    logo: p.logo ?? null,
   });
 
   return JSON.stringify(pick(before)) !== JSON.stringify(pick(after));

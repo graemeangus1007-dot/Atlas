@@ -55,6 +55,9 @@ export type GeneratedWebsiteContent = {
   about: {
     title: string;
     description: string;
+    /** Optional section image (Visual Designer). */
+    imageUrl?: string | null;
+    isPlaceholder?: boolean;
   };
   services: WebsiteService[];
   features: WebsiteFeature[];
@@ -90,6 +93,10 @@ export type GeneratedWebsiteContent = {
     bookingCta?: { title: string; body: string; buttonText: string };
     newsletter?: { title: string; body: string; buttonText: string };
   };
+  /** Optional homepage section order override (Visual Designer). */
+  sectionOrder?: string[];
+  /** Resolved logo URL for navigation. */
+  logoUrl?: string | null;
 };
 
 /** Type-specific template pieces before business name / description are applied. */

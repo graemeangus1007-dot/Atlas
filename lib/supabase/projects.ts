@@ -183,6 +183,9 @@ export function businessProjectToColumns(
     heroImageId: project.heroImageId,
     heroImageUrl,
     galleryImageIds: project.galleryImageIds,
+    sectionImages: project.sectionImages ?? null,
+    sectionOrder: project.sectionOrder ?? null,
+    logoAssetId: project.logoAssetId ?? null,
     publish: project.publish,
     designSections: project.designSections ?? null,
     designAssistant: project.designAssistant ?? null,
@@ -326,6 +329,16 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
     galleryImageIds: Array.isArray(content.galleryImageIds)
       ? (content.galleryImageIds as BusinessProject["galleryImageIds"])
       : base.galleryImageIds,
+    sectionImages: isRecord(content.sectionImages)
+      ? (content.sectionImages as BusinessProject["sectionImages"])
+      : undefined,
+    sectionOrder: Array.isArray(content.sectionOrder)
+      ? (content.sectionOrder as string[])
+      : undefined,
+    logoAssetId:
+      typeof content.logoAssetId === "string" || content.logoAssetId === null
+        ? (content.logoAssetId as string | null)
+        : undefined,
     status: row.status,
     publish,
     designSections: isRecord(content.designSections)

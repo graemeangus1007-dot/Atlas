@@ -23,6 +23,12 @@ import type {
 } from "@/lib/ai/edit-operations";
 import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
 import {
+  isImageEditRequest,
+  runImageAgent,
+  type ImageEditorState,
+} from "@/lib/ai/image-agent";
+import type { ImageOperation } from "@/lib/ai/image-operations";
+import {
   routeIntent,
   shouldSkipBusinessReasoning,
 } from "@/lib/ai/intent-router";
@@ -44,6 +50,8 @@ export type EditorAgentInput = {
   request: string;
   /** Prior turns so pronouns like "it" resolve to the current site. */
   history?: EditorAgentHistoryItem[] | EditorConversation | EditorConversationMessage[];
+  /** Optional image selection cues for “this / that image”. */
+  imageEditorState?: ImageEditorState | null;
 };
 
 export type EditorAgentApplyStatus =
@@ -54,12 +62,14 @@ export type EditorAgentApplyStatus =
 export type EditorAgentResult = {
   ok: true;
   explanation: string;
-  operations: EditOperation[];
+  operations: Array<EditOperation | ImageOperation>;
   changes: EditChangeSummary[];
   project: BusinessProject;
   applyStatus: EditorAgentApplyStatus;
   /** Present when goal-based reasoning ran. */
   reasoning?: DesignReasoningResult;
+  /** Image agent follow-up cues. */
+  imageEditorState?: ImageEditorState;
 };
 
 export type EditorAgentFailure = {
@@ -706,6 +716,26 @@ export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
   }
 
   const history = normalizeHistory(input.history);
+
+  // Sprint 24.0A — Visual Designer routes image language to the Image Agent first.
+  if (isImageEditRequest(request)) {
+    const imageResult = runImageAgent({
+      project: input.project,
+      request,
+      history,
+      editorState: input.imageEditorState,
+    });
+    return {
+      ok: true,
+      explanation: imageResult.explanation,
+      operations: imageResult.operations,
+      changes: imageResult.changes,
+      project: imageResult.project,
+      applyStatus: imageResult.applyStatus,
+      imageEditorState: imageResult.editorState,
+    };
+  }
+
   const planned = planEditOperations({
     project: input.project,
     request,

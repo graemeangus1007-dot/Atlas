@@ -12,6 +12,7 @@ import {
   tryRunEditorAgent,
 } from "@/lib/ai";
 import type { EditorAgentHistoryItem } from "@/lib/ai/editor-agent";
+import type { ImageEditorState } from "@/lib/ai/image-agent";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
 import { captureException, requestContextFromRequest } from "@/lib/monitoring";
 import { createClient } from "@/lib/supabase/server";
@@ -24,6 +25,7 @@ type EditBody = {
   request?: string;
   message?: string;
   history?: EditorAgentHistoryItem[];
+  imageEditorState?: ImageEditorState | null;
 };
 
 /**
@@ -67,6 +69,7 @@ export async function POST(request: Request) {
       project: body.project,
       request: prompt,
       history: body.history,
+      imageEditorState: body.imageEditorState,
     });
 
     if (!result.ok) {
@@ -95,6 +98,7 @@ export async function POST(request: Request) {
         changeCount: result.changes.length,
         applyStatus: result.applyStatus,
         operationCount: result.operations.length,
+        imageEditorState: result.imageEditorState,
       },
       { requestId },
     );

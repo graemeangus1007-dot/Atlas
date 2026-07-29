@@ -108,6 +108,18 @@ export type BusinessProject = {
   heroImageId: string | null;
   /** Ordered media asset ids used in the gallery (max 4; missing → placeholders). */
   galleryImageIds: GalleryImageIds;
+  /**
+   * Optional section image assignments (asset ids) for About / Services / etc.
+   * Sprint 24.0A Visual Designer.
+   */
+  sectionImages?: Partial<Record<string, string | null>>;
+  /**
+   * Optional homepage section order override (template + design sections).
+   * When omitted, the active template order is used.
+   */
+  sectionOrder?: string[];
+  /** Durable logo media asset id (null → text brand / no logo image). */
+  logoAssetId?: string | null;
   status: ProjectStatus;
   /**
    * Last successful publish (preview URL + frozen snapshot + slim deployment).

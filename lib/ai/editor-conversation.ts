@@ -2,7 +2,8 @@
  * Conversation history for the Atlas AI Design Assistant (Sprint 22.0A).
  */
 
-import type { EditChangeSummary, EditOperation } from "@/lib/ai/edit-operations";
+import type { AtlasAiOperation } from "@/lib/ai/editor-revisions";
+import type { EditChangeSummary } from "@/lib/ai/edit-operations";
 
 export type EditorConversationRole = "user" | "assistant";
 
@@ -12,7 +13,7 @@ export type EditorConversationMessage = {
   content: string;
   createdAt: string;
   /** Present on assistant turns that applied edits. */
-  operations?: EditOperation[];
+  operations?: AtlasAiOperation[];
   changes?: EditChangeSummary[];
 };
 
@@ -42,9 +43,9 @@ export function appendConversationMessage(
 ): EditorConversation {
   const next: EditorConversationMessage = {
     id: message.id ?? createConversationMessageId(),
+    createdAt: message.createdAt ?? new Date().toISOString(),
     role: message.role,
     content: message.content,
-    createdAt: message.createdAt ?? new Date().toISOString(),
     ...(message.operations ? { operations: message.operations } : {}),
     ...(message.changes ? { changes: message.changes } : {}),
   };
@@ -54,12 +55,10 @@ export function appendConversationMessage(
   return { messages };
 }
 
-/** Compact history for the agent prompt (no secrets). */
 export function serializeConversationForAgent(
   conversation: EditorConversation,
-  limit = 12,
-): Array<{ role: EditorConversationRole; content: string }> {
-  return conversation.messages.slice(-limit).map((m) => ({
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return conversation.messages.map((m) => ({
     role: m.role,
     content: m.content,
   }));
