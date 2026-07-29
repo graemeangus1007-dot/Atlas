@@ -91,6 +91,15 @@ export function buildSiteDesignStyle(
     "--site-button-radius": buttonRadius(project.buttonStyle),
     "--site-hero-overlay": String(overlay),
     "--site-content-max": contentMaxWidth(project.siteWidth),
+    "--site-section-pad":
+      project.creativePolish?.spacing === "airy"
+        ? "5.5rem"
+        : project.creativePolish?.spacing === "comfortable"
+          ? "4.5rem"
+          : "4rem",
+    "--site-heading-scale": project.creativePolish?.visualHierarchy
+      ? "1.06"
+      : "1",
     /* Remap Tailwind semantic tokens inside the canvas */
     "--background": background,
     "--foreground": fg,

@@ -182,6 +182,7 @@ export default function EditorCanvas({
             onServiceChange={onServiceChange}
             onImproveField={onImproveField}
             cardStyle={template.cardStyle}
+            showIcons={Boolean(content.creativePolish?.serviceIcons)}
           />
         );
       case "features":
@@ -221,6 +222,9 @@ export default function EditorCanvas({
     <div
       className="site-canvas overflow-hidden rounded-2xl border border-border shadow-[0_24px_80px_-40px_rgba(0,0,0,0.65)] transition-all duration-300"
       data-template={template.id}
+      data-motion={content.creativePolish?.motion ? "on" : "off"}
+      data-hierarchy={content.creativePolish?.visualHierarchy ? "on" : "off"}
+      data-spacing={content.creativePolish?.spacing ?? "default"}
     >
       <header className="sticky top-0 z-20 border-b border-border bg-[color:var(--site-bg)]/85 backdrop-blur-xl">
         <nav className="site-shell flex h-16 items-center justify-between gap-4 px-5 sm:px-8">

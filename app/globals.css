@@ -192,6 +192,46 @@ body {
   opacity: var(--site-hero-overlay, 0.5);
 }
 
+/* Creative Director polish (Sprint 25.0A) */
+.site-canvas[data-hierarchy="on"] .site-heading {
+  font-size: calc(1em * var(--site-heading-scale, 1.06));
+  letter-spacing: -0.02em;
+}
+
+.site-canvas[data-spacing="comfortable"] .site-section,
+.site-canvas[data-spacing="comfortable"] [id="about"],
+.site-canvas[data-spacing="comfortable"] [id="services"],
+.site-canvas[data-spacing="airy"] .site-section,
+.site-canvas[data-spacing="airy"] [id="about"],
+.site-canvas[data-spacing="airy"] [id="services"] {
+  padding-block: var(--site-section-pad, 4.5rem);
+}
+
+.site-canvas[data-motion="on"] .site-motion-card {
+  transition:
+    transform 280ms ease,
+    border-color 280ms ease,
+    box-shadow 280ms ease,
+    opacity 400ms ease;
+}
+
+.site-canvas[data-motion="on"] .site-motion-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px -28px color-mix(in srgb, var(--site-accent) 55%, transparent);
+}
+
+.site-canvas[data-motion="on"] .site-button {
+  transition:
+    transform 180ms ease,
+    filter 180ms ease,
+    background-color 180ms ease;
+}
+
+.site-canvas[data-motion="on"] .site-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
 /* Smooth in-page anchor scrolling for nav links. */
 html {
   scroll-behavior: smooth;

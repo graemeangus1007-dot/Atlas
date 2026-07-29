@@ -447,6 +447,56 @@ function validateOne(raw: unknown, index: number): EditOperation {
         ...(faqIndex !== undefined ? { index: faqIndex } : {}),
       };
     }
+    case "setCreativePolish": {
+      const spacing =
+        row.spacing === undefined
+          ? undefined
+          : row.spacing === "default" ||
+              row.spacing === "comfortable" ||
+              row.spacing === "airy"
+            ? row.spacing
+            : (() => {
+                throw new AiError(
+                  "bad_request",
+                  `Invalid creative polish spacing at index ${index}.`,
+                );
+              })();
+      const boolField = (key: string): boolean | undefined => {
+        const value = row[key];
+        if (value === undefined) return undefined;
+        if (typeof value !== "boolean") {
+          throw new AiError(
+            "bad_request",
+            `setCreativePolish.${key} must be a boolean at index ${index}.`,
+          );
+        }
+        return value;
+      };
+      const serviceIcons = boolField("serviceIcons");
+      const motion = boolField("motion");
+      const visualHierarchy = boolField("visualHierarchy");
+      const contactFormEnabled = boolField("contactFormEnabled");
+      if (
+        serviceIcons === undefined &&
+        motion === undefined &&
+        visualHierarchy === undefined &&
+        spacing === undefined &&
+        contactFormEnabled === undefined
+      ) {
+        throw new AiError(
+          "bad_request",
+          `setCreativePolish at index ${index} requires at least one field.`,
+        );
+      }
+      return {
+        operation: "setCreativePolish",
+        ...(serviceIcons !== undefined ? { serviceIcons } : {}),
+        ...(motion !== undefined ? { motion } : {}),
+        ...(visualHierarchy !== undefined ? { visualHierarchy } : {}),
+        ...(spacing !== undefined ? { spacing } : {}),
+        ...(contactFormEnabled !== undefined ? { contactFormEnabled } : {}),
+      };
+    }
     default: {
       const _exhaustive: never = kind;
       throw new AiError(

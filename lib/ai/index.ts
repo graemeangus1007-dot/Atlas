@@ -316,3 +316,42 @@ export type {
 } from "@/lib/ai/critique-scoring";
 export type { CritiqueExplanation } from "@/lib/ai/critique-explanations";
 export type { ApplyAdvisorRecommendationResult, AdvisorApplyStatus } from "@/lib/ai/apply-advisor-recommendation";
+export {
+  reviewCreativeDirector,
+  planCompleteWebsite,
+  shouldRefreshCreativeDirector,
+  buildCreativeRecommendations,
+  suppressDuplicateCreativeRecommendations,
+  rankCreativeRecommendations,
+  creativeDirectorFingerprint,
+  CREATIVE_DIRECTOR_TOP_N,
+  COMPLETE_WEBSITE_TOP_N,
+} from "@/lib/ai/creative-director";
+export {
+  detectMissingCapabilities,
+  COMPLETENESS_CHECKS,
+} from "@/lib/ai/creative-director-capabilities";
+export {
+  scoreWebsiteCompleteness,
+  classifyMaturityLevel,
+} from "@/lib/ai/creative-director-scoring";
+export {
+  applyCreativeRecommendation,
+  applyAllCreativeRecommendations,
+} from "@/lib/ai/apply-creative-recommendation";
+export type {
+  CreativeDirectorReport,
+  CreativeDirectorRecommendation,
+  CreativeMaturityLevel,
+  CreativeRecommendationKind,
+  MissingCapability,
+  MissingCapabilityId,
+  CompleteWebsitePlan,
+  CreativeDirectorOperation,
+} from "@/lib/ai/creative-director-types";
+export { COMPLETE_WEBSITE_THRESHOLD } from "@/lib/ai/creative-director-types";
+export type {
+  ApplyCreativeRecommendationResult,
+  ApplyAllCreativeResult,
+  CreativeApplyStatus,
+} from "@/lib/ai/apply-creative-recommendation";

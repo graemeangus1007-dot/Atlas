@@ -22,7 +22,9 @@ import {
 import {
   appendConversationMessage,
   applyAdvisorRecommendation,
+  applyAllCreativeRecommendations,
   applyAiFieldValue,
+  applyCreativeRecommendation,
   buildDesignAssistantMeta,
   canRedoEditorRevision,
   canUndoEditorRevision,
@@ -30,17 +32,23 @@ import {
   createEmptyEditorConversation,
   createEmptyRevisionStack,
   logDesignAssistantDiagnostic,
+  planCompleteWebsite,
   pushEditorRevision,
   redoEditorRevision,
   requestEditorAgentEdit,
   restoreDesignAssistantState,
   reviewBusinessProject,
+  reviewCreativeDirector,
   shouldRefreshAdvisorReport,
+  shouldRefreshCreativeDirector,
   toLocalStore,
   undoEditorRevision,
   writeDesignAssistantLocal,
   type BusinessAdvisorReport,
   type BusinessRecommendation,
+  type CompleteWebsitePlan,
+  type CreativeDirectorRecommendation,
+  type CreativeDirectorReport,
   type EditChangeSummary,
   type EditorConversation,
   type EditorRevisionStack,
@@ -82,6 +90,10 @@ export default function WebsiteEditor() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [advisorReport, setAdvisorReport] =
     useState<BusinessAdvisorReport | null>(null);
+  const [creativeDirectorReport, setCreativeDirectorReport] =
+    useState<CreativeDirectorReport | null>(null);
+  const [completeWebsitePlan, setCompleteWebsitePlan] =
+    useState<CompleteWebsitePlan | null>(null);
   const [applyingRecommendationId, setApplyingRecommendationId] = useState<
     string | null
   >(null);
@@ -93,6 +105,7 @@ export default function WebsiteEditor() {
   const inFlightRef = useRef(false);
   const hydratedProjectIdRef = useRef<string | null>(null);
   const lastAdvisorFingerprintRef = useRef<string | null>(null);
+  const lastCreativeFingerprintRef = useRef<string | null>(null);
 
   // Restore conversation + revisions when the active project changes / after refresh.
   useEffect(() => {
@@ -111,6 +124,8 @@ export default function WebsiteEditor() {
     setStatusMessage(null);
     setRecommendationStates({});
     lastAdvisorFingerprintRef.current = null;
+    lastCreativeFingerprintRef.current = null;
+    setCompleteWebsitePlan(null);
   }, [projectId, project.designAssistant]);
 
   // Continuous Business Advisor review — silently refresh when the site changes.
@@ -145,6 +160,35 @@ export default function WebsiteEditor() {
 
     lastAdvisorFingerprintRef.current = report.fingerprint;
     setAdvisorReport(report);
+  }, [project, conversation.messages]);
+
+  // Creative Director maturity review — independent of advisor fingerprint.
+  useEffect(() => {
+    const previous = lastCreativeFingerprintRef.current
+      ? ({
+          fingerprint: lastCreativeFingerprintRef.current,
+          overallCompleteness: 0,
+          maturityLevel: "Draft",
+          missingCapabilities: [],
+          recommendedImprovements: [],
+          strengths: [],
+          narrative: "",
+          reviewedAt: "",
+          offerCompleteWebsite: false,
+        } satisfies CreativeDirectorReport)
+      : null;
+    if (!shouldRefreshCreativeDirector(previous, project)) return;
+
+    const creative = reviewCreativeDirector({
+      project,
+      history: conversation.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    });
+    lastCreativeFingerprintRef.current = creative.fingerprint;
+    setCreativeDirectorReport(creative);
+    setCompleteWebsitePlan(null);
   }, [project, conversation.messages]);
 
   const displayProject = useMemo<BusinessProject>(() => {
@@ -588,6 +632,206 @@ export default function WebsiteEditor() {
     }
   }
 
+  function handleCompleteWebsite() {
+    const plan = planCompleteWebsite(project);
+    setCompleteWebsitePlan(plan);
+    const withAssistant = appendConversationMessage(conversation, {
+      role: "assistant",
+      content: plan.narrative,
+    });
+    setConversation(withAssistant);
+  }
+
+  function handleApplyCreativeRecommendation(
+    recommendation: CreativeDirectorRecommendation,
+  ) {
+    if (inFlightRef.current || applyingRecommendationId) return;
+    inFlightRef.current = true;
+    setApplyingRecommendationId(recommendation.id);
+    setRecommendationStates((current) => ({
+      ...current,
+      [recommendation.id]: { status: "applying", message: null, requestId: null },
+    }));
+    setUiStatus("sending");
+    setStatusMessage(null);
+
+    try {
+      const result = applyCreativeRecommendation({
+        project,
+        recommendation,
+      });
+
+      if (!result.ok) {
+        const detail = `${result.message} (Request ID: ${result.requestId})`;
+        setConversation(
+          appendConversationMessage(conversation, {
+            role: "assistant",
+            content: detail,
+          }),
+        );
+        setUiStatus("failed");
+        setStatusMessage(detail);
+        setRecommendationStates((current) => ({
+          ...current,
+          [recommendation.id]: {
+            status: "failed",
+            message: result.message,
+            requestId: result.requestId,
+          },
+        }));
+        return;
+      }
+
+      if (result.status === "no_visible_change") {
+        setConversation(
+          appendConversationMessage(conversation, {
+            role: "assistant",
+            content: result.explanation,
+          }),
+        );
+        setUiStatus("no_changes");
+        setStatusMessage(result.explanation);
+        setRecommendationStates((current) => ({
+          ...current,
+          [recommendation.id]: {
+            status: "no_visible_change",
+            message: result.explanation,
+            requestId: result.requestId,
+          },
+        }));
+        return;
+      }
+
+      const nextStack = pushEditorRevision(revisionStack, {
+        before: project,
+        after: result.project,
+        operations: recommendation.operations,
+        changes: result.changes,
+        prompt: `Creative: ${recommendation.title}`,
+      });
+      const withAssistant = appendConversationMessage(conversation, {
+        role: "assistant",
+        content: result.explanation,
+        operations: recommendation.operations,
+        changes: result.changes,
+      });
+
+      setRevisionStack(nextStack);
+      setConversation(withAssistant);
+      setLastChanges(result.changes);
+      setUiStatus("applied");
+      setStatusMessage(
+        `${result.changes.length} change${result.changes.length === 1 ? "" : "s"} applied`,
+      );
+      setRecommendationStates((current) => ({
+        ...current,
+        [recommendation.id]: {
+          status: "applied",
+          message: result.explanation,
+          requestId: result.requestId,
+        },
+      }));
+
+      persistAssistantState({
+        nextProject: result.project,
+        conversation: withAssistant,
+        revisionStack: nextStack,
+        lastChanges: result.changes,
+      });
+
+      const refreshed = reviewCreativeDirector({ project: result.project });
+      lastCreativeFingerprintRef.current = refreshed.fingerprint;
+      setCreativeDirectorReport(refreshed);
+    } catch (error) {
+      const requestId = `creative-apply-client-${Date.now().toString(36)}`;
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not apply that improvement. Please try again.";
+      setUiStatus("failed");
+      setStatusMessage(`${message} (Request ID: ${requestId})`);
+      setRecommendationStates((current) => ({
+        ...current,
+        [recommendation.id]: { status: "failed", message, requestId },
+      }));
+    } finally {
+      inFlightRef.current = false;
+      setApplyingRecommendationId(null);
+    }
+  }
+
+  function handleApplyAllCreative() {
+    if (inFlightRef.current || applyingRecommendationId) return;
+    const recommendations =
+      completeWebsitePlan?.recommendations ??
+      creativeDirectorReport?.recommendedImprovements ??
+      [];
+    if (recommendations.length === 0) return;
+
+    inFlightRef.current = true;
+    setApplyingRecommendationId("apply-all");
+    setUiStatus("sending");
+
+    try {
+      const result = applyAllCreativeRecommendations({
+        project,
+        recommendations,
+      });
+
+      if (!result.ok) {
+        setUiStatus("failed");
+        setStatusMessage(result.message);
+        return;
+      }
+
+      if (result.status === "no_visible_change") {
+        setUiStatus("no_changes");
+        setStatusMessage(result.explanation);
+        setConversation(
+          appendConversationMessage(conversation, {
+            role: "assistant",
+            content: result.explanation,
+          }),
+        );
+        return;
+      }
+
+      const nextStack = pushEditorRevision(revisionStack, {
+        before: project,
+        after: result.project,
+        operations: recommendations.flatMap((r) => r.operations),
+        changes: result.changes,
+        prompt: "Complete My Website — Apply All",
+      });
+      const withAssistant = appendConversationMessage(conversation, {
+        role: "assistant",
+        content: result.explanation,
+        changes: result.changes,
+      });
+
+      setRevisionStack(nextStack);
+      setConversation(withAssistant);
+      setLastChanges(result.changes);
+      setUiStatus("applied");
+      setStatusMessage(result.explanation);
+      setCompleteWebsitePlan(null);
+
+      persistAssistantState({
+        nextProject: result.project,
+        conversation: withAssistant,
+        revisionStack: nextStack,
+        lastChanges: result.changes,
+      });
+
+      const refreshed = reviewCreativeDirector({ project: result.project });
+      lastCreativeFingerprintRef.current = refreshed.fingerprint;
+      setCreativeDirectorReport(refreshed);
+    } finally {
+      inFlightRef.current = false;
+      setApplyingRecommendationId(null);
+    }
+  }
+
   const panel = (
     <AtlasAiPanel
       project={project}
@@ -599,12 +843,18 @@ export default function WebsiteEditor() {
       canRedo={canRedoEditorRevision(revisionStack)}
       lastChanges={lastChanges}
       advisorReport={advisorReport}
+      creativeDirectorReport={creativeDirectorReport}
+      completeWebsitePlan={completeWebsitePlan}
       applyingRecommendationId={applyingRecommendationId}
       recommendationStates={recommendationStates}
       onSend={handleDesignSend}
       onUndo={handleDesignUndo}
       onRedo={handleDesignRedo}
       onApplyRecommendation={handleApplyRecommendation}
+      onApplyCreativeRecommendation={handleApplyCreativeRecommendation}
+      onCompleteWebsite={handleCompleteWebsite}
+      onApplyAllCreative={handleApplyAllCreative}
+      onDismissCompletePlan={() => setCompleteWebsitePlan(null)}
     />
   );
 

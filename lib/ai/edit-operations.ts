@@ -77,6 +77,7 @@ export const EDIT_OPERATION_KINDS = [
   "updateFaqQuestion",
   "insertFaq",
   "deleteFaq",
+  "setCreativePolish",
 ] as const;
 
 export type EditOperationKind = (typeof EDIT_OPERATION_KINDS)[number];
@@ -184,6 +185,17 @@ export type DeleteFaqOperation = {
   matchQuestion?: string;
 };
 
+/** Creative Director polish — icons, motion, hierarchy, spacing, lead form. */
+export type SetCreativePolishOperation = {
+  operation: "setCreativePolish";
+  serviceIcons?: boolean;
+  motion?: boolean;
+  visualHierarchy?: boolean;
+  spacing?: "default" | "comfortable" | "airy";
+  /** When true, ensures the contact lead form is enabled. */
+  contactFormEnabled?: boolean;
+};
+
 export type EditOperation =
   | ReplaceTextOperation
   | ChangeThemeOperation
@@ -200,7 +212,8 @@ export type EditOperation =
   | UpdateFaqAnswerOperation
   | UpdateFaqQuestionOperation
   | InsertFaqOperation
-  | DeleteFaqOperation;
+  | DeleteFaqOperation
+  | SetCreativePolishOperation;
 
 /** Human-readable bullet for the post-edit preview list. */
 export type EditChangeSummary = {

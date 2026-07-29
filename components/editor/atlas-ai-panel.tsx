@@ -6,6 +6,11 @@ import type {
   BusinessAdvisorReport,
   BusinessRecommendation,
 } from "@/lib/ai/business-advisor-types";
+import type {
+  CompleteWebsitePlan,
+  CreativeDirectorRecommendation,
+  CreativeDirectorReport,
+} from "@/lib/ai/creative-director-types";
 import {
   CRITIQUE_CATEGORY_LABELS,
   CRITIQUE_SCORE_CATEGORIES,
@@ -47,12 +52,21 @@ type AtlasAiPanelProps = {
   lastChanges: EditChangeSummary[] | null;
   /** Full Atlas Review report (scores + opportunities). */
   advisorReport?: BusinessAdvisorReport | null;
+  /** Creative Director maturity + improvements (Sprint 25.0A). */
+  creativeDirectorReport?: CreativeDirectorReport | null;
+  completeWebsitePlan?: CompleteWebsitePlan | null;
   applyingRecommendationId?: string | null;
   recommendationStates?: Record<string, RecommendationApplyState>;
   onSend: (request: string) => void;
   onUndo: () => void;
   onRedo: () => void;
   onApplyRecommendation?: (recommendation: BusinessRecommendation) => void;
+  onApplyCreativeRecommendation?: (
+    recommendation: CreativeDirectorRecommendation,
+  ) => void;
+  onCompleteWebsite?: () => void;
+  onApplyAllCreative?: () => void;
+  onDismissCompletePlan?: () => void;
 };
 
 function impactBadgeClass(impact: BusinessRecommendation["impact"]): string {
@@ -122,20 +136,31 @@ export default function AtlasAiPanel({
   canRedo,
   lastChanges,
   advisorReport = null,
+  creativeDirectorReport = null,
+  completeWebsitePlan = null,
   applyingRecommendationId = null,
   recommendationStates = {},
   onSend,
   onUndo,
   onRedo,
   onApplyRecommendation,
+  onApplyCreativeRecommendation,
+  onCompleteWebsite,
+  onApplyAllCreative,
+  onDismissCompletePlan,
 }: AtlasAiPanelProps) {
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(true);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const sending = status === "sending" || Boolean(applyingRecommendationId);
   const recommendations = advisorReport?.recommendations ?? [];
-  const hasReview = Boolean(advisorReport);
-  const opportunityCount = recommendations.length;
+  const creativeRecs =
+    completeWebsitePlan?.recommendations ??
+    creativeDirectorReport?.recommendedImprovements ??
+    [];
+  const hasReview = Boolean(advisorReport || creativeDirectorReport);
+  const opportunityCount =
+    creativeRecs.length > 0 ? creativeRecs.length : recommendations.length;
 
   const reviewScope = projectId ?? "local";
   const [preferenceScope, setPreferenceScope] = useState(reviewScope);
@@ -395,22 +420,153 @@ export default function AtlasAiPanel({
 
           {reviewOpen ? (
             <div
-              className="max-h-[min(32vh,16rem)] overflow-y-auto overscroll-contain border-t border-border/60 px-4 py-3"
+              className="max-h-[min(40vh,22rem)] overflow-y-auto overscroll-contain border-t border-border/60 px-4 py-3"
               data-testid="atlas-review-body"
             >
-              <p className="text-[11px] leading-relaxed text-muted">
-                {advisorReport?.summary}
-              </p>
+              {creativeDirectorReport ? (
+                <div className="mb-3" data-testid="creative-director-review">
+                  <p className="whitespace-pre-line text-[11px] leading-relaxed text-muted">
+                    {completeWebsitePlan?.narrative ??
+                      creativeDirectorReport.narrative}
+                  </p>
 
+                  <div className="mt-3 flex items-end justify-between gap-3 rounded-lg border border-border/60 bg-background/50 px-3 py-2">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted">
+                        Overall
+                      </p>
+                      <p
+                        className={`mt-0.5 font-[family-name:var(--font-atlas-display)] text-2xl font-semibold tabular-nums ${scoreTone(creativeDirectorReport.overallCompleteness)}`}
+                      >
+                        {creativeDirectorReport.overallCompleteness}
+                        <span className="ml-1 text-sm font-normal text-muted">
+                          %
+                        </span>
+                      </p>
+                    </div>
+                    <p
+                      className="pb-1 text-sm font-medium text-foreground"
+                      data-testid="creative-maturity-level"
+                    >
+                      {completeWebsitePlan?.maturityLevel ??
+                        creativeDirectorReport.maturityLevel}
+                    </p>
+                  </div>
+
+                  {creativeDirectorReport.offerCompleteWebsite &&
+                  !completeWebsitePlan &&
+                  onCompleteWebsite ? (
+                    <button
+                      type="button"
+                      disabled={sending}
+                      onClick={onCompleteWebsite}
+                      className="mt-3 w-full rounded-lg border border-accent/50 bg-accent/15 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent/25 disabled:opacity-40"
+                      data-testid="complete-my-website"
+                    >
+                      ✨ Complete My Website
+                    </button>
+                  ) : null}
+
+                  {completeWebsitePlan && onApplyAllCreative ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={sending}
+                        onClick={onApplyAllCreative}
+                        className="rounded-lg border border-accent/50 bg-accent/15 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent/25 disabled:opacity-40"
+                        data-testid="apply-all-creative"
+                      >
+                        Apply All
+                      </button>
+                      {onDismissCompletePlan ? (
+                        <button
+                          type="button"
+                          disabled={sending}
+                          onClick={onDismissCompletePlan}
+                          className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-foreground disabled:opacity-40"
+                        >
+                          Back to review
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {creativeRecs.length > 0 ? (
+                    <ul className="mt-3 space-y-2.5">
+                      {creativeRecs.map((rec) => {
+                        const recState = recommendationStates[rec.id];
+                        const applying =
+                          applyingRecommendationId === rec.id ||
+                          recState?.status === "applying";
+                        const label = recStatusLabel(
+                          applying ? { status: "applying" } : recState,
+                        );
+                        return (
+                          <li
+                            key={rec.id}
+                            className="rounded-lg border border-border/60 bg-background/50 p-3"
+                            data-testid={`creative-rec-${rec.id}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-medium leading-snug text-foreground">
+                                {rec.title}
+                              </p>
+                              <span className="shrink-0 rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                                {rec.kind}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 text-xs leading-relaxed text-muted">
+                              {rec.explanation}
+                            </p>
+                            {label ? (
+                              <p className="mt-1.5 text-[11px] font-medium text-muted">
+                                {label}
+                              </p>
+                            ) : null}
+                            {onApplyCreativeRecommendation ? (
+                              <button
+                                type="button"
+                                disabled={
+                                  sending ||
+                                  (!rec.applyable &&
+                                    Boolean(rec.blockedReason))
+                                }
+                                onClick={() =>
+                                  onApplyCreativeRecommendation(rec)
+                                }
+                                className="mt-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/20 disabled:opacity-40"
+                                title={rec.blockedReason}
+                              >
+                                {applying
+                                  ? "Applying…"
+                                  : rec.applyable
+                                    ? "Apply"
+                                    : "Needs upload"}
+                              </button>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-[11px] leading-relaxed text-muted">
+                  {advisorReport?.summary}
+                </p>
+              )}
+
+              {advisorReport ? (
+                <>
               <div className="mt-3 flex items-end justify-between gap-3 rounded-lg border border-border/60 bg-background/50 px-3 py-2">
                 <div>
                   <p className="text-[10px] uppercase tracking-wide text-muted">
-                    Overall score
+                    Critique score
                   </p>
                   <p
-                    className={`mt-0.5 font-[family-name:var(--font-atlas-display)] text-2xl font-semibold tabular-nums ${scoreTone(advisorReport!.overallScore)}`}
+                    className={`mt-0.5 font-[family-name:var(--font-atlas-display)] text-2xl font-semibold tabular-nums ${scoreTone(advisorReport.overallScore)}`}
                   >
-                    {advisorReport!.overallScore}
+                    {advisorReport.overallScore}
                     <span className="ml-1 text-sm font-normal text-muted">
                       /100
                     </span>
@@ -420,7 +576,7 @@ export default function AtlasAiPanel({
 
               <ul className="mt-2 grid grid-cols-2 gap-1.5">
                 {CRITIQUE_SCORE_CATEGORIES.map((key: CritiqueScoreCategory) => {
-                  const value = advisorReport!.categoryScores[key];
+                  const value = advisorReport.categoryScores[key];
                   return (
                     <li
                       key={key}
@@ -446,8 +602,10 @@ export default function AtlasAiPanel({
                   );
                 })}
               </ul>
+                </>
+              ) : null}
 
-              {recommendations.length > 0 ? (
+              {!creativeDirectorReport && recommendations.length > 0 ? (
                 <ul className="mt-3 space-y-3">
                   {recommendations.map((rec) => {
                     const recState = recommendationStates[rec.id];

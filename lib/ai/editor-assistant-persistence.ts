@@ -231,6 +231,8 @@ export function hasMeaningfulProjectDiff(
     sectionOrder: p.sectionOrder ?? null,
     logoAssetId: p.logoAssetId ?? null,
     logo: p.logo ?? null,
+    // Sprint 25.0A — Creative Director polish
+    creativePolish: p.creativePolish ?? null,
   });
 
   return JSON.stringify(pick(before)) !== JSON.stringify(pick(after));

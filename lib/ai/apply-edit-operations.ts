@@ -228,6 +228,8 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
       return { id, label: "FAQ added", ok: true };
     case "deleteFaq":
       return { id, label: "FAQ item removed", ok: true };
+    case "setCreativePolish":
+      return { id, label: "Creative polish updated", ok: true };
     default: {
       const _exhaustive: never = op;
       return _exhaustive;
@@ -473,6 +475,23 @@ export function applyEditOperations(
           next = {
             ...next,
             designSections: design.enabled.length ? design : undefined,
+          };
+        }
+        break;
+      }
+      case "setCreativePolish": {
+        const polish = { ...(next.creativePolish ?? {}) };
+        if (op.serviceIcons !== undefined) polish.serviceIcons = op.serviceIcons;
+        if (op.motion !== undefined) polish.motion = op.motion;
+        if (op.visualHierarchy !== undefined) {
+          polish.visualHierarchy = op.visualHierarchy;
+        }
+        if (op.spacing !== undefined) polish.spacing = op.spacing;
+        next = { ...next, creativePolish: polish };
+        if (op.contactFormEnabled === true) {
+          next = {
+            ...next,
+            contact: { ...next.contact, formEnabled: true },
           };
         }
         break;

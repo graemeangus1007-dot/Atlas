@@ -97,6 +97,13 @@ export type GeneratedWebsiteContent = {
   sectionOrder?: string[];
   /** Resolved logo URL for navigation. */
   logoUrl?: string | null;
+  /** Creative Director polish flags for preview/publish rendering. */
+  creativePolish?: {
+    serviceIcons?: boolean;
+    motion?: boolean;
+    visualHierarchy?: boolean;
+    spacing?: "default" | "comfortable" | "airy";
+  };
 };
 
 /** Type-specific template pieces before business name / description are applied. */

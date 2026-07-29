@@ -188,6 +188,7 @@ export function businessProjectToColumns(
     logoAssetId: project.logoAssetId ?? null,
     publish: project.publish,
     designSections: project.designSections ?? null,
+    creativePolish: project.creativePolish ?? null,
     designAssistant: project.designAssistant ?? null,
   };
 
@@ -343,6 +344,9 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
     publish,
     designSections: isRecord(content.designSections)
       ? (content.designSections as BusinessProject["designSections"])
+      : undefined,
+    creativePolish: isRecord(content.creativePolish)
+      ? (content.creativePolish as BusinessProject["creativePolish"])
       : undefined,
     designAssistant: isRecord(content.designAssistant)
       ? (content.designAssistant as BusinessProject["designAssistant"])

@@ -51,6 +51,7 @@ function renderCoreSection(
           key="services"
           services={content.services}
           cardStyle={template.cardStyle}
+          showIcons={Boolean(content.creativePolish?.serviceIcons)}
         />
       );
     case "features":
@@ -113,6 +114,9 @@ export default function WebsiteRenderer({
       data-nav-style={template.navStyle}
       data-gallery-layout={template.galleryLayout}
       data-footer-layout={template.footerLayout}
+      data-motion={content.creativePolish?.motion ? "on" : "off"}
+      data-hierarchy={content.creativePolish?.visualHierarchy ? "on" : "off"}
+      data-spacing={content.creativePolish?.spacing ?? "default"}
     >
       {showNav ? (
         <PreviewNav

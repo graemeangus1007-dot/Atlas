@@ -133,6 +133,16 @@ export type BusinessProject = {
    */
   designSections?: ProjectDesignSections;
   /**
+   * Creative Director polish flags (icons, motion, hierarchy, spacing).
+   * Sprint 25.0A — applied via setCreativePolish operations.
+   */
+  creativePolish?: {
+    serviceIcons?: boolean;
+    motion?: boolean;
+    visualHierarchy?: boolean;
+    spacing?: "default" | "comfortable" | "airy";
+  };
+  /**
    * Design Assistant conversation + slim revision metadata (Sprint 22.0A).
    * Restored on refresh via autosave; full undo snapshots live in localStorage.
    */

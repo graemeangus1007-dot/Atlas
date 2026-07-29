@@ -160,6 +160,9 @@ export function generateWebsiteContent(
       resolveMediaUrl(project.mediaLibrary, project.logoAssetId ?? null) ||
       project.logo ||
       null,
+    creativePolish: project.creativePolish
+      ? { ...project.creativePolish }
+      : undefined,
   };
 }
 
