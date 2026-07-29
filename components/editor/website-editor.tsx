@@ -20,6 +20,7 @@ import {
 } from "@/data/editor";
 import {
   appendConversationMessage,
+  applyAdvisorRecommendation,
   applyAiFieldValue,
   buildDesignAssistantMeta,
   canRedoEditorRevision,
@@ -32,9 +33,13 @@ import {
   redoEditorRevision,
   requestEditorAgentEdit,
   restoreDesignAssistantState,
+  reviewBusinessProject,
+  shouldRefreshAdvisorReport,
   toLocalStore,
   undoEditorRevision,
   writeDesignAssistantLocal,
+  type BusinessAdvisorReport,
+  type BusinessRecommendation,
   type EditChangeSummary,
   type EditorConversation,
   type EditorRevisionStack,
@@ -73,8 +78,14 @@ export default function WebsiteEditor() {
   );
   const [uiStatus, setUiStatus] = useState<AtlasAiUiStatus>("idle");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [advisorReport, setAdvisorReport] =
+    useState<BusinessAdvisorReport | null>(null);
+  const [applyingRecommendationId, setApplyingRecommendationId] = useState<
+    string | null
+  >(null);
   const inFlightRef = useRef(false);
   const hydratedProjectIdRef = useRef<string | null>(null);
+  const lastAdvisorFingerprintRef = useRef<string | null>(null);
 
   // Restore conversation + revisions when the active project changes / after refresh.
   useEffect(() => {
@@ -91,7 +102,38 @@ export default function WebsiteEditor() {
     setLastChanges(restored.lastChanges);
     setUiStatus("idle");
     setStatusMessage(null);
+    lastAdvisorFingerprintRef.current = null;
   }, [projectId, project.designAssistant]);
+
+  // Continuous Business Advisor review — silently refresh when the site changes.
+  useEffect(() => {
+    if (
+      !shouldRefreshAdvisorReport(
+        lastAdvisorFingerprintRef.current
+          ? {
+              fingerprint: lastAdvisorFingerprintRef.current,
+              recommendations: [],
+              summary: "",
+              reviewedAt: "",
+            }
+          : null,
+        project,
+      )
+    ) {
+      return;
+    }
+
+    const report = reviewBusinessProject({
+      project,
+      history: conversation.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    });
+
+    lastAdvisorFingerprintRef.current = report.fingerprint;
+    setAdvisorReport(report);
+  }, [project, conversation.messages]);
 
   const displayProject = useMemo<BusinessProject>(() => {
     if (!aiTarget || previewValue === null) return project;
@@ -401,6 +443,64 @@ export default function WebsiteEditor() {
     });
   }
 
+  function handleApplyRecommendation(recommendation: BusinessRecommendation) {
+    if (inFlightRef.current || applyingRecommendationId) return;
+    inFlightRef.current = true;
+    setApplyingRecommendationId(recommendation.id);
+    setUiStatus("sending");
+    setStatusMessage(null);
+
+    try {
+      const result = applyAdvisorRecommendation({
+        project,
+        recommendation,
+      });
+
+      if (!result.ok) {
+        const failedConvo = appendConversationMessage(conversation, {
+          role: "assistant",
+          content: result.message,
+        });
+        setConversation(failedConvo);
+        setUiStatus("failed");
+        setStatusMessage(result.message);
+        return;
+      }
+
+      const nextStack = pushEditorRevision(revisionStack, {
+        before: project,
+        after: result.project,
+        operations: recommendation.operations,
+        changes: result.changes,
+        prompt: `Apply: ${recommendation.title}`,
+      });
+      const withAssistant = appendConversationMessage(conversation, {
+        role: "assistant",
+        content: `${recommendation.narrative} ${result.explanation}`,
+        operations: recommendation.operations,
+        changes: result.changes,
+      });
+
+      setRevisionStack(nextStack);
+      setConversation(withAssistant);
+      setLastChanges(result.changes);
+      setUiStatus("applied");
+      setStatusMessage(
+        `${result.changes.length} change${result.changes.length === 1 ? "" : "s"} applied`,
+      );
+
+      persistAssistantState({
+        nextProject: result.project,
+        conversation: withAssistant,
+        revisionStack: nextStack,
+        lastChanges: result.changes,
+      });
+    } finally {
+      inFlightRef.current = false;
+      setApplyingRecommendationId(null);
+    }
+  }
+
   const panel = (
     <AtlasAiPanel
       project={project}
@@ -410,9 +510,13 @@ export default function WebsiteEditor() {
       canUndo={canUndoEditorRevision(revisionStack)}
       canRedo={canRedoEditorRevision(revisionStack)}
       lastChanges={lastChanges}
+      recommendations={advisorReport?.recommendations ?? []}
+      advisorSummary={advisorReport?.summary ?? null}
+      applyingRecommendationId={applyingRecommendationId}
       onSend={handleDesignSend}
       onUndo={handleDesignUndo}
       onRedo={handleDesignRedo}
+      onApplyRecommendation={handleApplyRecommendation}
     />
   );
 

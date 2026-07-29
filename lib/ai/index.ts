@@ -232,3 +232,25 @@ export {
   writeDesignAssistantLocal,
 } from "@/lib/ai/editor-assistant-persistence";
 export type { DesignAssistantPersistedMeta } from "@/lib/ai/editor-assistant-types";
+export {
+  ADVISOR_TOP_N,
+  advisorProjectFingerprint,
+  createAdvisorPipeline,
+  limitTopRecommendations,
+  rankAdvisorFindings,
+  reviewBusinessProject,
+  shouldRefreshAdvisorReport,
+  suppressDuplicateFindings,
+} from "@/lib/ai/business-advisor";
+export { DEFAULT_ADVISOR_MODULES } from "@/lib/ai/advisor-modules";
+export { applyAdvisorRecommendation } from "@/lib/ai/apply-advisor-recommendation";
+export type {
+  AdvisorCategory,
+  AdvisorFinding,
+  AdvisorImpact,
+  AdvisorModule,
+  AdvisorModuleId,
+  BusinessAdvisorReport,
+  BusinessRecommendation,
+} from "@/lib/ai/business-advisor-types";
+export type { ApplyAdvisorRecommendationResult } from "@/lib/ai/apply-advisor-recommendation";
