@@ -35,7 +35,7 @@ function sampleProject(): BusinessProject {
 }
 
 describe("intent routing", () => {
-  it("classifies FAQ answer updates as explicit_content_edit", () => {
+  it("classifies FAQ answer updates as explicit_content_edit", async () => {
     const intent = routeIntent({
       request: `Update the answer to "How do I get started with Linda's Cookies?" to:\n"You give us a call!"`,
     });
@@ -43,7 +43,7 @@ describe("intent routing", () => {
     expect(intent.skipBusinessReasoning).toBe(true);
   });
 
-  it("classifies mixed FAQ + premium as mixed", () => {
+  it("classifies mixed FAQ + premium as mixed", async () => {
     const intent = routeIntent({
       request:
         'Update the FAQ answer to "What areas do you serve?" to "Local delivery only" and make the website feel more premium.',
@@ -53,12 +53,12 @@ describe("intent routing", () => {
 });
 
 describe("updating FAQ answer", () => {
-  it("replaces only the matched FAQ answer and preserves the rest of the site", () => {
+  it("replaces only the matched FAQ answer and preserves the rest of the site", async () => {
     const project = sampleProject();
     const before = structuredClone(project);
     const request = `Update the answer to "How do I get started with Linda's Cookies?" to:\n"You give us a call!"`;
 
-    const result = runEditorAgent({ project, request });
+    const result = await runEditorAgent({ project, request });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -91,7 +91,7 @@ describe("updating FAQ answer", () => {
 });
 
 describe("business reasoning is bypassed", () => {
-  it("does not apply phone-call / testimonials goals for an FAQ answer edit", () => {
+  it("does not apply phone-call / testimonials goals for an FAQ answer edit", async () => {
     const planned = planEditOperations({
       project: sampleProject(),
       request: `Update the answer to "How do I get started with Linda's Cookies?" to: "You give us a call!"`,
@@ -110,9 +110,9 @@ describe("business reasoning is bypassed", () => {
 });
 
 describe("replacing hero text", () => {
-  it("updates only the hero headline", () => {
+  it("updates only the hero headline", async () => {
     const project = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project,
       request: 'Change the hero headline to "Cookies worth the drive"',
     });
@@ -125,9 +125,9 @@ describe("replacing hero text", () => {
 });
 
 describe("changing button text", () => {
-  it("updates only the primary CTA", () => {
+  it("updates only the primary CTA", async () => {
     const project = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project,
       request: 'Update the button text to "Call the bakery"',
     });
@@ -139,9 +139,9 @@ describe("changing button text", () => {
 });
 
 describe("editing services", () => {
-  it("updates a single service title", () => {
+  it("updates a single service title", async () => {
     const project = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project,
       request: 'Change the first service title to "Wedding cookies"',
     });
@@ -154,9 +154,9 @@ describe("editing services", () => {
 });
 
 describe("mixed requests", () => {
-  it("applies FAQ edit plus premium design without dropping the FAQ change", () => {
+  it("applies FAQ edit plus premium design without dropping the FAQ change", async () => {
     const project = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project,
       request:
         'Update the FAQ answer to "What areas do you serve?" to "Local delivery only" and make the website feel more premium.',
@@ -183,7 +183,7 @@ describe("mixed requests", () => {
 });
 
 describe("preserving unrelated content", () => {
-  it("FAQ ops do not rewrite hero when applied in isolation", () => {
+  it("FAQ ops do not rewrite hero when applied in isolation", async () => {
     const project = sampleProject();
     const planned = planExplicitContentEdits({
       project,

@@ -772,10 +772,12 @@ export function planDirectEditOperations(input: {
 }
 
 /**
- * Run Atlas (Sprint 26.0A) — every turn flows through Atlas Brain.
+ * Run Atlas (Sprint 26.0A / 28.0A) — every turn flows through Atlas Brain.
  * Specialists stay internal; callers receive a unified EditorAgentResult.
  */
-export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
+export async function runEditorAgent(
+  input: EditorAgentInput,
+): Promise<EditorAgentResult> {
   const request = input.request?.trim();
   if (!request) {
     throw new AiError("bad_request", "A design request is required.");
@@ -787,7 +789,7 @@ export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
   // Ensure Brain can invoke the editor specialist (idempotent).
   registerEditorPlanner(planEditOperations);
 
-  const result = runAtlasBrain(input);
+  const result = await runAtlasBrain(input);
 
   return {
     ok: true,
@@ -816,11 +818,11 @@ export function runEditorAgent(input: EditorAgentInput): EditorAgentResult {
 registerEditorPlanner(planEditOperations);
 
 /** Safe wrapper that never throws across the HTTP boundary. */
-export function tryRunEditorAgent(
+export async function tryRunEditorAgent(
   input: EditorAgentInput,
-): EditorAgentResult | EditorAgentFailure {
+): Promise<EditorAgentResult | EditorAgentFailure> {
   try {
-    return runEditorAgent(input);
+    return await runEditorAgent(input);
   } catch (error) {
     if (error instanceof AiError) {
       return { ok: false, code: error.code, message: error.message };

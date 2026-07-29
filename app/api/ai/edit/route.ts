@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       return badRequest("project is required.", requestId, "missing_project");
     }
 
-    const result = tryRunEditorAgent({
+    const result = await tryRunEditorAgent({
       project: body.project,
       request: prompt,
       history: body.history,

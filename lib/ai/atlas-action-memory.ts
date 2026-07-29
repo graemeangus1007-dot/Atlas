@@ -17,7 +17,8 @@ import type { BusinessProject } from "@/types/business-project";
 
 export type AtlasStoredRecommendationSource =
   | "creative_director"
-  | "business_advisor";
+  | "business_advisor"
+  | "design_critique";
 
 /** Slim recommendation snapshot — enough to apply without re-reviewing. */
 export type AtlasStoredRecommendation = {
@@ -52,7 +53,7 @@ export type AtlasActionMemory = {
   /** Last recommendations shown to the user. */
   recommendations?: AtlasStoredRecommendation[];
   recommendationIds?: string[];
-  source?: "creative_director" | "business_advisor" | "mixed";
+  source?: "creative_director" | "business_advisor" | "design_critique" | "mixed";
   /** Slim Creative Director report context. */
   creativeReport?: {
     overallCompleteness: number;

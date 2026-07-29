@@ -40,9 +40,9 @@ function sampleProject() {
 }
 
 describe("successful prompt → operations → live project update", () => {
-  it("applies modern+professional edits to the BusinessProject", () => {
+  it("applies modern+professional edits to the BusinessProject", async () => {
     const before = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: before,
       request: "Make this website look more modern and professional.",
     });
@@ -57,7 +57,7 @@ describe("successful prompt → operations → live project update", () => {
 });
 
 describe("conversation appears immediately (state helpers)", () => {
-  it("appends the user prompt before the assistant reply", () => {
+  it("appends the user prompt before the assistant reply", async () => {
     let convo = createEmptyEditorConversation();
     convo = appendConversationMessage(convo, {
       role: "user",
@@ -67,7 +67,7 @@ describe("conversation appears immediately (state helpers)", () => {
     expect(convo.messages[0]?.role).toBe("user");
     expect(convo.messages[0]?.content).toMatch(/modern and professional/i);
 
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: convo.messages[0]!.content,
     });
@@ -84,9 +84,9 @@ describe("conversation appears immediately (state helpers)", () => {
 });
 
 describe("persistence after reload", () => {
-  it("restores prompts, replies, and change summaries from stored meta", () => {
+  it("restores prompts, replies, and change summaries from stored meta", async () => {
     const before = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: before,
       request: "Add an FAQ.",
     });
@@ -169,8 +169,8 @@ describe("API failure surfaces an error", () => {
 });
 
 describe("zero-operation response", () => {
-  it("asks a follow-up instead of appearing broken", () => {
-    const result = tryRunEditorAgent({
+  it("asks a follow-up instead of appearing broken", async () => {
+    const result = await tryRunEditorAgent({
       project: sampleProject(),
       request: "asdf qwerty zxcv unrelated gibberish",
     });

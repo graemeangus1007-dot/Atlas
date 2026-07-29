@@ -80,7 +80,7 @@ function sampleProject(
 }
 
 describe("image intent detection", () => {
-  it("recognizes visual designer requests", () => {
+  it("recognizes visual designer requests", async () => {
     expect(isImageEditRequest("Replace the hero image.")).toBe(true);
     expect(isImageEditRequest("Move the gallery above Testimonials.")).toBe(
       true,
@@ -90,7 +90,7 @@ describe("image intent detection", () => {
 });
 
 describe("replace hero image", () => {
-  it("sets heroImageId from the library", () => {
+  it("sets heroImageId from the library", async () => {
     const project = sampleProject();
     const result = runImageAgent({
       project,
@@ -103,7 +103,7 @@ describe("replace hero image", () => {
 });
 
 describe("replace gallery image", () => {
-  it("fills the requested gallery slot", () => {
+  it("fills the requested gallery slot", async () => {
     const result = runImageAgent({
       project: sampleProject(),
       request: "Replace the first gallery image with the bakery storefront",
@@ -114,7 +114,7 @@ describe("replace gallery image", () => {
 });
 
 describe("move image", () => {
-  it("moves the first image into a gallery slot", () => {
+  it("moves the first image into a gallery slot", async () => {
     const project = sampleProject({ heroImageId: "asset-cookies" });
     const result = runImageAgent({
       project,
@@ -128,7 +128,7 @@ describe("move image", () => {
 });
 
 describe("insert image", () => {
-  it("places a team photo on the About section", () => {
+  it("places a team photo on the About section", async () => {
     const result = runImageAgent({
       project: sampleProject(),
       request: "Put a team photo next to the About section",
@@ -139,7 +139,7 @@ describe("insert image", () => {
 });
 
 describe("delete image", () => {
-  it("clears the hero image", () => {
+  it("clears the hero image", async () => {
     const result = runImageAgent({
       project: sampleProject({ heroImageId: "asset-cookies" }),
       request: "Remove the hero image",
@@ -150,7 +150,7 @@ describe("delete image", () => {
 });
 
 describe("move gallery", () => {
-  it("reorders sectionOrder above testimonials", () => {
+  it("reorders sectionOrder above testimonials", async () => {
     const result = runImageAgent({
       project: sampleProject(),
       request: "Move the gallery above Testimonials",
@@ -162,7 +162,7 @@ describe("move gallery", () => {
 });
 
 describe("replace placeholder", () => {
-  it("replaces every placeholder with a library asset", () => {
+  it("replaces every placeholder with a library asset", async () => {
     const result = runImageAgent({
       project: sampleProject(),
       request: "Replace every placeholder image with fresh cookies",
@@ -176,7 +176,7 @@ describe("replace placeholder", () => {
 });
 
 describe("conversational references", () => {
-  it("resolves this image from editor state", () => {
+  it("resolves this image from editor state", async () => {
     const project = sampleProject({ heroImageId: "asset-bakery" });
     const result = runImageAgent({
       project,
@@ -188,7 +188,7 @@ describe("conversational references", () => {
 });
 
 describe("section references", () => {
-  it("sets a section image beside About", () => {
+  it("sets a section image beside About", async () => {
     const planned = planImageOperations({
       project: sampleProject(),
       request: "Put our team photo next to About",
@@ -198,7 +198,7 @@ describe("section references", () => {
 });
 
 describe("validation failures", () => {
-  it("rejects unknown asset ids", () => {
+  it("rejects unknown asset ids", async () => {
     expect(() =>
       validateImageOperations(
         [{ operation: "replaceHeroImage", assetId: "missing" }],
@@ -207,7 +207,7 @@ describe("validation failures", () => {
     ).toThrow(AiError);
   });
 
-  it("asks a follow-up when the replace target is ambiguous", () => {
+  it("asks a follow-up when the replace target is ambiguous", async () => {
     const result = runImageAgent({
       project: sampleProject(),
       request: "Replace the image with fresh cookies",
@@ -218,7 +218,7 @@ describe("validation failures", () => {
 });
 
 describe("undo and redo", () => {
-  it("restores image assignments through the revision stack", () => {
+  it("restores image assignments through the revision stack", async () => {
     const before = sampleProject();
     const applied = runImageAgent({
       project: before,
@@ -242,7 +242,7 @@ describe("undo and redo", () => {
 });
 
 describe("persistence after refresh", () => {
-  it("keeps hero and section images through JSON round-trip", () => {
+  it("keeps hero and section images through JSON round-trip", async () => {
     const applied = applyImageOperations(sampleProject(), [
       { operation: "replaceHeroImage", assetId: "asset-cookies" },
       { operation: "setSectionImage", section: "about", assetId: "asset-team" },
@@ -254,7 +254,7 @@ describe("persistence after refresh", () => {
 });
 
 describe("preview and published rendering", () => {
-  it("includes hero and about images in generated + published HTML", () => {
+  it("includes hero and about images in generated + published HTML", async () => {
     const project = applyImageOperations(sampleProject(), [
       { operation: "replaceHeroImage", assetId: "asset-cookies" },
       { operation: "setSectionImage", section: "about", assetId: "asset-team" },
@@ -278,8 +278,8 @@ describe("preview and published rendering", () => {
 });
 
 describe("editor agent integration", () => {
-  it("routes image language through the image agent", () => {
-    const result = runEditorAgent({
+  it("routes image language through the image agent", async () => {
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "Use our logo in the navigation",
     });
@@ -290,7 +290,7 @@ describe("editor agent integration", () => {
 });
 
 describe("tryRunImageAgent", () => {
-  it("returns a safe failure for invalid project input", () => {
+  it("returns a safe failure for invalid project input", async () => {
     const result = tryRunImageAgent({
       project: null as unknown as BusinessProject,
       request: "Replace the hero image",

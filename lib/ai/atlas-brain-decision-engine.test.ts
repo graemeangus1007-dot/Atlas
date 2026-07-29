@@ -65,7 +65,7 @@ function sampleProject(
 }
 
 describe("Apply All / Yes / Go ahead continuation", () => {
-  it("continues the active plan for Apply All without restarting routing", () => {
+  it("continues the active plan for Apply All without restarting routing", async () => {
     const memory = storeRecommendations(undefined, {
       creative: [
         {
@@ -95,7 +95,7 @@ describe("Apply All / Yes / Go ahead continuation", () => {
     expect(engine.decision.needsClarification).toBe(false);
     expect(engine.decision.confidence).toBeGreaterThanOrEqual(0.95);
 
-    const result = runAtlasBrain({ project, request: "Apply All" });
+    const result = await runAtlasBrain({ project, request: "Apply All" });
     expect(result.applyStatus).toBe("applied");
     expect(result.explanation.toLowerCase()).not.toMatch(/did you mean/i);
   });
@@ -131,7 +131,7 @@ describe("Apply All / Yes / Go ahead continuation", () => {
 });
 
 describe("explicit command overrides", () => {
-  it("overrides stored lead-generation memory for Add subtle animations", () => {
+  it("overrides stored lead-generation memory for Add subtle animations", async () => {
     const project = sampleProject({
       atlasMemory: { primaryGoal: "leads", businessTone: "warm" },
     });
@@ -148,7 +148,7 @@ describe("explicit command overrides", () => {
     expect(engine.decision.selectedAgents).not.toContain("business_advisor");
     expect(engine.decision.intent).toBe("command_animations");
 
-    const result = runAtlasBrain({
+    const result = await runAtlasBrain({
       project,
       request: "Add subtle animations",
       history: [
@@ -163,7 +163,7 @@ describe("explicit command overrides", () => {
     );
   });
 
-  it("overrides business goals for Improve SEO", () => {
+  it("overrides business goals for Improve SEO", async () => {
     const engine = decideWithAtlasBrainEngine({
       project: sampleProject(),
       request: "Improve SEO",
@@ -175,7 +175,7 @@ describe("explicit command overrides", () => {
       CONFIDENCE_EXECUTE_EXPLAIN,
     );
 
-    const result = runAtlasBrain({
+    const result = await runAtlasBrain({
       project: sampleProject(),
       request: "Improve SEO",
     });
@@ -186,7 +186,7 @@ describe("explicit command overrides", () => {
 });
 
 describe("SEO / Animation / Readability routing", () => {
-  it("routes SEO as an explicit command", () => {
+  it("routes SEO as an explicit command", async () => {
     const cmd = stageExplicitCommand({
       project: sampleProject(),
       request: "Improve SEO",
@@ -194,7 +194,7 @@ describe("SEO / Animation / Readability routing", () => {
     expect(cmd?.commandKind).toBe("seo");
   });
 
-  it("routes animation requests directly", () => {
+  it("routes animation requests directly", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: "Add subtle animations.",
@@ -203,7 +203,7 @@ describe("SEO / Animation / Readability routing", () => {
     expect(decision.decisionStage).toBe("explicit_command");
   });
 
-  it("routes readability and actually applies improvements", () => {
+  it("routes readability and actually applies improvements", async () => {
     const project = sampleProject({
       heroSubheadline:
         "We are a wonderful bakery that has been serving the community for many years with lots of delicious cookies cakes and catering packages that everyone loves so much.",
@@ -217,7 +217,7 @@ describe("SEO / Animation / Readability routing", () => {
     expect(engine.stage).toBe("explicit_command");
     expect(engine.commandKind).toBe("readability");
 
-    const result = runAtlasBrain({
+    const result = await runAtlasBrain({
       project,
       request: "Make the words easier to read.",
     });
@@ -233,7 +233,7 @@ describe("SEO / Animation / Readability routing", () => {
 });
 
 describe("question routing", () => {
-  it("answers design questions without executing edits", () => {
+  it("answers design questions without executing edits", async () => {
     const engine = decideWithAtlasBrainEngine({
       project: sampleProject(),
       request: "Why did you choose this design?",
@@ -242,7 +242,7 @@ describe("question routing", () => {
     expect(engine.decision.needsClarification).toBe(false);
 
     const before = sampleProject();
-    const result = runAtlasBrain({
+    const result = await runAtlasBrain({
       project: before,
       request: "Why did you choose this design?",
     });
@@ -252,7 +252,7 @@ describe("question routing", () => {
 });
 
 describe("clarification once / no loops", () => {
-  it("asks clarification only when earlier stages fail", () => {
+  it("asks clarification only when earlier stages fail", async () => {
     const engine = decideWithAtlasBrainEngine({
       project: sampleProject(),
       request: "Not sure",
@@ -262,7 +262,7 @@ describe("clarification once / no loops", () => {
     expect(engine.decision.confidence).toBeLessThan(CONFIDENCE_EXECUTE_EXPLAIN);
   });
 
-  it("does not clarify Improve SEO or Add subtle animations", () => {
+  it("does not clarify Improve SEO or Add subtle animations", async () => {
     for (const request of ["Improve SEO", "Add subtle animations"]) {
       const engine = decideWithAtlasBrainEngine({
         project: sampleProject(),
@@ -273,13 +273,13 @@ describe("clarification once / no loops", () => {
     }
   });
 
-  it("stores pending clarification and resolves without looping", () => {
-    const first = runAtlasBrain({
+  it("stores pending clarification and resolves without looping", async () => {
+    const first = await runAtlasBrain({
       project: sampleProject(),
       request: "Not sure",
     });
     expect(first.applyStatus).toBe("needs_clarification");
-    const second = runAtlasBrain({
+    const second = await runAtlasBrain({
       project: first.project,
       request: "Better visuals",
     });
@@ -290,7 +290,7 @@ describe("clarification once / no loops", () => {
 });
 
 describe("confidence thresholds", () => {
-  it("assigns execute-now confidence to Apply All continuation", () => {
+  it("assigns execute-now confidence to Apply All continuation", async () => {
     const memory = storeRecommendations(undefined, {
       creative: [
         {
@@ -318,7 +318,7 @@ describe("confidence thresholds", () => {
     expect(engine.decision.needsClarification).toBe(false);
   });
 
-  it("maps low-confidence unknowns into clarification band", () => {
+  it("maps low-confidence unknowns into clarification band", async () => {
     const engine = decideWithAtlasBrainEngine({
       project: sampleProject(),
       request: "hmm",
@@ -329,7 +329,7 @@ describe("confidence thresholds", () => {
 });
 
 describe("deterministic routing", () => {
-  it("returns the same stage and agents for the same inputs", () => {
+  it("returns the same stage and agents for the same inputs", async () => {
     const project = sampleProject();
     const a = decideWithAtlasBrainEngine({
       project,
@@ -347,7 +347,7 @@ describe("deterministic routing", () => {
 });
 
 describe("natural preference copy", () => {
-  it("does not dump raw memory keys", () => {
+  it("does not dump raw memory keys", async () => {
     const note = formatNaturalPreferenceNote({
       primaryGoal: "leads",
       preferredThemes: ["light"],

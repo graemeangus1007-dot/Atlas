@@ -175,7 +175,7 @@ export type BusinessProject = {
   atlasActionMemory?: {
     recommendations?: Array<{
       id: string;
-      source: "creative_director" | "business_advisor";
+      source: "creative_director" | "business_advisor" | "design_critique";
       title: string;
       kind: string;
       applyable: boolean;
@@ -183,7 +183,7 @@ export type BusinessProject = {
       explanation?: string;
     }>;
     recommendationIds?: string[];
-    source?: "creative_director" | "business_advisor" | "mixed";
+    source?: "creative_director" | "business_advisor" | "design_critique" | "mixed";
     creativeReport?: {
       overallCompleteness: number;
       maturityLevel: string;

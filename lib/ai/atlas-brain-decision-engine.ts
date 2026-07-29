@@ -84,7 +84,10 @@ const BUSINESS_GOAL_PHRASE =
   /\b((want|need)\s+more\s+(catering\s+)?(orders?|customers?|leads?|calls?|bookings?|inquir(?:y|ies))|increase\s+(my\s+)?(catering\s+)?(orders?|sales|conversions?|bookings?|trust)|more\s+(calls?|leads?|bookings?|customers?)|more\s+people\s+to\s+call|need\s+more\s+leads|build\s+trust|get\s+more\s+catering)\b/i;
 
 const RECOMMEND_ONLY =
-  /\b(what\s+should\s+i\s+(do|fix|improve)|review\s+(my\s+)?(site|website)|any\s+suggestions?|how\s+can\s+i\s+improve|how\s+launch[- ]ready\s+is\s+this|what\s+would\s+you\s+improve)\b/i;
+  /\b(what\s+should\s+i\s+(do|fix|improve)|review\s+(my\s+)?(site|website|homepage|home\s+page)|any\s+suggestions?|how\s+can\s+i\s+improve|how\s+launch[- ]ready\s+is\s+this|what\s+would\s+you\s+improve|best\s+web\s+design\s+agency|how\s+would\s+you\s+redesign|what\s+would\s+a\s+(top|world[- ]class|great)\s+agency|why\s+does\s+this\s+feel|what\s+should\s+i\s+change\s+before\s+launch|critique\s+(my|this)|design\s+critique)\b/i;
+
+const AGENCY_REDESIGN_EXECUTE =
+  /\b(redesign\s+(this|it|my\s+(homepage|site|website))|make\s+(this|it)\s+look\s+like\s+a\s+premium\s+agency|premium\s+agency\s+designed|make\s+all\s+of\s+(those|these)\s+improvements)\b/i;
 
 const QUESTION_SHAPE =
   /^(who|what|why|how|when|where|which|can\s+you\s+explain|could\s+you\s+explain|should\s+i|is\s+it|are\s+there)\b|\?\s*$/i;
@@ -510,13 +513,24 @@ export function stageExplicitDesign(
     history: input.history,
   });
 
+  // Imperative redesign only — “how would you redesign…?” is critique/recommend.
+  const wantsRedesignExecute =
+    AGENCY_REDESIGN_EXECUTE.test(request) &&
+    !/\b(how|what)\s+would\s+you\b/i.test(request) &&
+    !RECOMMEND_ONLY.test(request);
+
   // Don't steal pure business goals (e.g. “more catering orders” must not
   // become a restaurant design-language pick via industry aliases).
-  if (BUSINESS_GOAL_PHRASE.test(request) && !FEEL_DIRECTION.test(request)) {
+  if (
+    BUSINESS_GOAL_PHRASE.test(request) &&
+    !FEEL_DIRECTION.test(request) &&
+    !wantsRedesignExecute
+  ) {
     return null;
   }
 
   const wantsFeel =
+    wantsRedesignExecute ||
     FEEL_DIRECTION.test(request) ||
     (Boolean(preferred) &&
       /\b(style|styling|design\s+language|look|feel|aesthetic|make\s+it)\b/i.test(
@@ -588,16 +602,20 @@ export function stageExplicitDesign(
     stage: "explicit_design",
     decision: withConfidencePolicy({
       intent: "feel_direction",
-      confidence: preferred ? 0.93 : 0.88,
+      confidence: wantsRedesignExecute ? 0.95 : preferred ? 0.93 : 0.88,
       selectedAgents: agents,
       needsClarification: false,
       executionPlan: plan(
-        "Elevate the design direction",
+        wantsRedesignExecute
+          ? "Execute a coordinated premium redesign"
+          : "Elevate the design direction",
         [
           {
-            id: "design.system",
+            id: "design.critique",
             agent: "creative_director",
-            label: "Choose a design language",
+            label: wantsRedesignExecute
+              ? "Plan coordinated redesign"
+              : "Choose a design language",
           },
           {
             id: "design.cd",
@@ -617,8 +635,9 @@ export function stageExplicitDesign(
         ],
         "high",
       ),
-      explanation:
-        "I’ll elevate the overall feel — design language, hierarchy, and visuals — so the site reads more intentional.",
+      explanation: wantsRedesignExecute
+        ? "I’ll plan a coordinated premium redesign — typography, spacing, hierarchy, imagery, and CTA — then apply it."
+        : "I’ll elevate the overall feel — design language, hierarchy, and visuals — so the site reads more intentional.",
       followUpSuggestions: [
         "Add matching images",
         "Add subtle animations",

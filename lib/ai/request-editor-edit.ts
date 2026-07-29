@@ -68,7 +68,7 @@ export async function requestEditorAgentEdit(input: {
 
     if (response.status === 401) {
       // Local / signed-out editor — use the in-process agent.
-      const local = tryRunEditorAgent({
+      const local = await tryRunEditorAgent({
         project: input.project,
         request: input.request,
         history: input.history,
@@ -141,7 +141,7 @@ export async function requestEditorAgentEdit(input: {
     };
   } catch {
     // Network / offline — local agent so the editor still works.
-    const local = tryRunEditorAgent({
+    const local = await tryRunEditorAgent({
       project: input.project,
       request: input.request,
       history: input.history,

@@ -104,7 +104,7 @@ function memoryWithRecs(
 }
 
 describe("Apply All", () => {
-  it("executes queued recommendations when the user says Apply All", () => {
+  it("executes queued recommendations when the user says Apply All", async () => {
     const memory = memoryWithRecs([
       storedRec({ id: "visual.icons", title: "Add service icons", kind: "visual" }),
       storedRec({
@@ -115,7 +115,7 @@ describe("Apply All", () => {
       }),
     ]);
     const project = sampleProject({ atlasActionMemory: memory });
-    const result = runAtlasBrain({ project, request: "Apply All" });
+    const result = await runAtlasBrain({ project, request: "Apply All" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.applyStatus).toBe("applied");
@@ -125,8 +125,8 @@ describe("Apply All", () => {
     expect(result.project.atlasActionMemory?.recommendations?.length ?? 0).toBe(0);
   });
 
-  it("stores recommendations after a review so Apply All can follow", () => {
-    const reviewed = runAtlasBrain({
+  it("stores recommendations after a review so Apply All can follow", async () => {
+    const reviewed = await runAtlasBrain({
       project: sampleProject(),
       request: "What should I improve?",
     });
@@ -137,7 +137,7 @@ describe("Apply All", () => {
       (reviewed.project.atlasActionMemory?.recommendations?.length ?? 0) > 0,
     ).toBe(true);
 
-    const applied = runAtlasBrain({
+    const applied = await runAtlasBrain({
       project: reviewed.project,
       request: "Apply All",
     });
@@ -151,14 +151,14 @@ describe("Apply All", () => {
 describe("Apply / Yes / Go ahead", () => {
   it.each(["Apply", "Yes", "Go ahead", "Do it", "Everything", "All of them"])(
     "treats “%s” as confirmation when recommendations are active",
-    (phrase) => {
+    async (phrase) => {
       const memory = memoryWithRecs([
         storedRec({ id: "visual.icons", title: "Add icons", kind: "visual" }),
       ]);
       expect(shouldExecuteActionMemory(phrase, memory)).toBe(true);
       expect(detectActionConfirmation(phrase).kind).not.toBe("none");
 
-      const result = runAtlasBrain({
+      const result = await runAtlasBrain({
         project: sampleProject({ atlasActionMemory: memory }),
         request: phrase,
       });
@@ -169,8 +169,8 @@ describe("Apply / Yes / Go ahead", () => {
 });
 
 describe("clarification once", () => {
-  it("stores pending clarification when Atlas asks", () => {
-    const result = runAtlasBrain({
+  it("stores pending clarification when Atlas asks", async () => {
+    const result = await runAtlasBrain({
       project: sampleProject(),
       request: "Not sure",
     });
@@ -184,12 +184,12 @@ describe("clarification once", () => {
     ).toBeGreaterThan(1);
   });
 
-  it("never asks the same clarification again on the next turn", () => {
-    const first = runAtlasBrain({
+  it("never asks the same clarification again on the next turn", async () => {
+    const first = await runAtlasBrain({
       project: sampleProject(),
       request: "Not sure",
     });
-    const second = runAtlasBrain({
+    const second = await runAtlasBrain({
       project: first.project,
       request: "Visuals",
     });
@@ -203,7 +203,7 @@ describe("clarification once", () => {
 });
 
 describe("clarification resolution", () => {
-  it("resolves Better visuals without restarting routing into another clarify loop", () => {
+  it("resolves Better visuals without restarting routing into another clarify loop", async () => {
     const pending = storePendingClarification(undefined, {
       question: "Did you mean?",
     });
@@ -233,7 +233,7 @@ describe("clarification resolution", () => {
       true,
     );
 
-    const result = runAtlasBrain({
+    const result = await runAtlasBrain({
       project: sampleProject({ atlasActionMemory: withRecs }),
       request: "Visuals",
     });
@@ -243,12 +243,12 @@ describe("clarification resolution", () => {
 });
 
 describe("no clarification loops", () => {
-  it("does not re-enter clarification when Apply All is typed after a review", () => {
-    const reviewed = runAtlasBrain({
+  it("does not re-enter clarification when Apply All is typed after a review", async () => {
+    const reviewed = await runAtlasBrain({
       project: sampleProject(),
       request: "Review my website",
     });
-    const apply = runAtlasBrain({
+    const apply = await runAtlasBrain({
       project: reviewed.project,
       request: "Apply All",
     });
@@ -256,7 +256,7 @@ describe("no clarification loops", () => {
     expect(apply.explanation.toLowerCase()).not.toMatch(/did you mean/i);
   });
 
-  it("skips intent routing entirely for Apply All with active recs", () => {
+  it("skips intent routing entirely for Apply All with active recs", async () => {
     const memory = memoryWithRecs([
       storedRec({ id: "visual.icons", title: "Add icons", kind: "visual" }),
     ]);
@@ -265,7 +265,7 @@ describe("no clarification loops", () => {
 });
 
 describe("recommendation continuity", () => {
-  it("understands ordinal and kind filters from previous context", () => {
+  it("understands ordinal and kind filters from previous context", async () => {
     const memory = memoryWithRecs([
       storedRec({ id: "a", title: "First", kind: "visual" }),
       storedRec({

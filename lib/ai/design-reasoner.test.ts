@@ -27,7 +27,7 @@ function sampleProject() {
 }
 
 describe("business goals", () => {
-  it("infers phone-call conversion from plain language", () => {
+  it("infers phone-call conversion from plain language", async () => {
     const reasoning = reasonAboutDesign({
       request: "I want more people to call me.",
       project: sampleProject(),
@@ -37,7 +37,7 @@ describe("business goals", () => {
     expect(reasoning.shouldAct).toBe(true);
     expect(reasoning.editObjectives.length).toBeGreaterThan(0);
 
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "I want more people to call me.",
     });
@@ -47,8 +47,8 @@ describe("business goals", () => {
     expect(result.reasoning?.inferredGoal).toMatch(/phone calls/i);
   });
 
-  it("infers lead capture from “I need more leads”", () => {
-    const result = runEditorAgent({
+  it("infers lead capture from “I need more leads”", async () => {
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "I need more leads.",
     });
@@ -58,7 +58,7 @@ describe("business goals", () => {
     expect(result.project.designSections?.enabled).toContain("newsletter");
   });
 
-  it("infers modernization from “This feels outdated.”", () => {
+  it("infers modernization from “This feels outdated.”", async () => {
     const reasoning = reasonAboutDesign({
       request: "This feels outdated.",
       project: sampleProject(),
@@ -66,7 +66,7 @@ describe("business goals", () => {
     expect(reasoning.goal).toBe("modernize_appearance");
     expect(reasoning.shouldAct).toBe(true);
 
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "This feels outdated.",
     });
@@ -77,7 +77,7 @@ describe("business goals", () => {
 });
 
 describe("emotional feedback", () => {
-  it("asks what feels off instead of failing or no-opping", () => {
+  it("asks what feels off instead of failing or no-opping", async () => {
     const reasoning = reasonAboutDesign({
       request: "I don't like it.",
       project: sampleProject(),
@@ -86,7 +86,7 @@ describe("emotional feedback", () => {
     expect(reasoning.shouldAct).toBe(false);
     expect(reasoning.followUpQuestion).toMatch(/feels off|colors|layout|wording/i);
 
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "I don't like it.",
     });
@@ -101,8 +101,8 @@ describe("emotional feedback", () => {
 });
 
 describe("ambiguous requests", () => {
-  it("asks a concise follow-up for vague “make it better”", () => {
-    const result = runEditorAgent({
+  it("asks a concise follow-up for vague “make it better”", async () => {
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "Make it better.",
     });
@@ -114,7 +114,7 @@ describe("ambiguous requests", () => {
 });
 
 describe("follow-up question behavior", () => {
-  it("returns needs_clarification with a single question, not silent failure", () => {
+  it("returns needs_clarification with a single question, not silent failure", async () => {
     const planned = planEditOperations({
       project: sampleProject(),
       request: "asdf qwerty zxcv unrelated gibberish",
@@ -140,7 +140,7 @@ describe("follow-up question behavior", () => {
 });
 
 describe("existing direct edit commands", () => {
-  it("still applies FAQ / theme commands without requiring goal language", () => {
+  it("still applies FAQ / theme commands without requiring goal language", async () => {
     const faq = planDirectEditOperations({
       project: sampleProject(),
       request: "Add an FAQ.",
@@ -149,7 +149,7 @@ describe("existing direct edit commands", () => {
       true,
     );
 
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "Add an FAQ.",
     });
@@ -157,9 +157,9 @@ describe("existing direct edit commands", () => {
     expect(result.project.designSections?.enabled).toContain("faq");
   });
 
-  it("still applies navy + gold theme while preserving wording", () => {
+  it("still applies navy + gold theme while preserving wording", async () => {
     const before = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: before,
       request:
         "Change the website to a dark navy theme with gold accents. Keep all wording exactly the same.",

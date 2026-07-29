@@ -367,6 +367,32 @@ export {
   tryRunAtlasBrain,
 } from "@/lib/ai/atlas-brain";
 export {
+  buildDesignCritiqueContext,
+  buildMockDesignCritique,
+  formatDesignCritiqueExplanation,
+  isDesignCritiqueExecuteRequest,
+  isDesignCritiqueRequest,
+  runDesignCritique,
+  validateDesignCritique,
+} from "@/lib/ai/design-critique";
+export {
+  critiqueToRecommendations,
+  dedupeImprovements,
+  dedupeOperations,
+} from "@/lib/ai/critique-to-operations";
+export {
+  DESIGN_CRITIQUE_JSON_SCHEMA,
+  DESIGN_CRITIQUE_SCHEMA_NAME,
+} from "@/lib/ai/design-critique-schema";
+export type {
+  DesignCritique,
+  DesignCritiqueContext,
+  DesignCritiqueMode,
+  DesignCritiqueResult,
+  CritiqueImprovement,
+  ProposedChange,
+} from "@/lib/ai/design-critique-types";
+export {
   decideWithAtlasBrainEngine,
   formatNaturalPreferenceNote,
   stageContinuation,

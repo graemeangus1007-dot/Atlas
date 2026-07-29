@@ -40,7 +40,7 @@ function sampleProject(
 }
 
 describe("deterministic style selection", () => {
-  it("maps every built-in language to a complete DesignSystem", () => {
+  it("maps every built-in language to a complete DesignSystem", async () => {
     for (const id of DESIGN_LANGUAGE_IDS) {
       const def = DESIGN_LANGUAGES[id];
       expect(def.id).toBe(id);
@@ -55,7 +55,7 @@ describe("deterministic style selection", () => {
     }
   });
 
-  it("selects luxury when preferredLanguage is luxury", () => {
+  it("selects luxury when preferredLanguage is luxury", async () => {
     const result = resolveDesignSystem({ preferredLanguage: "luxury" });
     expect(result.designSystem.language).toBe("luxury");
     expect(result.designSystem.typography.headingFont).toBe("playfair");
@@ -64,7 +64,7 @@ describe("deterministic style selection", () => {
     expect(result.autoApply).toBe(true);
   });
 
-  it("is stable across repeated calls with the same input", () => {
+  it("is stable across repeated calls with the same input", async () => {
     const input = {
       businessType: "Contractor" as const,
       goals: ["Get more customers"],
@@ -80,7 +80,7 @@ describe("deterministic style selection", () => {
 });
 
 describe("industry mapping", () => {
-  it("maps restaurants to the restaurant language", () => {
+  it("maps restaurants to the restaurant language", async () => {
     const result = resolveDesignSystem({
       businessType: "Restaurant",
       industry: "fine dining restaurant",
@@ -89,7 +89,7 @@ describe("industry mapping", () => {
     expect(result.designSystem.imageryStyle).toBe("food_first");
   });
 
-  it("maps medical / dental copy to medical", () => {
+  it("maps medical / dental copy to medical", async () => {
     const result = resolveDesignSystem({
       industry: "family dental clinic",
       businessType: "Other",
@@ -100,7 +100,7 @@ describe("industry mapping", () => {
     );
   });
 
-  it("maps contractors to trades", () => {
+  it("maps contractors to trades", async () => {
     const result = resolveDesignSystem({
       businessType: "Contractor",
       industry: "residential plumbing contractor",
@@ -112,7 +112,7 @@ describe("industry mapping", () => {
 });
 
 describe("business-goal influence", () => {
-  it("boosts photography / creative when the goal is a portfolio", () => {
+  it("boosts photography / creative when the goal is a portfolio", async () => {
     const result = resolveDesignSystem({
       businessType: "Other",
       industry: "independent photographer",
@@ -121,7 +121,7 @@ describe("business-goal influence", () => {
     expect(["photography", "creative"]).toContain(result.designSystem.language);
   });
 
-  it("boosts restaurant for catering / order goals", () => {
+  it("boosts restaurant for catering / order goals", async () => {
     const result = resolveDesignSystem({
       businessType: "Coffee Shop",
       userGoal: "I want more catering orders",
@@ -132,7 +132,7 @@ describe("business-goal influence", () => {
 });
 
 describe("memory influence", () => {
-  it("prefers luxury when memory tone is luxury", () => {
+  it("prefers luxury when memory tone is luxury", async () => {
     const result = resolveDesignSystem({
       businessType: "Retail Store",
       memory: { businessTone: "luxury", preferredLayouts: ["elegant"] },
@@ -140,7 +140,7 @@ describe("memory influence", () => {
     expect(result.designSystem.language).toBe("luxury");
   });
 
-  it("prefers minimal when memory prefers minimalist layouts", () => {
+  it("prefers minimal when memory prefers minimalist layouts", async () => {
     const result = resolveDesignSystem({
       businessType: "Other",
       memory: { preferredLayouts: ["minimalist"], businessTone: "minimal" },
@@ -150,7 +150,7 @@ describe("memory influence", () => {
 });
 
 describe("consistency", () => {
-  it("detects design-language aliases from free text", () => {
+  it("detects design-language aliases from free text", async () => {
     expect(detectPreferredLanguage("Make it Scandinavian")).toBe(
       "scandinavian",
     );
@@ -160,7 +160,7 @@ describe("consistency", () => {
     expect(detectPreferredLanguage("more luxurious")).toBe("luxury");
   });
 
-  it("attaches a persisted design system snapshot", () => {
+  it("attaches a persisted design system snapshot", async () => {
     const resolution = resolveDesignSystem({ preferredLanguage: "modern" });
     const next = attachDesignSystem(
       sampleProject(),
@@ -171,7 +171,7 @@ describe("consistency", () => {
     expect(next.atlasMemory?.preferredLayouts).toContain("modern");
   });
 
-  it("builds input from a BusinessProject", () => {
+  it("builds input from a BusinessProject", async () => {
     const input = designSystemInputFromProject(
       sampleProject({
         businessType: "Salon",
@@ -185,7 +185,7 @@ describe("consistency", () => {
 });
 
 describe("integration with Creative Director", () => {
-  it("references the design language in review narrative", () => {
+  it("references the design language in review narrative", async () => {
     const project = sampleProject({
       designSystem: {
         language: "luxury",
@@ -208,7 +208,7 @@ describe("integration with Creative Director", () => {
 });
 
 describe("Brain routing", () => {
-  it("routes feel / design-language requests through feel_direction", () => {
+  it("routes feel / design-language requests through feel_direction", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: "Make this website feel more luxurious.",
@@ -218,8 +218,8 @@ describe("Brain routing", () => {
     expect(decision.selectedAgents).toContain("editor_agent");
   });
 
-  it("auto-applies a design system on feel_direction when confident", () => {
-    const result = runAtlasBrain({
+  it("auto-applies a design system on feel_direction when confident", async () => {
+    const result = await runAtlasBrain({
       project: sampleProject({ businessType: "Restaurant" }),
       request: "Make this feel more luxurious.",
     });

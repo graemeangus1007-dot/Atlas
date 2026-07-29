@@ -59,7 +59,7 @@ function sampleProject(
 }
 
 describe("single-agent routing", () => {
-  it("routes hero image replacement to the image agent only", () => {
+  it("routes hero image replacement to the image agent only", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: "Replace the hero image.",
@@ -71,7 +71,7 @@ describe("single-agent routing", () => {
 });
 
 describe("multi-agent routing", () => {
-  it("routes luxury feel to creative + editor + image", () => {
+  it("routes luxury feel to creative + editor + image", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: "Make this website feel more luxurious.",
@@ -82,7 +82,7 @@ describe("multi-agent routing", () => {
     expect(decision.intent).toBe("feel_direction");
   });
 
-  it("routes catering orders to advisor + creative + editor", () => {
+  it("routes catering orders to advisor + creative + editor", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: "I want more catering orders.",
@@ -93,7 +93,7 @@ describe("multi-agent routing", () => {
     expect(decision.executionPlan.estimatedImpact).toBe("high");
   });
 
-  it("does not treat FAQ answers that mention calling as business goals", () => {
+  it("does not treat FAQ answers that mention calling as business goals", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: `Update the answer to "How do I get started?" to: "You give us a call!"`,
@@ -104,7 +104,7 @@ describe("multi-agent routing", () => {
 });
 
 describe("clarification", () => {
-  it("asks a concise multiple-choice follow-up when the ask is vague", () => {
+  it("asks a concise multiple-choice follow-up when the ask is vague", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: "Not sure",
@@ -113,7 +113,7 @@ describe("clarification", () => {
     expect(decision.clarificationQuestion).toMatch(/Did you mean/i);
     expect(decision.followUpSuggestions.length).toBeGreaterThan(1);
 
-    const result = runAtlasBrain({
+    const result = await runAtlasBrain({
       project: sampleProject(),
       request: "Not sure",
     });
@@ -123,7 +123,7 @@ describe("clarification", () => {
 });
 
 describe("execution plans", () => {
-  it("formats a user-facing plan without specialist names", () => {
+  it("formats a user-facing plan without specialist names", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: "I want more catering orders.",
@@ -135,7 +135,7 @@ describe("execution plans", () => {
     expect(text).not.toMatch(/business_advisor|editor_agent|creative_director/i);
   });
 
-  it("includes an execution plan on multi-agent turns", () => {
+  it("includes an execution plan on multi-agent turns", async () => {
     const planned = planAtlasBrain({
       project: sampleProject(),
       request: "Make this website feel more luxurious.",
@@ -145,7 +145,7 @@ describe("execution plans", () => {
 });
 
 describe("project memory", () => {
-  it("infers luxury tone and dark theme preferences", () => {
+  it("infers luxury tone and dark theme preferences", async () => {
     const patch = inferMemoryFromMessage(
       "I prefer a minimalist dark theme with a luxury tone",
     );
@@ -154,8 +154,8 @@ describe("project memory", () => {
     expect(patch.businessTone).toBe("luxury");
   });
 
-  it("persists memory onto the project after a turn", () => {
-    const result = runAtlasBrain({
+  it("persists memory onto the project after a turn", async () => {
+    const result = await runAtlasBrain({
       project: sampleProject(),
       request: "Make this website feel more luxurious.",
     });
@@ -173,8 +173,8 @@ describe("project memory", () => {
 });
 
 describe("follow-up suggestions", () => {
-  it("returns natural follow-ups after image work", () => {
-    const result = runAtlasBrain({
+  it("returns natural follow-ups after image work", async () => {
+    const result = await runAtlasBrain({
       project: sampleProject({
         mediaLibrary: [asset("asset-cookies", "fresh cookies")],
       }),
@@ -186,7 +186,7 @@ describe("follow-up suggestions", () => {
 });
 
 describe("mixed requests", () => {
-  it("selects both image and editor agents when copy is mixed in", () => {
+  it("selects both image and editor agents when copy is mixed in", async () => {
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request: "Replace the hero image and update the headline",
@@ -197,7 +197,7 @@ describe("mixed requests", () => {
 });
 
 describe("deterministic routing", () => {
-  it("returns the same agents for the same request", () => {
+  it("returns the same agents for the same request", async () => {
     const project = sampleProject();
     const a = decideAtlasBrain({
       project,
@@ -212,7 +212,7 @@ describe("deterministic routing", () => {
     expect(a.confidence).toBe(b.confidence);
   });
 
-  it("rewrites industry copy for a dental office through Atlas Brain", () => {
+  it("rewrites industry copy for a dental office through Atlas Brain", async () => {
     const project = sampleProject({
       heroHeadline: "old headline",
       services: [{ title: "Espresso", description: "Coffee" }],
@@ -224,7 +224,7 @@ describe("deterministic routing", () => {
     expect(decision.selectedAgents).toContain("editor_agent");
     expect(decision.needsClarification).toBe(false);
 
-    const result = runAtlasBrain({
+    const result = await runAtlasBrain({
       project,
       request: "Rewrite everything for a dental office.",
     });

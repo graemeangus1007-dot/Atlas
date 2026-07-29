@@ -42,7 +42,7 @@ function sampleProject() {
 }
 
 describe("named color mapping", () => {
-  it("maps common named colors to hex", () => {
+  it("maps common named colors to hex", async () => {
     expect(resolveNamedColor("gold")).toBe(NAMED_COLORS.gold);
     expect(resolveNamedColor("navy")).toBe(NAMED_COLORS.navy);
     expect(resolveNamedColor("emerald")).toBe(NAMED_COLORS.emerald);
@@ -54,7 +54,7 @@ describe("named color mapping", () => {
     expect(resolveNamedColor("coral")).toBe(NAMED_COLORS.coral);
   });
 
-  it("parses dark navy theme with gold accents into two distinct colors", () => {
+  it("parses dark navy theme with gold accents into two distinct colors", async () => {
     const parsed = parseThemeColorIntent(PROMPT.toLowerCase());
     expect(parsed).not.toBeNull();
     expect(parsed!.primary).toBeTruthy();
@@ -66,7 +66,7 @@ describe("named color mapping", () => {
 });
 
 describe("navy + gold theme apply", () => {
-  it("maps navy + gold to two distinct project colors", () => {
+  it("maps navy + gold to two distinct project colors", async () => {
     const before = sampleProject();
     const planned = planEditOperations({
       project: before,
@@ -86,8 +86,8 @@ describe("navy + gold theme apply", () => {
     expect(project.backgroundColor).toBe(NAMED_COLORS.darkNavy);
   });
 
-  it("accent color reaches the rendered site design tokens", () => {
-    const result = runEditorAgent({
+  it("accent color reaches the rendered site design tokens", async () => {
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: PROMPT,
     });
@@ -103,9 +103,9 @@ describe("navy + gold theme apply", () => {
     expect(style["--site-primary"]).toBe(result.project.primaryColor);
   });
 
-  it("keeps all wording unchanged for this request", () => {
+  it("keeps all wording unchanged for this request", async () => {
     const before = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: before,
       request: PROMPT,
     });
@@ -122,9 +122,9 @@ describe("navy + gold theme apply", () => {
     expect(result.project.services).toEqual(before.services);
   });
 
-  it("undo restores both prior primary and accent colors", () => {
+  it("undo restores both prior primary and accent colors", async () => {
     const before = sampleProject();
-    const result = runEditorAgent({
+    const result = await runEditorAgent({
       project: before,
       request: PROMPT,
     });

@@ -45,7 +45,7 @@ function sampleProject() {
 }
 
 describe("edit operation validation", () => {
-  it("accepts a valid operation list", () => {
+  it("accepts a valid operation list", async () => {
     const ops = validateEditOperations([
       {
         operation: "replaceText",
@@ -59,7 +59,7 @@ describe("edit operation validation", () => {
     expect(ops[0]?.operation).toBe("replaceText");
   });
 
-  it("rejects unknown operations", () => {
+  it("rejects unknown operations", async () => {
     expect(() =>
       validateEditOperations([{ operation: "hackSite", value: "x" }]),
     ).toThrow(AiError);
@@ -68,7 +68,7 @@ describe("edit operation validation", () => {
     ).toThrow(/Unknown edit operation/);
   });
 
-  it("rejects invalid replaceText targets", () => {
+  it("rejects invalid replaceText targets", async () => {
     expect(() =>
       validateEditOperations([
         { operation: "replaceText", target: "secret.key", value: "nope" },
@@ -76,19 +76,19 @@ describe("edit operation validation", () => {
     ).toThrow(/Invalid replaceText target/);
   });
 
-  it("rejects deleting required core sections by type confusion", () => {
+  it("rejects deleting required core sections by type confusion", async () => {
     expect(REQUIRED_SECTION_IDS).toContain("hero");
     expect(() =>
       validateEditOperations([{ operation: "removeSection", type: "hero" }]),
     ).toThrow(/Invalid removeSection type/);
   });
 
-  it("rejects empty and non-array payloads", () => {
+  it("rejects empty and non-array payloads", async () => {
     expect(() => validateEditOperations([])).toThrow(/empty/);
     expect(() => validateEditOperations({})).toThrow(/array/);
   });
 
-  it("exposes a closed operation vocabulary", () => {
+  it("exposes a closed operation vocabulary", async () => {
     expect(EDIT_OPERATION_KINDS).toContain("replaceText");
     expect(EDIT_OPERATION_KINDS).toContain("changeTheme");
     expect(EDIT_OPERATION_KINDS).toContain("insertSection");
@@ -97,7 +97,7 @@ describe("edit operation validation", () => {
 });
 
 describe("apply edit operations", () => {
-  it("applies replaceText, theme, and insertSection", () => {
+  it("applies replaceText, theme, and insertSection", async () => {
     const { project, changes } = applyEditOperations(sampleProject(), [
       {
         operation: "replaceText",
@@ -116,7 +116,7 @@ describe("apply edit operations", () => {
     expect(changes.some((c) => /FAQ/i.test(c.label))).toBe(true);
   });
 
-  it("refuses to leave required content when removing only optional sections", () => {
+  it("refuses to leave required content when removing only optional sections", async () => {
     const withFaq = applyEditOperations(sampleProject(), [
       { operation: "insertSection", type: "faq" },
     ]).project;
@@ -128,7 +128,7 @@ describe("apply edit operations", () => {
     expect(removed.services.length).toBeGreaterThan(0);
   });
 
-  it("replaces blue brand colors with green", () => {
+  it("replaces blue brand colors with green", async () => {
     const { project } = applyEditOperations(sampleProject(), [
       { operation: "replaceColors", from: "blue", to: "#0f766e" },
     ]);
@@ -138,8 +138,8 @@ describe("apply edit operations", () => {
 });
 
 describe("editor agent", () => {
-  it("plans and applies natural language edits", () => {
-    const result = runEditorAgent({
+  it("plans and applies natural language edits", async () => {
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "Make the hero more modern and add an FAQ.",
     });
@@ -151,12 +151,12 @@ describe("editor agent", () => {
     expect(result.changes.length).toBeGreaterThan(0);
   });
 
-  it("uses conversation history so follow-ups refer to the site", () => {
-    const first = runEditorAgent({
+  it("uses conversation history so follow-ups refer to the site", async () => {
+    const first = await runEditorAgent({
       project: sampleProject(),
       request: "Make this website modern.",
     });
-    const second = runEditorAgent({
+    const second = await runEditorAgent({
       project: first.project,
       request: "Make it darker.",
       history: [
@@ -168,8 +168,8 @@ describe("editor agent", () => {
     expect(second.project.backgroundColor.toLowerCase()).toMatch(/#0|#1/);
   });
 
-  it("rewrites for a dental office", () => {
-    const result = runEditorAgent({
+  it("rewrites for a dental office", async () => {
+    const result = await runEditorAgent({
       project: sampleProject(),
       request: "Rewrite everything for a dental office.",
     });
@@ -179,7 +179,7 @@ describe("editor agent", () => {
     );
   });
 
-  it("improves SEO via structured updateSeo ops", () => {
+  it("improves SEO via structured updateSeo ops", async () => {
     const planned = planEditOperations({
       project: sampleProject(),
       request: "Improve SEO.",
@@ -193,8 +193,8 @@ describe("editor agent", () => {
     expect(applied.project.seo?.metaDescription).toBeTruthy();
   });
 
-  it("returns a failure object for empty requests", () => {
-    const result = tryRunEditorAgent({
+  it("returns a failure object for empty requests", async () => {
+    const result = await tryRunEditorAgent({
       project: sampleProject(),
       request: "   ",
     });
@@ -205,7 +205,7 @@ describe("editor agent", () => {
 });
 
 describe("conversation history", () => {
-  it("preserves turns and serializes for the agent", () => {
+  it("preserves turns and serializes for the agent", async () => {
     let convo = createEmptyEditorConversation();
     convo = appendConversationMessage(convo, {
       role: "user",
@@ -223,7 +223,7 @@ describe("conversation history", () => {
 });
 
 describe("undo / redo revisions", () => {
-  it("undo restores the previous project and redo reapplies", () => {
+  it("undo restores the previous project and redo reapplies", async () => {
     const before = sampleProject();
     const after = {
       ...before,
@@ -259,7 +259,7 @@ describe("undo / redo revisions", () => {
     expect(redone!.project.primaryColor).toBe("#0f766e");
   });
 
-  it("pushing after undo drops the redo branch", () => {
+  it("pushing after undo drops the redo branch", async () => {
     const a = sampleProject();
     const b = { ...a, heroHeadline: "B" };
     const c = { ...a, heroHeadline: "C" };
@@ -294,7 +294,7 @@ describe("undo / redo revisions", () => {
 });
 
 describe("Design Assistant API contract", () => {
-  it("exposes POST /api/ai/edit with auth and structured response fields", () => {
+  it("exposes POST /api/ai/edit with auth and structured response fields", async () => {
     const src = readFileSync(
       resolve(__dirname, "../../app/api/ai/edit/route.ts"),
       "utf8",
