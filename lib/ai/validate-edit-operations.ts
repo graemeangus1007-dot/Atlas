@@ -334,6 +334,119 @@ function validateOne(raw: unknown, index: number): EditOperation {
       }
       return { operation: "replaceColors", from, to };
     }
+    case "updateFaqAnswer": {
+      const answer = requireString(row.answer, "answer", 2000);
+      const matchQuestion =
+        row.matchQuestion === undefined
+          ? undefined
+          : requireString(row.matchQuestion, "matchQuestion", 400);
+      const faqIndex =
+        row.index === undefined
+          ? undefined
+          : typeof row.index === "number" &&
+              Number.isInteger(row.index) &&
+              row.index >= 0
+            ? row.index
+            : (() => {
+                throw new AiError(
+                  "bad_request",
+                  `updateFaqAnswer index must be a non-negative integer at index ${index}.`,
+                );
+              })();
+      if (matchQuestion === undefined && faqIndex === undefined) {
+        throw new AiError(
+          "bad_request",
+          `updateFaqAnswer at index ${index} requires matchQuestion or index.`,
+        );
+      }
+      return {
+        operation: "updateFaqAnswer",
+        answer,
+        ...(matchQuestion ? { matchQuestion } : {}),
+        ...(faqIndex !== undefined ? { index: faqIndex } : {}),
+      };
+    }
+    case "updateFaqQuestion": {
+      const question = requireString(row.question, "question", 400);
+      const matchQuestion =
+        row.matchQuestion === undefined
+          ? undefined
+          : requireString(row.matchQuestion, "matchQuestion", 400);
+      const faqIndex =
+        row.index === undefined
+          ? undefined
+          : typeof row.index === "number" &&
+              Number.isInteger(row.index) &&
+              row.index >= 0
+            ? row.index
+            : (() => {
+                throw new AiError(
+                  "bad_request",
+                  `updateFaqQuestion index must be a non-negative integer at index ${index}.`,
+                );
+              })();
+      if (matchQuestion === undefined && faqIndex === undefined) {
+        throw new AiError(
+          "bad_request",
+          `updateFaqQuestion at index ${index} requires matchQuestion or index.`,
+        );
+      }
+      return {
+        operation: "updateFaqQuestion",
+        question,
+        ...(matchQuestion ? { matchQuestion } : {}),
+        ...(faqIndex !== undefined ? { index: faqIndex } : {}),
+      };
+    }
+    case "insertFaq": {
+      if (row.items === undefined) {
+        return { operation: "insertFaq" };
+      }
+      if (!Array.isArray(row.items) || row.items.length < 1) {
+        throw new AiError(
+          "bad_request",
+          `insertFaq items must be a non-empty array at index ${index}.`,
+        );
+      }
+      const items = row.items.map((item, itemIndex) => {
+        const obj = requireObject(item, `insertFaq.items[${itemIndex}]`);
+        return {
+          question: requireString(obj.question, "question", 400),
+          answer: requireString(obj.answer, "answer", 2000),
+        };
+      });
+      return { operation: "insertFaq", items };
+    }
+    case "deleteFaq": {
+      const matchQuestion =
+        row.matchQuestion === undefined
+          ? undefined
+          : requireString(row.matchQuestion, "matchQuestion", 400);
+      const faqIndex =
+        row.index === undefined
+          ? undefined
+          : typeof row.index === "number" &&
+              Number.isInteger(row.index) &&
+              row.index >= 0
+            ? row.index
+            : (() => {
+                throw new AiError(
+                  "bad_request",
+                  `deleteFaq index must be a non-negative integer at index ${index}.`,
+                );
+              })();
+      if (matchQuestion === undefined && faqIndex === undefined) {
+        throw new AiError(
+          "bad_request",
+          `deleteFaq at index ${index} requires matchQuestion or index.`,
+        );
+      }
+      return {
+        operation: "deleteFaq",
+        ...(matchQuestion ? { matchQuestion } : {}),
+        ...(faqIndex !== undefined ? { index: faqIndex } : {}),
+      };
+    }
     default: {
       const _exhaustive: never = kind;
       throw new AiError(

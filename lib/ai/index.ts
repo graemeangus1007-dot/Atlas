@@ -177,6 +177,17 @@ export {
   runEditorAgent,
   tryRunEditorAgent,
 } from "@/lib/ai/editor-agent";
+export {
+  INTENT_CATEGORIES,
+  INTENT_PRIORITY,
+  routeIntent,
+  shouldSkipBusinessReasoning,
+} from "@/lib/ai/intent-router";
+export type { IntentCategory, IntentRouteResult } from "@/lib/ai/intent-router";
+export {
+  findFaqIndexByQuestion,
+  planExplicitContentEdits,
+} from "@/lib/ai/content-edit-planner";
 export type {
   EditorAgentApplyStatus,
   EditorAgentFailure,

@@ -5,6 +5,7 @@
  */
 
 import { applyEditOperations } from "@/lib/ai/apply-edit-operations";
+import { planExplicitContentEdits } from "@/lib/ai/content-edit-planner";
 import {
   operationsFromDesignReasoning,
   reasonAboutDesign,
@@ -21,6 +22,10 @@ import type {
   EditOperation,
 } from "@/lib/ai/edit-operations";
 import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
+import {
+  routeIntent,
+  shouldSkipBusinessReasoning,
+} from "@/lib/ai/intent-router";
 import {
   parseThemeColorIntent,
   wantsPreserveWording,
@@ -97,7 +102,7 @@ function recentContext(history: EditorAgentHistoryItem[]): string {
 
 /**
  * Deterministic intent → operations (mock foundation).
- * OpenAI-backed planning can replace this later while keeping the same apply path.
+ * Intent router classifies first; business reasoning never overrides explicit edits.
  */
 export function planEditOperations(input: {
   project: BusinessProject;
@@ -114,39 +119,151 @@ export function planEditOperations(input: {
     throw new AiError("bad_request", "A design request is required.");
   }
 
-  // Goal-based reasoning first — business language, not technical design jargon.
-  const reasoning = reasonAboutDesign({
+  const intent = routeIntent({
     request,
     project: input.project,
     history: input.history,
   });
 
-  const direct = planDirectEditOperations(input);
-
-  // Prefer explicit design commands when the user already spoke in edit language.
-  if (direct.operations.length > 0) {
-    return {
-      ...direct,
-      reasoning,
-    };
+  // 1) Explicit content edits — skip business reasoning entirely.
+  if (intent.category === "explicit_content_edit") {
+    const content = planExplicitContentEdits({
+      project: input.project,
+      request,
+    });
+    if (content.operations.length > 0) {
+      return {
+        operations: content.operations,
+        explanation: content.explanation,
+      };
+    }
   }
 
-  if (reasoning.shouldAct) {
-    const goalOps = operationsFromDesignReasoning(reasoning, input.project);
-    if (goalOps.length > 0) {
+  // 2) Mixed — explicit content first, then design / goal improvements.
+  if (intent.category === "mixed") {
+    const content = planExplicitContentEdits({
+      project: input.project,
+      request,
+    });
+    const direct = planDirectEditOperations(input);
+    const designOps = direct.operations.filter(
+      (op) =>
+        op.operation !== "insertSection" ||
+        (op.type !== "faq" && !/\banswer\b/i.test(request)),
+    );
+
+    let goalOps: EditOperation[] = [];
+    let reasoning: DesignReasoningResult | undefined;
+    if (!shouldSkipBusinessReasoning(intent) || intent.signals.hasBusinessGoal) {
+      reasoning = reasonAboutDesign({
+        request,
+        project: input.project,
+        history: input.history,
+      });
+      if (reasoning.shouldAct) {
+        goalOps = operationsFromDesignReasoning(reasoning, input.project);
+      }
+    }
+
+    const operations = [
+      ...content.operations,
+      ...designOps,
+      ...goalOps.filter(
+        (op) =>
+          !content.operations.some(
+            (c) => JSON.stringify(c) === JSON.stringify(op),
+          ),
+      ),
+    ];
+
+    if (operations.length > 0) {
+      const parts = [
+        content.operations.length ? content.explanation : null,
+        designOps.length ? direct.explanation : null,
+        goalOps.length && reasoning
+          ? `Also improved toward “${reasoning.inferredGoal}”.`
+          : null,
+      ].filter(Boolean);
       return {
-        operations: goalOps,
-        explanation: `I focused on “${reasoning.inferredGoal}”: ${reasoning.designStrategy}`,
+        operations,
+        explanation: parts.join(" ") || "Applied your mixed request.",
         reasoning,
       };
     }
   }
 
-  if (reasoning.followUpQuestion) {
+  // 3) Explicit design commands.
+  const direct = planDirectEditOperations(input);
+  if (
+    intent.category === "explicit_design_edit" &&
+    direct.operations.length > 0
+  ) {
+    return { ...direct };
+  }
+
+  // Prefer direct design keywords even for unknown when they clearly match.
+  if (direct.operations.length > 0 && intent.category !== "business_goal") {
+    return { ...direct };
+  }
+
+  // 4) Business goals — only when not an explicit content/design override.
+  if (
+    !shouldSkipBusinessReasoning(intent) ||
+    intent.category === "business_goal" ||
+    intent.category === "unknown"
+  ) {
+    const reasoning = reasonAboutDesign({
+      request,
+      project: input.project,
+      history: input.history,
+    });
+
+    if (
+      intent.category !== "explicit_content_edit" &&
+      intent.category !== "question" &&
+      intent.category !== "clarification"
+    ) {
+      if (direct.operations.length > 0) {
+        return { ...direct, reasoning };
+      }
+
+      if (reasoning.shouldAct) {
+        const goalOps = operationsFromDesignReasoning(reasoning, input.project);
+        if (goalOps.length > 0) {
+          return {
+            operations: goalOps,
+            explanation: `I focused on “${reasoning.inferredGoal}”: ${reasoning.designStrategy}`,
+            reasoning,
+          };
+        }
+      }
+
+      if (reasoning.followUpQuestion) {
+        return {
+          operations: [],
+          explanation: reasoning.followUpQuestion,
+          reasoning,
+          needsClarification: true,
+        };
+      }
+    }
+
     return {
       operations: [],
-      explanation: reasoning.followUpQuestion,
+      explanation: direct.explanation,
       reasoning,
+      needsClarification: reasoning.goal === "unknown",
+    };
+  }
+
+  // 5–6) Clarifications / questions / leftovers
+  if (intent.category === "question" || intent.category === "clarification") {
+    return {
+      operations: [],
+      explanation:
+        intent.category === "clarification"
+          ? "Got it — tell me exactly which text or section to change."
+          : "Happy to help — what would you like me to change on the site?",
       needsClarification: true,
     };
   }
@@ -154,8 +271,7 @@ export function planEditOperations(input: {
   return {
     operations: [],
     explanation: direct.explanation,
-    reasoning,
-    needsClarification: reasoning.goal === "unknown",
+    needsClarification: true,
   };
 }
 
@@ -204,11 +320,17 @@ export function planDirectEditOperations(input: {
     );
   }
 
-  if (/testimonial/.test(text)) {
+  if (/testimonial/.test(text) && /\b(add|include|insert|create)\b/.test(text)) {
     operations.push({ operation: "insertSection", type: "testimonials" });
     notes.push("Added a testimonials section");
   }
-  if (/\bfaq\b|frequently asked/.test(text)) {
+  // Only insert FAQ when explicitly adding — never on "update the answer…"
+  if (
+    (/\bfaq\b|frequently asked/.test(text) ||
+      (/\banswer\b/.test(text) && /\bquestion\b/.test(text))) &&
+    /\b(add|include|insert|create)\b/.test(text) &&
+    !/\b(update|change|replace|rewrite|edit|correct|fix)\b/.test(text)
+  ) {
     operations.push({ operation: "insertSection", type: "faq" });
     notes.push("Added an FAQ section");
   }

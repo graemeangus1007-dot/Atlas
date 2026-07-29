@@ -73,6 +73,10 @@ export const EDIT_OPERATION_KINDS = [
   "rewriteServices",
   "shortenNavigation",
   "replaceColors",
+  "updateFaqAnswer",
+  "updateFaqQuestion",
+  "insertFaq",
+  "deleteFaq",
 ] as const;
 
 export type EditOperationKind = (typeof EDIT_OPERATION_KINDS)[number];
@@ -153,6 +157,33 @@ export type ReplaceColorsOperation = {
   to: string;
 };
 
+export type UpdateFaqAnswerOperation = {
+  operation: "updateFaqAnswer";
+  /** Prefer matchQuestion when the index may shift. */
+  index?: number;
+  matchQuestion?: string;
+  answer: string;
+};
+
+export type UpdateFaqQuestionOperation = {
+  operation: "updateFaqQuestion";
+  index?: number;
+  matchQuestion?: string;
+  question: string;
+};
+
+export type InsertFaqOperation = {
+  operation: "insertFaq";
+  /** Optional items; defaults are used when omitted. */
+  items?: GeneratedFaqItem[];
+};
+
+export type DeleteFaqOperation = {
+  operation: "deleteFaq";
+  index?: number;
+  matchQuestion?: string;
+};
+
 export type EditOperation =
   | ReplaceTextOperation
   | ChangeThemeOperation
@@ -165,7 +196,11 @@ export type EditOperation =
   | UpdateSeoOperation
   | RewriteServicesOperation
   | ShortenNavigationOperation
-  | ReplaceColorsOperation;
+  | ReplaceColorsOperation
+  | UpdateFaqAnswerOperation
+  | UpdateFaqQuestionOperation
+  | InsertFaqOperation
+  | DeleteFaqOperation;
 
 /** Human-readable bullet for the post-edit preview list. */
 export type EditChangeSummary = {

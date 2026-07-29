@@ -17,6 +17,7 @@ import {
   createDefaultFaqItems,
   createDefaultTestimonials,
 } from "@/lib/ai/design-sections-canonical";
+import { findFaqIndexByQuestion } from "@/lib/ai/content-edit-planner";
 import { defaultProjectSeo } from "@/lib/seo/defaults";
 
 const BLUE_TOKENS = ["blue", "#2563eb", "#3b82f6", "#1d4ed8", "#60a5fa", "#1e40af"];
@@ -219,6 +220,14 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
       return { id, label: "Navigation shortened", ok: true };
     case "replaceColors":
       return { id, label: "Colors updated", ok: true };
+    case "updateFaqAnswer":
+      return { id, label: "FAQ answer updated", ok: true };
+    case "updateFaqQuestion":
+      return { id, label: "FAQ question updated", ok: true };
+    case "insertFaq":
+      return { id, label: "FAQ added", ok: true };
+    case "deleteFaq":
+      return { id, label: "FAQ item removed", ok: true };
     default: {
       const _exhaustive: never = op;
       return _exhaustive;
@@ -375,6 +384,97 @@ export function applyEditOperations(
           patch.accentColor = op.to;
         }
         next = { ...next, ...patch };
+        break;
+      }
+      case "insertFaq": {
+        const design = ensureDesignSections(next);
+        if (!design.enabled.includes("faq")) {
+          design.enabled = [...design.enabled, "faq"];
+        }
+        design.faq =
+          op.items && op.items.length > 0
+            ? op.items.map((item) => ({ ...item }))
+            : createDefaultFaqItems(next.businessName);
+        next = { ...next, designSections: design };
+        break;
+      }
+      case "updateFaqAnswer": {
+        const design = ensureDesignSections(next);
+        if (!design.enabled.includes("faq")) {
+          design.enabled = [...design.enabled, "faq"];
+        }
+        if (!design.faq?.length) {
+          design.faq = createDefaultFaqItems(next.businessName);
+        }
+        const faqs = [...(design.faq ?? [])];
+        let idx =
+          op.matchQuestion != null
+            ? findFaqIndexByQuestion(
+                { ...next, designSections: { ...design, faq: faqs } },
+                op.matchQuestion,
+              )
+            : -1;
+        if (idx < 0 && op.index !== undefined) idx = op.index;
+        if (idx < 0 || idx >= faqs.length) {
+          // Append when the referenced question is missing after seed.
+          faqs.push({
+            question: op.matchQuestion?.trim() || "Question",
+            answer: op.answer,
+          });
+        } else {
+          faqs[idx] = { ...faqs[idx]!, answer: op.answer };
+        }
+        design.faq = faqs;
+        next = { ...next, designSections: design };
+        break;
+      }
+      case "updateFaqQuestion": {
+        const design = ensureDesignSections(next);
+        if (!design.enabled.includes("faq")) {
+          design.enabled = [...design.enabled, "faq"];
+        }
+        if (!design.faq?.length) {
+          design.faq = createDefaultFaqItems(next.businessName);
+        }
+        const faqs = [...(design.faq ?? [])];
+        let idx =
+          op.matchQuestion != null
+            ? findFaqIndexByQuestion(
+                { ...next, designSections: { ...design, faq: faqs } },
+                op.matchQuestion,
+              )
+            : -1;
+        if (idx < 0 && op.index !== undefined) idx = op.index;
+        if (idx >= 0 && idx < faqs.length) {
+          faqs[idx] = { ...faqs[idx]!, question: op.question };
+          design.faq = faqs;
+          next = { ...next, designSections: design };
+        }
+        break;
+      }
+      case "deleteFaq": {
+        const design = ensureDesignSections(next);
+        const faqs = [...(design.faq ?? [])];
+        let idx =
+          op.matchQuestion != null
+            ? findFaqIndexByQuestion(
+                { ...next, designSections: { ...design, faq: faqs } },
+                op.matchQuestion,
+              )
+            : -1;
+        if (idx < 0 && op.index !== undefined) idx = op.index;
+        if (idx >= 0 && idx < faqs.length) {
+          faqs.splice(idx, 1);
+          design.faq = faqs;
+          if (faqs.length === 0) {
+            design.enabled = design.enabled.filter((id) => id !== "faq");
+            delete design.faq;
+          }
+          next = {
+            ...next,
+            designSections: design.enabled.length ? design : undefined,
+          };
+        }
         break;
       }
       default: {
