@@ -1,9 +1,27 @@
 /**
- * Atlas Brain — orchestration layer (Sprint 26.0A).
+ * Atlas Brain — orchestration layer (Sprint 26.0A / 26.1).
  * Every conversation turn flows through Brain before specialists run.
  * Users only ever talk to “Atlas”.
  */
 
+import {
+  clearPendingClarification,
+  clearRecommendations,
+  detectActionConfirmation,
+  getActionMemory,
+  hasActiveRecommendations,
+  hasPendingClarification,
+  matchClarificationAnswer,
+  selectRecommendationsToApply,
+  shouldExecuteActionMemory,
+  storePendingClarification,
+  storeRecommendations,
+  toAdvisorRecommendations,
+  toCreativeRecommendations,
+  withActionMemory,
+  type AtlasActionMemory,
+  type ClarificationDestination,
+} from "@/lib/ai/atlas-action-memory";
 import {
   formatMemoryContext,
   updateAtlasMemory,
@@ -17,6 +35,7 @@ import type {
   AtlasExecutionPlan,
   AtlasProjectMemory,
 } from "@/lib/ai/atlas-brain-types";
+import { ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
 import { reviewBusinessProject } from "@/lib/ai/business-advisor";
 import {
   applyAllCreativeRecommendations,
@@ -76,6 +95,274 @@ function withMemory(
 ): BusinessProject {
   const atlasMemory = updateAtlasMemory(project, request, patch);
   return { ...project, atlasMemory };
+}
+
+function confirmDecision(
+  goal: string,
+  explanation: string,
+): AtlasBrainDecision {
+  return {
+    intent: "recommend",
+    confidence: 0.99,
+    selectedAgents: ["creative_director"],
+    needsClarification: false,
+    executionPlan: {
+      goal,
+      steps: [
+        {
+          id: "action.apply",
+          agent: "creative_director",
+          label: "Apply the pending improvements",
+        },
+      ],
+      estimatedImpact: "high",
+    },
+    explanation,
+    followUpSuggestions: [
+      "Add matching images",
+      "Improve SEO",
+      "Add subtle animations",
+    ],
+  };
+}
+
+function applyActionMemoryRecommendations(input: {
+  project: BusinessProject;
+  memory: AtlasActionMemory;
+  request: string;
+  destination?: ClarificationDestination | null;
+}): AtlasBrainResult {
+  const confirmation = detectActionConfirmation(input.request);
+  const selected = selectRecommendationsToApply(
+    input.memory,
+    confirmation,
+    input.destination,
+  );
+
+  if (selected.length === 0) {
+    const project = withActionMemory(
+      withMemory(input.project, input.request),
+      clearRecommendations(clearPendingClarification(input.memory)),
+    );
+    return {
+      ok: true,
+      explanation:
+        "I don’t have applyable improvements queued right now. Ask me to review the site and I’ll share a fresh plan.",
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: confirmDecision("Continue", "No pending improvements to apply."),
+      followUpSuggestions: [
+        "Review my website",
+        "Complete my website",
+        "Make it feel more polished",
+      ],
+      atlasMemory: project.atlasMemory,
+    };
+  }
+
+  let project = input.project;
+  const changes: EditChangeSummary[] = [];
+  const operations: Array<EditOperation | ImageOperation> = [];
+  const appliedTitles: string[] = [];
+
+  const creative = toCreativeRecommendations(selected);
+  if (creative.length > 0) {
+    const batch = applyAllCreativeRecommendations({
+      project,
+      recommendations: creative,
+    });
+    if (batch.ok && batch.status === "applied") {
+      project = batch.project;
+      changes.push(...batch.changes);
+      appliedTitles.push(...creative.map((r) => r.title));
+      for (const rec of creative) {
+        operations.push(...rec.operations);
+      }
+    }
+  }
+
+  const advisor = toAdvisorRecommendations(selected);
+  for (const rec of advisor) {
+    const applied = applyAdvisorRecommendation({ project, recommendation: rec });
+    if (applied.ok && applied.status === "applied") {
+      project = applied.project;
+      changes.push(...applied.changes);
+      appliedTitles.push(rec.title);
+      operations.push(...rec.operations);
+    }
+  }
+
+  const nextMemory: AtlasActionMemory = {
+    ...clearRecommendations(clearPendingClarification(input.memory)),
+    lastRecommendationSelected: selected[0]?.id ?? null,
+    updatedAt: new Date().toISOString(),
+  };
+  project = withActionMemory(withMemory(project, input.request), nextMemory);
+
+  const applied = appliedTitles.length > 0;
+  const explanation = applied
+    ? [
+        `Done — I applied ${appliedTitles.length} improvement${appliedTitles.length === 1 ? "" : "s"} from the plan:`,
+        ...appliedTitles.slice(0, 6).map((title) => `• ${title}`),
+      ].join("\n")
+    : "Those improvements were already in place, so there was nothing new to apply.";
+
+  return {
+    ok: true,
+    explanation,
+    operations: applied ? operations : [],
+    changes: applied ? changes : [],
+    project,
+    applyStatus: applied ? "applied" : "no_changes",
+    decision: confirmDecision(
+      "Apply pending improvements",
+      "Executing the active recommendation set.",
+    ),
+    followUpSuggestions: [
+      "Add matching images",
+      "Improve SEO",
+      "Add subtle animations",
+    ],
+    executionPlan: input.memory.executionPlan,
+    atlasMemory: project.atlasMemory,
+  };
+}
+
+/**
+ * Sprint 26.1 — resolve pending clarification or Apply All without re-routing.
+ */
+function tryContinueActionMemory(input: {
+  project: BusinessProject;
+  request: string;
+}): AtlasBrainResult | null {
+  const memory = getActionMemory(input.project);
+  if (!shouldExecuteActionMemory(input.request, memory)) {
+    return null;
+  }
+
+  // Clarification must resolve once — never re-ask.
+  if (hasPendingClarification(memory) && memory.pendingClarification) {
+    const matched = matchClarificationAnswer(
+      input.request,
+      memory.pendingClarification,
+    );
+    const confirmation = detectActionConfirmation(input.request);
+
+    if (matched?.destination === "other") {
+      const cleared = withActionMemory(
+        withMemory(input.project, input.request),
+        clearPendingClarification(memory),
+      );
+      return {
+        ok: true,
+        explanation:
+          "Got it — tell me what you’d like to change and I’ll take it from there.",
+        operations: [],
+        changes: [],
+        project: cleared,
+        applyStatus: "needs_clarification",
+        decision: {
+          intent: "clarification",
+          confidence: 0.7,
+          selectedAgents: ["intent_router"],
+          needsClarification: false,
+          executionPlan: {
+            goal: "Await a specific request",
+            steps: [],
+            estimatedImpact: "low",
+          },
+          explanation: "Awaiting a specific request.",
+          followUpSuggestions: [
+            "Make it feel more luxurious",
+            "Strengthen the call-to-action",
+            "Review my website",
+          ],
+        },
+        followUpSuggestions: [
+          "Make it feel more luxurious",
+          "Strengthen the call-to-action",
+          "Review my website",
+        ],
+        atlasMemory: cleared.atlasMemory,
+      };
+    }
+
+    if (
+      matched ||
+      (hasActiveRecommendations(memory) && confirmation.kind !== "none")
+    ) {
+      if (hasActiveRecommendations(memory)) {
+        return applyActionMemoryRecommendations({
+          project: input.project,
+          memory,
+          request: input.request,
+          destination: matched?.destination ?? null,
+        });
+      }
+
+      // Clarification answered with no queued recommendations → continue with intent.
+      const clearedProject = withActionMemory(
+        withMemory(input.project, input.request),
+        clearPendingClarification(memory),
+      );
+      const mapped =
+        matched?.destination === "visuals"
+          ? "Make the website feel more polished visually"
+          : matched?.destination === "copy"
+            ? "Improve the website copy and headlines"
+            : matched?.destination === "conversions"
+              ? "I want more leads and stronger conversions"
+              : null;
+      if (mapped) {
+        return runAtlasBrain({
+          project: clearedProject,
+          request: mapped,
+          history: [],
+        });
+      }
+    }
+
+    // Ambiguous reply while clarification is pending — still do not re-ask.
+    // Treat as best-effort kind filter / apply all if recs exist.
+    if (hasActiveRecommendations(memory)) {
+      return applyActionMemoryRecommendations({
+        project: input.project,
+        memory,
+        request: input.request,
+        destination: null,
+      });
+    }
+
+    const cleared = withActionMemory(
+      withMemory(input.project, input.request),
+      clearPendingClarification(memory),
+    );
+    return {
+      ok: true,
+      explanation:
+        "Understood. What would you like me to change on the site?",
+      operations: [],
+      changes: [],
+      project: cleared,
+      applyStatus: "no_changes",
+      decision: confirmDecision("Continue", "Clarification cleared."),
+      followUpSuggestions: [...ATLAS_BRAIN_CLARIFICATION_OPTIONS],
+      atlasMemory: cleared.atlasMemory,
+    };
+  }
+
+  // Active recommendations + confirmation → execute (skip routing).
+  if (hasActiveRecommendations(memory)) {
+    return applyActionMemoryRecommendations({
+      project: input.project,
+      memory,
+      request: input.request,
+    });
+  }
+
+  return null;
 }
 
 function appendExplanation(base: string, extra: string): string {
@@ -182,6 +469,15 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
       )
     : [];
 
+  // Sprint 26.1 — Action Memory short-circuit (Apply All / Yes / clarification)
+  const continued = tryContinueActionMemory({
+    project: input.project,
+    request,
+  });
+  if (continued) {
+    return continued;
+  }
+
   const decision = decideAtlasBrain({
     request,
     project: input.project,
@@ -192,10 +488,19 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
   const planText = formatExecutionPlanForUser(decision.executionPlan);
 
   if (decision.needsClarification) {
-    const project = withMemory(
-      input.project,
-      request,
-      decision.memoryPatch,
+    const actionMemory = storePendingClarification(
+      getActionMemory(input.project),
+      {
+        question:
+          decision.clarificationQuestion ||
+          decision.explanation ||
+          "Did you mean one of these?",
+        allowedAnswers: [...ATLAS_BRAIN_CLARIFICATION_OPTIONS],
+      },
+    );
+    const project = withActionMemory(
+      withMemory(input.project, request, decision.memoryPatch),
+      actionMemory,
     );
     return {
       ok: true,
@@ -233,9 +538,11 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
   if (decision.intent === "recommend") {
     const creative = reviewCreativeDirector({ project: input.project, limit: 5 });
     const advisor = reviewBusinessProject({ project: input.project, limit: 3 });
+    const creativeRecs = creative.recommendedImprovements.slice(0, 5);
+    const advisorRecs = advisor.recommendations.slice(0, 3);
     const bullets = [
-      ...creative.recommendedImprovements.slice(0, 3).map((r) => `• ${r.title}`),
-      ...advisor.recommendations.slice(0, 2).map((r) => `• ${r.title}`),
+      ...creativeRecs.slice(0, 3).map((r) => `• ${r.title}`),
+      ...advisorRecs.slice(0, 2).map((r) => `• ${r.title}`),
     ];
     const explanation = [
       "I reviewed your website.",
@@ -245,11 +552,27 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
       "",
       "Highest-impact opportunities:",
       ...bullets,
+      "",
+      "Say Apply All when you’re ready and I’ll make these changes.",
     ]
       .filter(Boolean)
       .join("\n");
 
-    const project = withMemory(input.project, request, decision.memoryPatch);
+    const actionMemory = storeRecommendations(getActionMemory(input.project), {
+      creative: creativeRecs,
+      advisor: advisorRecs,
+      creativeReport: {
+        overallCompleteness: creative.overallCompleteness,
+        maturityLevel: creative.maturityLevel,
+        fingerprint: creative.fingerprint,
+        reviewedAt: creative.reviewedAt,
+      },
+      executionPlan: decision.executionPlan,
+    });
+    const project = withActionMemory(
+      withMemory(input.project, request, decision.memoryPatch),
+      actionMemory,
+    );
     return {
       ok: true,
       explanation,
@@ -258,7 +581,11 @@ export function runAtlasBrain(input: EditorAgentInput): AtlasBrainResult {
       project,
       applyStatus: "no_changes",
       decision,
-      followUpSuggestions: decision.followUpSuggestions,
+      followUpSuggestions: [
+        "Apply All",
+        ...decision.followUpSuggestions.filter((s) => s !== "Apply the top improvement"),
+        "Apply the top improvement",
+      ].slice(0, 4),
       executionPlan: decision.executionPlan,
       atlasMemory: project.atlasMemory,
     };

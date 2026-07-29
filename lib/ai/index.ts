@@ -380,6 +380,27 @@ export type {
 export { ATLAS_AGENT_IDS, ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
 export type { AtlasBrainResult } from "@/lib/ai/atlas-brain";
 export {
+  detectActionConfirmation,
+  shouldExecuteActionMemory,
+  storeRecommendations,
+  storePendingClarification,
+  clearPendingClarification,
+  clearRecommendations,
+  matchClarificationAnswer,
+  hasActiveRecommendations,
+  hasPendingClarification,
+  getActionMemory,
+  selectRecommendationsToApply,
+  APPLY_ALL_PHRASES,
+} from "@/lib/ai/atlas-action-memory";
+export type {
+  AtlasActionMemory,
+  AtlasStoredRecommendation,
+  AtlasPendingClarification,
+  ActionConfirmation,
+  ClarificationDestination,
+} from "@/lib/ai/atlas-action-memory";
+export {
   resolveDesignSystem,
   designSystemToOperations,
   designSystemInputFromProject,

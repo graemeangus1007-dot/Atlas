@@ -169,6 +169,44 @@ export type BusinessProject = {
     selectedAt: string;
   };
   /**
+   * Atlas Brain Action Memory (Sprint 26.1).
+   * Active recommendations, pending clarification, Apply All continuity.
+   */
+  atlasActionMemory?: {
+    recommendations?: Array<{
+      id: string;
+      source: "creative_director" | "business_advisor";
+      title: string;
+      kind: string;
+      applyable: boolean;
+      operations: unknown[];
+      explanation?: string;
+    }>;
+    recommendationIds?: string[];
+    source?: "creative_director" | "business_advisor" | "mixed";
+    creativeReport?: {
+      overallCompleteness: number;
+      maturityLevel: string;
+      fingerprint: string;
+      reviewedAt: string;
+    };
+    executionPlan?: {
+      goal: string;
+      steps: Array<{ id: string; agent: string; label: string }>;
+      estimatedImpact: "high" | "medium" | "low";
+    };
+    applyAllPending?: boolean;
+    pendingClarification?: {
+      pendingQuestion: string;
+      allowedAnswers: string[];
+      destination: string;
+      answerDestinations?: Record<string, string>;
+      askedAt: string;
+    } | null;
+    lastRecommendationSelected?: string | null;
+    updatedAt: string;
+  };
+  /**
    * Design Assistant conversation + slim revision metadata (Sprint 22.0A).
    * Restored on refresh via autosave; full undo snapshots live in localStorage.
    */
