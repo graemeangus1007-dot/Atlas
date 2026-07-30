@@ -205,19 +205,70 @@ export function categorizeOpenAiFailure(error: unknown): CategorizedAiFailure {
     };
   }
 
+  // gpt-5.2 rejects temperature/top_p unless reasoning.effort is "none"
   if (
-    /invalid_json_schema|unsupported.*schema|json schema|schema.*invalid|additionalproperties|strict.*schema/i.test(
+    /unsupported parameter|not supported with this model|unknown parameter|invalid_request_error/i.test(
       lower,
-    )
+    ) &&
+    /temperature|top_p|reasoning|logprobs/i.test(lower)
   ) {
     return {
-      category: "schema",
-      message: "OpenAI rejected the structured-output schema.",
+      category: "model",
+      message:
+        "OpenAI rejected request parameters for this model (e.g. temperature with reasoning).",
       status: status ?? 400,
       openaiRequestId,
       code: code ?? "bad_request",
       retryable: false,
     };
+  }
+
+  if (
+    /invalid_json_schema|invalid schema|unsupported.*schema|json[_ ]schema|schema.*invalid|schema.*(reject|fail)|additionalproperties|strict.*schema|text\.format|response_format/i.test(
+      lower,
+    )
+  ) {
+    return {
+      category: "schema",
+      message: "The configured schema was rejected by the Responses API.",
+      status: status ?? 400,
+      openaiRequestId,
+      code: code ?? "bad_request",
+      retryable: false,
+    };
+  }
+
+  if (/unsupported parameter|not supported with this model/i.test(lower)) {
+    return {
+      category: "model",
+      message: "OpenAI rejected a request parameter for the configured model.",
+      status: status ?? 400,
+      openaiRequestId,
+      code: code ?? "bad_request",
+      retryable: false,
+    };
+  }
+
+  // Prefer explicit category stamped on AiError by the pipeline.
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "category" in error &&
+    typeof (error as { category: unknown }).category === "string"
+  ) {
+    const stamped = (error as { category: string }).category;
+    if (
+      (OPENAI_FAILURE_CATEGORIES as readonly string[]).includes(stamped)
+    ) {
+      return {
+        category: stamped as OpenAiFailureCategory,
+        message,
+        status,
+        openaiRequestId,
+        code,
+        retryable: isRetryableOpenAiCategory(stamped as OpenAiFailureCategory),
+      };
+    }
   }
 
   if (/refusal|refused to|content.?policy|safety/i.test(lower)) {
@@ -276,37 +327,55 @@ export function isRetryableOpenAiCategory(
 }
 
 /**
- * Concise user-facing fallback copy. Owner/admin variants avoid exposing key management to customers.
+ * Concise user-facing fallback copy — always names the real failure class.
+ * Never claim “OpenAI unavailable” for validation / schema / incomplete / model-param errors.
  */
 export function formatFallbackUserMessage(input: {
   category: OpenAiFailureCategory;
   requestId?: string | null;
   audience?: "customer" | "owner";
+  failingStage?: string | null;
 }): string {
   const id = input.requestId ? ` (request ${input.requestId})` : "";
   const audience = input.audience ?? "customer";
 
-  if (audience === "owner" && (input.category === "authentication" || input.category === "model" || input.category === "quota" || input.category === "provider_unavailable")) {
+  if (
+    audience === "owner" &&
+    (input.category === "authentication" ||
+      input.category === "quota" ||
+      input.category === "provider_unavailable")
+  ) {
     return `Atlas could not access the configured OpenAI model${id}. Check the AI runtime settings. Showing a labeled local review instead.`;
   }
 
   switch (input.category) {
+    case "validation":
+      return `AI critique failed because the structured response did not satisfy Atlas validation${id}. Showing a labeled local review instead.`;
+    case "schema":
+      return `The configured schema was rejected by the Responses API${id}. Showing a labeled local review instead.`;
+    case "incomplete":
+      return `OpenAI returned an incomplete response${id}. Showing a labeled local review instead.`;
+    case "refusal":
+      return `OpenAI refused to generate a critique for this request${id}. Showing a labeled local review instead.`;
     case "timeout":
+      return `The AI critique timed out before OpenAI finished${id}. Showing a labeled local review instead.`;
     case "rate_limit":
-    case "unknown":
-    case "provider_unavailable":
-      return `OpenAI is temporarily unavailable${id}, so I used Atlas’s local review.`;
+      return `OpenAI rate-limited the critique request${id}. Showing a labeled local review instead.`;
+    case "model":
+      return audience === "owner"
+        ? `Atlas could not use the configured OpenAI model parameters${id}. Check the AI runtime settings. Showing a labeled local review instead.`
+        : `AI critique failed due to a model configuration issue${id}. Showing a labeled local review instead.`;
     case "authentication":
     case "quota":
-    case "model":
-      return `I couldn’t reach the AI design critic just now${id}. Showing a labeled local review instead.`;
-    case "schema":
-    case "validation":
-    case "incomplete":
-    case "refusal":
-      return `The AI critique couldn’t be completed safely${id}. Showing a labeled local review instead.`;
+      return `Atlas could not authorize the OpenAI critique request${id}. Showing a labeled local review instead.`;
+    case "provider_unavailable":
+      return `OpenAI is not available in this environment${id}. Showing a labeled local review instead.`;
+    case "unknown":
+      return input.failingStage === "critique_to_operations"
+        ? `AI critique completed, but critique-to-operations failed${id}. Showing a labeled local review instead.`
+        : `AI critique failed at ${input.failingStage ?? "an unknown stage"}${id}. Showing a labeled local review instead.`;
     default:
-      return `I couldn’t complete a full AI critique just now${id}. Showing a labeled local review instead.`;
+      return `AI critique failed${id}. Showing a labeled local review instead.`;
   }
 }
 

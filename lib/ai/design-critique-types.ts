@@ -221,6 +221,15 @@ export type DesignCritiqueDiagnostics = {
   usedFallback: boolean;
   fallbackLabeled: boolean;
   fallbackReason?: CritiqueFallbackReason | null;
+  /** Pipeline stage that failed (when usedFallback or hard failure). */
+  failingStage?: string | null;
+  failingFunction?: string | null;
+  httpStatus?: number | null;
+  responseStatus?: string | null;
+  structuredParseOk?: boolean | null;
+  schemaValidationOk?: boolean | null;
+  secondaryValidationOk?: boolean | null;
+  critiqueToOperationsOk?: boolean | null;
 };
 
 export type DesignCritiqueInput = {

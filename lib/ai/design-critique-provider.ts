@@ -56,6 +56,19 @@ export type DesignCritiqueProviderOptions = {
   atlasRequestId?: string | null;
 };
 
+/** True for GPT-5 family models with reasoning-parameter constraints. */
+export function modelUsesGpt5ReasoningConstraints(model: string): boolean {
+  return /\bgpt-5\b/i.test(model.trim());
+}
+
+/**
+ * Build Responses API params for design critique.
+ *
+ * GPT-5.2 rejects `temperature` unless `reasoning.effort` is `"none"`.
+ * Critique uses effort "none" + modest temperature so structured JSON stays
+ * fast and compatible (probe-sized calls were succeeding while critique timed
+ * out or 400'd on unsupported sampling params).
+ */
 export function buildOpenAiDesignCritiqueParams(input: {
   model: string;
   temperature: number;
@@ -64,9 +77,13 @@ export function buildOpenAiDesignCritiqueParams(input: {
   mode: DesignCritiqueMode;
   context: DesignCritiqueContext;
 }): OpenAI.Responses.ResponseCreateParamsNonStreaming {
-  return {
+  const system = [
+    buildDesignCritiqueSystemPrompt(),
+    buildDesignCritiqueDeveloperPrompt(input.mode),
+  ].join("\n\n");
+
+  const params: OpenAI.Responses.ResponseCreateParamsNonStreaming = {
     model: input.model,
-    temperature: input.temperature,
     max_output_tokens: input.maxOutputTokens,
     store: false,
     text: {
@@ -77,12 +94,9 @@ export function buildOpenAiDesignCritiqueParams(input: {
         schema: toOpenAiStrictSchema(DESIGN_CRITIQUE_JSON_SCHEMA),
       },
     },
+    // Fold developer rules into system — avoids role compatibility surprises.
     input: [
-      { role: "system", content: buildDesignCritiqueSystemPrompt() },
-      {
-        role: "developer",
-        content: buildDesignCritiqueDeveloperPrompt(input.mode),
-      },
+      { role: "system", content: system },
       {
         role: "user",
         content: buildDesignCritiqueUserPrompt({
@@ -93,6 +107,18 @@ export function buildOpenAiDesignCritiqueParams(input: {
       },
     ],
   };
+
+  if (modelUsesGpt5ReasoningConstraints(input.model)) {
+    // Required for temperature support on gpt-5.2; also keeps latency down.
+    (params as { reasoning?: { effort: string } }).reasoning = {
+      effort: "none",
+    };
+    params.temperature = input.temperature;
+  } else {
+    params.temperature = input.temperature;
+  }
+
+  return params;
 }
 
 export type OpenAiDesignCritiqueCallResult = {
@@ -106,6 +132,8 @@ export type OpenAiDesignCritiqueCallResult = {
   completionTokens: number | null;
   totalTokens: number | null;
   responseStatus: string | null;
+  httpStatus: number | null;
+  structuredParseOk: boolean;
 };
 
 function extractResponseUsage(response: OpenAI.Responses.Response): {
@@ -146,8 +174,9 @@ export async function runOpenAiDesignCritique(
     model: options.model?.trim() || undefined,
     temperature: options.temperature ?? 0.35,
     maxOutputTokens: options.maxOutputTokens ?? 3500,
-    timeoutMs: options.timeoutMs,
-    maxRetries: options.maxRetries,
+    // Critique prompts + structured JSON routinely exceed the 45s draft default.
+    timeoutMs: options.timeoutMs ?? 90_000,
+    maxRetries: options.maxRetries ?? 1,
     retryBaseDelayMs: options.retryBaseDelayMs,
   });
 
@@ -194,7 +223,11 @@ export async function runOpenAiDesignCritique(
         } catch (error) {
           openaiRequestId = extractOpenAiRequestId(error) ?? openaiRequestId;
           const categorized = categorizeOpenAiFailure(error);
-          throw new AiError(
+          const original =
+            error instanceof Error && error.message
+              ? error.message.slice(0, 240)
+              : categorized.message;
+          const wrapped = new AiError(
             categorized.code === "unauthorized" ||
               categorized.code === "forbidden" ||
               categorized.code === "bad_request" ||
@@ -204,9 +237,28 @@ export async function runOpenAiDesignCritique(
               categorized.code === "invalid_response"
               ? categorized.code
               : "provider_error",
-            categorized.message,
+            // Prefer the OpenAI error text for model/schema diagnosis.
+            categorized.category === "model" ||
+              categorized.category === "schema" ||
+              categorized.category === "unknown"
+              ? original
+              : categorized.message,
             { status: categorized.status ?? undefined, cause: error },
           );
+          (
+            wrapped as AiError & {
+              category?: string;
+              openaiRequestId?: string | null;
+              failingFunction?: string;
+            }
+          ).category = categorized.category;
+          (
+            wrapped as AiError & { openaiRequestId?: string | null }
+          ).openaiRequestId = openaiRequestId;
+          (
+            wrapped as AiError & { failingFunction?: string }
+          ).failingFunction = "client.responses.create";
+          throw wrapped;
         } finally {
           clearTimeout(timer);
         }
@@ -229,12 +281,11 @@ export async function runOpenAiDesignCritique(
     usage = extractResponseUsage(response);
 
     const extracted = extractStructuredJsonFromResponse(response);
-    if (extracted.status === "incomplete" && extracted.json) {
-      // Prefer incomplete-with-json over hard fail only when JSON is usable;
-      // still treat as incomplete so callers can categorize correctly.
+    // Prefer usable JSON even when status is incomplete — secondary validation decides.
+    if (extracted.json == null) {
       throw errorFromStructuredExtraction(extracted);
     }
-    if (extracted.status !== "completed" || extracted.json == null) {
+    if (extracted.status === "refusal" || extracted.status === "failed") {
       throw errorFromStructuredExtraction(extracted);
     }
 
@@ -258,14 +309,25 @@ export async function runOpenAiDesignCritique(
       model: config.model,
       latencyMs,
       responseStatus,
+      httpStatus: 200,
+      structuredParseOk: true,
       ...usage,
     };
   } catch (error) {
     const categorized = categorizeOpenAiFailure(error);
+    // Keep the original OpenAI message when categorization is generic.
+    const originalMessage =
+      error instanceof Error && error.message
+        ? error.message.slice(0, 240)
+        : categorized.message;
+    const message =
+      categorized.category === "unknown" || categorized.category === "model"
+        ? originalMessage || categorized.message
+        : categorized.message;
     const mapped =
       error instanceof AiError
         ? error
-        : new AiError("provider_error", categorized.message, {
+        : new AiError("provider_error", message, {
             status: categorized.status ?? undefined,
             cause: error,
           });
@@ -285,15 +347,20 @@ export async function runOpenAiDesignCritique(
       critiqueMode: input.mode,
       ...usage,
     });
-    // Preserve category on the error message prefix for runDesignCritique mapping.
-    const tagged = new AiError(mapped.code, mapped.message, {
-      status: mapped.status,
-      cause: error,
-    });
+    const tagged = new AiError(
+      mapped.code,
+      mapped.message || message,
+      {
+        status: mapped.status,
+        cause: error,
+      },
+    );
     (tagged as AiError & { category?: string; openaiRequestId?: string | null }).category =
       categorized.category;
     (tagged as AiError & { openaiRequestId?: string | null }).openaiRequestId =
       openaiRequestId;
+    (tagged as AiError & { failingFunction?: string }).failingFunction =
+      "runOpenAiDesignCritique";
     throw tagged;
   }
 }
@@ -302,9 +369,8 @@ export async function runOpenAiDesignCritique(
 export function buildOpenAiProbeParams(input: {
   model: string;
 }): OpenAI.Responses.ResponseCreateParamsNonStreaming {
-  return {
+  const params: OpenAI.Responses.ResponseCreateParamsNonStreaming = {
     model: input.model,
-    temperature: 0,
     max_output_tokens: 64,
     store: false,
     text: {
@@ -329,6 +395,15 @@ export function buildOpenAiProbeParams(input: {
       },
     ],
   };
+  if (modelUsesGpt5ReasoningConstraints(input.model)) {
+    (params as { reasoning?: { effort: string } }).reasoning = {
+      effort: "none",
+    };
+    params.temperature = 0;
+  } else {
+    params.temperature = 0;
+  }
+  return params;
 }
 
 export async function runOpenAiRuntimeProbe(

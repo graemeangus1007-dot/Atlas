@@ -16,6 +16,13 @@ import {
   type CritiqueFallbackReason,
 } from "@/lib/ai/openai-error-categories";
 import {
+  createCritiquePipelineTrace,
+  logCritiquePipelineTrace,
+  markCritiqueFailure,
+  recordCritiqueStage,
+  type CritiquePipelineTrace,
+} from "@/lib/ai/critique-pipeline-trace";
+import {
   critiqueToRecommendations,
   dedupeImprovements,
 } from "@/lib/ai/critique-to-operations";
@@ -477,6 +484,7 @@ export function formatDesignCritiqueExplanation(input: {
   usedFallback?: boolean;
   requestId?: string;
   fallbackReason?: CritiqueFallbackReason | null;
+  failingStage?: string | null;
   audience?: "customer" | "owner";
 }): string {
   const { critique, mode } = input;
@@ -497,6 +505,7 @@ export function formatDesignCritiqueExplanation(input: {
         category: input.fallbackReason ?? "unknown",
         requestId: input.requestId,
         audience: input.audience,
+        failingStage: input.failingStage,
       })}\n\n`
     : "";
 
@@ -530,6 +539,7 @@ async function callOpenAiCritique(input: {
   mode: DesignCritiqueMode;
   context: DesignCritiqueContext;
   atlasRequestId?: string | null;
+  trace?: CritiquePipelineTrace;
 }): Promise<{
   critique: DesignCritique;
   requestId: string;
@@ -540,22 +550,92 @@ async function callOpenAiCritique(input: {
   completionTokens: number | null;
   totalTokens: number | null;
   responseStatus: string | null;
+  httpStatus: number | null;
+  structuredParseOk: boolean;
   validationIssues: CritiqueValidationIssue[] | null;
 }> {
   const { runOpenAiDesignCritique } = await import(
     "@/lib/ai/design-critique-provider"
   );
-  const result = await runOpenAiDesignCritique(
-    {
-      request: input.request,
-      mode: input.mode,
-      context: input.context,
-    },
-    { atlasRequestId: input.atlasRequestId },
-  );
+  const trace = input.trace;
+  if (trace) recordCritiqueStage(trace, "openai_request", true);
+
+  let result: Awaited<ReturnType<typeof runOpenAiDesignCritique>>;
+  try {
+    result = await runOpenAiDesignCritique(
+      {
+        request: input.request,
+        mode: input.mode,
+        context: input.context,
+      },
+      { atlasRequestId: input.atlasRequestId },
+    );
+  } catch (error) {
+    if (trace) {
+      const categorized = categorizeOpenAiFailure(error);
+      const stage =
+        categorized.category === "schema"
+          ? "openai_http"
+          : categorized.category === "incomplete" ||
+              categorized.category === "refusal"
+            ? "response_status"
+            : categorized.category === "timeout"
+              ? "openai_request"
+              : "openai_http";
+      markCritiqueFailure(trace, {
+        stage,
+        fn:
+          (error as { failingFunction?: string })?.failingFunction ??
+          "runOpenAiDesignCritique",
+        error,
+        category: categorized.category,
+      });
+      trace.openaiRequestId =
+        categorized.openaiRequestId ??
+        (error as { openaiRequestId?: string | null })?.openaiRequestId ??
+        trace.openaiRequestId;
+      trace.httpStatus = categorized.status;
+    }
+    throw error;
+  }
+
+  if (trace) {
+    trace.openaiRequestId = result.openaiRequestId;
+    trace.model = result.model;
+    trace.httpStatus = result.httpStatus;
+    trace.responseStatus = result.responseStatus;
+    trace.structuredParseOk = result.structuredParseOk;
+    recordCritiqueStage(trace, "openai_http", true, `http=${result.httpStatus}`);
+    recordCritiqueStage(
+      trace,
+      "response_status",
+      true,
+      result.responseStatus,
+    );
+    recordCritiqueStage(
+      trace,
+      "structured_parse",
+      result.structuredParseOk,
+    );
+    // OpenAI accepted the wire schema if we got structured JSON back.
+    trace.schemaValidationOk = result.structuredParseOk;
+    recordCritiqueStage(trace, "schema_validate", result.structuredParseOk);
+  }
 
   const validated = validateDesignCritiqueWithIssues(result.raw);
   if (!validated.ok) {
+    if (trace) {
+      trace.secondaryValidationOk = false;
+      markCritiqueFailure(trace, {
+        stage: "secondary_validate",
+        fn: "validateDesignCritiqueWithIssues",
+        error: new AiError(
+          "invalid_response",
+          "OpenAI critique failed Atlas validation.",
+        ),
+        category: "validation",
+      });
+    }
     logAiCritique({
       provider: "openai",
       model: result.model,
@@ -574,18 +654,26 @@ async function callOpenAiCritique(input: {
     });
     const err = new AiError(
       "invalid_response",
-      "OpenAI critique failed schema validation.",
+      "OpenAI critique failed Atlas validation.",
     );
     (err as AiError & {
       category?: string;
       openaiRequestId?: string | null;
       validationIssues?: CritiqueValidationIssue[];
+      failingFunction?: string;
     }).category = "validation";
     (err as AiError & { openaiRequestId?: string | null }).openaiRequestId =
       result.openaiRequestId;
     (err as AiError & { validationIssues?: CritiqueValidationIssue[] }).validationIssues =
       validated.issues;
+    (err as AiError & { failingFunction?: string }).failingFunction =
+      "validateDesignCritiqueWithIssues";
     throw err;
+  }
+
+  if (trace) {
+    trace.secondaryValidationOk = true;
+    recordCritiqueStage(trace, "secondary_validate", true);
   }
 
   return {
@@ -598,6 +686,8 @@ async function callOpenAiCritique(input: {
     completionTokens: result.completionTokens,
     totalTokens: result.totalTokens,
     responseStatus: result.responseStatus,
+    httpStatus: result.httpStatus,
+    structuredParseOk: result.structuredParseOk,
     validationIssues: null,
   };
 }
@@ -623,23 +713,70 @@ export async function runDesignCritique(
     )
     .map((m) => ({ role: m.role, content: m.content }));
 
-  const context = buildDesignCritiqueContext(
-    input.project,
-    history,
-    input.viewportHint,
-  );
-
   const providerId = getAiProviderId();
+  let model = providerId === "openai" ? getOpenAiModel() : "mock-critique";
+  const trace = createCritiquePipelineTrace({
+    atlasRequestId: requestId,
+    provider: providerId,
+    model,
+  });
+  recordCritiqueStage(trace, "provider_select", true, providerId);
+
   let critique: DesignCritique;
   let usedFallback = false;
   let fallbackReason: CritiqueFallbackReason | null = null;
-  let model = providerId === "openai" ? getOpenAiModel() : "mock-critique";
   let latencyMs = 0;
   let promptTokens: number | null = null;
   let completionTokens: number | null = null;
   let totalTokens: number | null = null;
   let diagRequestId = requestId;
   let openaiRequestId: string | null = null;
+  let httpStatus: number | null = null;
+  let responseStatus: string | null = null;
+
+  let context: DesignCritiqueContext;
+  try {
+    context = buildDesignCritiqueContext(
+      input.project,
+      history,
+      input.viewportHint,
+    );
+    recordCritiqueStage(trace, "context_build", true);
+  } catch (error) {
+    markCritiqueFailure(trace, {
+      stage: "context_build",
+      fn: "buildDesignCritiqueContext",
+      error,
+      category: "unknown",
+    });
+    logCritiquePipelineTrace(trace);
+    const mapped =
+      error instanceof AiError
+        ? error
+        : new AiError(
+            "provider_error",
+            "Design critique failed while building context.",
+            { cause: error },
+          );
+    return {
+      ok: false,
+      code: mapped.code,
+      message: mapped.message,
+      diagnostics: {
+        provider: providerId,
+        model,
+        requestId,
+        openaiRequestId: null,
+        latencyMs: Date.now() - started,
+        critiqueMode: input.mode,
+        usedFallback: false,
+        fallbackLabeled: false,
+        fallbackReason: "unknown",
+        failingStage: trace.failingStage,
+        failingFunction: trace.failingFunction,
+      },
+    };
+  }
 
   try {
     if (input.critiqueFn) {
@@ -651,29 +788,54 @@ export async function runDesignCritique(
         }),
       );
       latencyMs = Date.now() - started;
+      trace.secondaryValidationOk = true;
+      recordCritiqueStage(trace, "secondary_validate", true, "critiqueFn");
     } else if (providerId === "openai") {
       try {
-        const openai = input.openAiCall
-          ? await input.openAiCall({
-              context,
-              request: input.request,
-              mode: input.mode,
-              atlasRequestId: requestId,
-            })
-          : await callOpenAiCritique({
-              request: input.request,
-              mode: input.mode,
-              context,
-              atlasRequestId: requestId,
-            });
-        critique = openai.critique;
-        diagRequestId = openai.requestId;
-        openaiRequestId = openai.openaiRequestId ?? null;
-        model = openai.model;
-        latencyMs = openai.latencyMs;
-        promptTokens = openai.promptTokens;
-        completionTokens = openai.completionTokens;
-        totalTokens = openai.totalTokens;
+        if (input.openAiCall) {
+          recordCritiqueStage(trace, "openai_request", true, "openAiCall");
+          const openai = await input.openAiCall({
+            context,
+            request: input.request,
+            mode: input.mode,
+            atlasRequestId: requestId,
+          });
+          critique = openai.critique;
+          diagRequestId = openai.requestId;
+          openaiRequestId = openai.openaiRequestId ?? null;
+          model = openai.model;
+          latencyMs = openai.latencyMs;
+          promptTokens = openai.promptTokens;
+          completionTokens = openai.completionTokens;
+          totalTokens = openai.totalTokens;
+          trace.openaiRequestId = openaiRequestId;
+          trace.model = model;
+          trace.structuredParseOk = true;
+          trace.schemaValidationOk = true;
+          trace.secondaryValidationOk = true;
+          recordCritiqueStage(trace, "openai_http", true);
+          recordCritiqueStage(trace, "structured_parse", true);
+          recordCritiqueStage(trace, "schema_validate", true);
+          recordCritiqueStage(trace, "secondary_validate", true);
+        } else {
+          const openai = await callOpenAiCritique({
+            request: input.request,
+            mode: input.mode,
+            context,
+            atlasRequestId: requestId,
+            trace,
+          });
+          critique = openai.critique;
+          diagRequestId = openai.requestId;
+          openaiRequestId = openai.openaiRequestId ?? null;
+          model = openai.model;
+          latencyMs = openai.latencyMs;
+          promptTokens = openai.promptTokens;
+          completionTokens = openai.completionTokens;
+          totalTokens = openai.totalTokens;
+          httpStatus = openai.httpStatus;
+          responseStatus = openai.responseStatus;
+        }
       } catch (error) {
         const categorized = categorizeOpenAiFailure(error);
         usedFallback = true;
@@ -681,9 +843,40 @@ export async function runDesignCritique(
         openaiRequestId =
           categorized.openaiRequestId ??
           (error as { openaiRequestId?: string | null })?.openaiRequestId ??
-          null;
+          openaiRequestId;
+        if (!trace.failingStage) {
+          const stage =
+            categorized.category === "validation"
+              ? "secondary_validate"
+              : categorized.category === "schema"
+                ? "openai_http"
+                : categorized.category === "incomplete" ||
+                    categorized.category === "refusal"
+                  ? "response_status"
+                  : categorized.category === "timeout"
+                    ? "openai_request"
+                    : "openai_http";
+          markCritiqueFailure(trace, {
+            stage,
+            fn:
+              (error as { failingFunction?: string })?.failingFunction ??
+              "runOpenAiDesignCritique",
+            error,
+            category: categorized.category,
+          });
+        } else if (!trace.failingFunction) {
+          trace.failingFunction =
+            (error as { failingFunction?: string })?.failingFunction ??
+            "runOpenAiDesignCritique";
+        }
+        if (!trace.fallbackReason) {
+          trace.fallbackReason = categorized.category;
+        }
+        trace.usedFallback = true;
+        trace.openaiRequestId = openaiRequestId;
         critique = buildMockDesignCritique(context, input.request);
         latencyMs = Date.now() - started;
+        recordCritiqueStage(trace, "fallback", true, categorized.category);
         logAiCritique({
           provider: "openai",
           model,
@@ -702,8 +895,16 @@ export async function runDesignCritique(
     } else {
       critique = buildMockDesignCritique(context, input.request);
       latencyMs = Date.now() - started;
+      recordCritiqueStage(trace, "secondary_validate", true, "mock");
     }
   } catch (error) {
+    markCritiqueFailure(trace, {
+      stage: "openai_request",
+      fn: "runDesignCritique",
+      error,
+      category: "unknown",
+    });
+    logCritiquePipelineTrace(trace);
     const mapped =
       error instanceof AiError
         ? error
@@ -726,14 +927,53 @@ export async function runDesignCritique(
         usedFallback: false,
         fallbackLabeled: false,
         fallbackReason: null,
+        failingStage: trace.failingStage,
+        failingFunction: trace.failingFunction,
       },
     };
   }
 
-  const { recommendations, operations } = critiqueToRecommendations(
-    critique,
-    input.project,
-  );
+  let recommendations: DesignCritiqueResult["recommendations"];
+  let operations: DesignCritiqueResult["operations"];
+  try {
+    ({ recommendations, operations } = critiqueToRecommendations(
+      critique,
+      input.project,
+    ));
+    trace.critiqueToOperationsOk = true;
+    recordCritiqueStage(trace, "critique_to_operations", true);
+  } catch (error) {
+    markCritiqueFailure(trace, {
+      stage: "critique_to_operations",
+      fn: "critiqueToRecommendations",
+      error,
+      category: usedFallback ? fallbackReason : "unknown",
+    });
+    // Recover with empty ops so the user still sees the critique narrative.
+    recommendations = [];
+    operations = [];
+    if (!usedFallback) {
+      usedFallback = true;
+      fallbackReason = "unknown";
+      trace.usedFallback = true;
+      critique = buildMockDesignCritique(context, input.request);
+      try {
+        ({ recommendations, operations } = critiqueToRecommendations(
+          critique,
+          input.project,
+        ));
+        recordCritiqueStage(trace, "fallback", true, "critique_to_operations");
+      } catch {
+        recommendations = [];
+        operations = [];
+      }
+    }
+  }
+
+  recordCritiqueStage(trace, "complete", !trace.failingStage || usedFallback);
+  trace.usedFallback = usedFallback;
+  if (fallbackReason) trace.fallbackReason = fallbackReason;
+  logCritiquePipelineTrace(trace);
 
   const explanation = formatDesignCritiqueExplanation({
     critique,
@@ -741,6 +981,7 @@ export async function runDesignCritique(
     usedFallback,
     requestId: diagRequestId,
     fallbackReason,
+    failingStage: trace.failingStage,
     audience: input.audience,
   });
 
@@ -756,7 +997,7 @@ export async function runDesignCritique(
       provider: usedFallback ? "mock" : providerId,
       model: usedFallback ? "mock-critique-fallback" : model,
       requestId: diagRequestId,
-      openaiRequestId,
+      openaiRequestId: openaiRequestId ?? trace.openaiRequestId,
       latencyMs,
       promptTokens,
       completionTokens,
@@ -767,6 +1008,14 @@ export async function runDesignCritique(
       usedFallback,
       fallbackLabeled: usedFallback,
       fallbackReason,
+      failingStage: trace.failingStage,
+      failingFunction: trace.failingFunction,
+      httpStatus: httpStatus ?? trace.httpStatus,
+      responseStatus: responseStatus ?? trace.responseStatus,
+      structuredParseOk: trace.structuredParseOk,
+      schemaValidationOk: trace.schemaValidationOk,
+      secondaryValidationOk: trace.secondaryValidationOk,
+      critiqueToOperationsOk: trace.critiqueToOperationsOk,
     },
   };
 }

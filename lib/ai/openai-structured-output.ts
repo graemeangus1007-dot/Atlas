@@ -125,6 +125,28 @@ export function extractStructuredJsonFromResponse(
                 : null,
           };
         }
+        // Message output_text parts (gpt-5 / Responses)
+        if (
+          (part?.type === "output_text" || part?.type === "text") &&
+          typeof part.text === "string" &&
+          part.text.trim()
+        ) {
+          const parsedPart = tryParseJson(part.text);
+          if (parsedPart !== null) {
+            return {
+              status: status === "incomplete" ? "incomplete" : "completed",
+              json: parsedPart,
+              refusalMessage: null,
+              incompleteReason:
+                status === "incomplete"
+                  ? String(
+                      (response as { incomplete_details?: { reason?: string } })
+                        .incomplete_details?.reason ?? "incomplete",
+                    )
+                  : null,
+            };
+          }
+        }
       }
     }
   }

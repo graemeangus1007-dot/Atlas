@@ -454,7 +454,12 @@ describe("mock provider + openai invocation wiring", () => {
       name: DESIGN_CRITIQUE_SCHEMA_NAME,
       strict: true,
     });
-    expect(params.input).toHaveLength(3);
+    // system (incl. developer rules) + user — no separate developer role
+    expect(params.input).toHaveLength(2);
+    expect(params.temperature).toBe(0.35);
+    expect(
+      (params as { reasoning?: { effort: string } }).reasoning?.effort,
+    ).toBe("none");
   });
 
   it("formats a single coherent narrative without duplicated review lines", () => {

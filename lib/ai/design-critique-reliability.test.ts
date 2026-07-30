@@ -150,7 +150,16 @@ describe("structured-output schema contract", () => {
       name: DESIGN_CRITIQUE_SCHEMA_NAME,
       strict: true,
     });
-    expect(buildOpenAiProbeParams({ model: "gpt-5.2" }).store).toBe(false);
+    expect(params.temperature).toBe(0.35);
+    expect(
+      (params as { reasoning?: { effort: string } }).reasoning?.effort,
+    ).toBe("none");
+    expect(params.input).toHaveLength(2);
+    const probe = buildOpenAiProbeParams({ model: "gpt-5.2" });
+    expect(probe.store).toBe(false);
+    expect(
+      (probe as { reasoning?: { effort: string } }).reasoning?.effort,
+    ).toBe("none");
   });
 });
 
@@ -202,6 +211,19 @@ describe("OpenAI request ID + probe", () => {
       categorizeOpenAiFailure(Object.assign(new Error("aborted"), { name: "AbortError" }))
         .category,
     ).toBe("timeout");
+    expect(
+      categorizeOpenAiFailure({
+        status: 400,
+        message:
+          "Unsupported parameter: 'temperature' is not supported with this model.",
+      }).category,
+    ).toBe("model");
+    expect(
+      categorizeOpenAiFailure({
+        status: 400,
+        message: "Invalid schema for response_format 'atlas_design_critique'.",
+      }).category,
+    ).toBe("schema");
     expect(extractOpenAiRequestId({ id: "resp_x" })).toBe("resp_x");
   });
 
@@ -284,7 +306,28 @@ describe("validation diagnostics + fallback", () => {
         category: "authentication",
         requestId: "7f293bd3-63f4-4ea0-83ee-9c4a34bfeba9",
       }),
-    ).toMatch(/labeled local review|couldn.?t reach/i);
+    ).toMatch(/labeled local review|authorize/i);
+    expect(
+      formatFallbackUserMessage({ category: "validation" }),
+    ).toMatch(/did not satisfy Atlas validation/i);
+    expect(
+      formatFallbackUserMessage({ category: "incomplete" }),
+    ).toMatch(/incomplete response/i);
+    expect(
+      formatFallbackUserMessage({ category: "schema" }),
+    ).toMatch(/schema was rejected/i);
+    expect(
+      formatFallbackUserMessage({
+        category: "unknown",
+        failingStage: "critique_to_operations",
+      }),
+    ).toMatch(/critique-to-operations failed/i);
+    expect(
+      formatFallbackUserMessage({ category: "model" }),
+    ).toMatch(/model configuration/i);
+    expect(
+      formatFallbackUserMessage({ category: "unknown" }),
+    ).not.toMatch(/temporarily unavailable/i);
 
     const client = mockClient(async () => {
       const err = new Error("Incorrect API key provided");
@@ -310,6 +353,9 @@ describe("validation diagnostics + fallback", () => {
     );
     expect(direct).toBeTruthy();
     expect(categorizeOpenAiFailure(direct).category).toBe("authentication");
+    expect((direct as { failingFunction?: string }).failingFunction).toBe(
+      "runOpenAiDesignCritique",
+    );
 
     vi.stubEnv("AI_PROVIDER", "mock");
     const mockResult = await runDesignCritique({
@@ -332,19 +378,53 @@ describe("validation diagnostics + fallback", () => {
       request:
         "If you were the best web design agency in the world, how would you redesign this homepage?",
       mode: "critique",
-      atlasRequestId: "7f293bd3-63f4-4ea0-83ee-9c4a34bfeba9",
+      atlasRequestId: "2c31fb60-bd92-45ed-9a35-606c1801635e",
       openAiCall: async () => {
-        throw Object.assign(new Error("Incorrect API key provided"), {
-          status: 401,
-        });
+        throw Object.assign(
+          new Error(
+            "Unsupported parameter: 'temperature' is not supported with this model.",
+          ),
+          { status: 400 },
+        );
       },
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.usedFallback).toBe(true);
-    expect(result.fallbackReason).toBe("authentication");
-    expect(result.explanation).toMatch(/labeled local review|couldn.?t reach/i);
-    expect(result.explanation).not.toMatch(/^Your homepage/i); // still has summary after note
+    expect(result.fallbackReason).toBe("model");
+    expect(result.diagnostics.failingStage).toBe("openai_http");
+    expect(result.diagnostics.failingFunction).toBe("runOpenAiDesignCritique");
+    expect(result.explanation).toMatch(/model configuration/i);
+    expect(result.explanation).toMatch(/2c31fb60-bd92-45ed-9a35-606c1801635e/);
+    expect(result.explanation).not.toMatch(/temporarily unavailable/i);
+  });
+
+  it("records validation stage when structured output fails Atlas validation", async () => {
+    vi.stubEnv("AI_PROVIDER", "openai");
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    const result = await runDesignCritique({
+      project: sampleProject(),
+      request:
+        "If you were the best web design agency in the world, how would you redesign this homepage?",
+      mode: "critique",
+      atlasRequestId: "2c31fb60-bd92-45ed-9a35-606c1801635e",
+      openAiCall: async () => {
+        throw Object.assign(
+          new Error("OpenAI critique failed Atlas validation."),
+          {
+            category: "validation",
+            failingFunction: "validateDesignCritiqueWithIssues",
+          },
+        );
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.fallbackReason).toBe("validation");
+    expect(result.diagnostics.failingFunction).toBe(
+      "validateDesignCritiqueWithIssues",
+    );
+    expect(result.explanation).toMatch(/did not satisfy Atlas validation/i);
   });
 
   it("does not put prompts or raw response bodies in critique logs", async () => {
