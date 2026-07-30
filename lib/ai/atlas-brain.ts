@@ -50,10 +50,18 @@ import {
   isDesignCritiqueExecuteRequest,
 } from "@/lib/ai/design-critique";
 import {
+  shouldOverridePendingClarification,
+} from "@/lib/ai/critique-request";
+import {
+  CRITIQUE_PIPELINE_VERSION,
   invalidateCritiquePipelineCache,
   runAtlasCritiquePipeline,
 } from "@/lib/ai/critique-pipeline";
 import { formatRecommendationSupportPlan } from "@/lib/ai/critique-to-operations";
+import {
+  createAiRequestId,
+  logAtlasBrainRouting,
+} from "@/lib/ai/openai-logging";
 import type {
   EditorAgentHistoryItem,
   EditorAgentInput,
@@ -521,9 +529,21 @@ export async function runAtlasBrain(
       )
     : [];
 
+  // Sprint 28.1A — critique/redesign clears sticky clarification so routing proceeds.
+  let projectForTurn = input.project;
+  if (
+    shouldOverridePendingClarification(request) &&
+    hasPendingClarification(getActionMemory(input.project))
+  ) {
+    projectForTurn = withActionMemory(
+      input.project,
+      clearPendingClarification(getActionMemory(input.project)),
+    );
+  }
+
   // Sprint 26.1 — Action Memory short-circuit (Apply All / Yes / clarification)
   const continued = await tryContinueActionMemory({
-    project: input.project,
+    project: projectForTurn,
     request,
   });
   if (continued) {
@@ -533,10 +553,10 @@ export async function runAtlasBrain(
   // Sprint 28.1 — Complete my website uses the same critique pipeline (cache-aware).
   if (
     isCompleteWebsiteRequest(request) &&
-    !hasActiveRecommendations(getActionMemory(input.project))
+    !hasActiveRecommendations(getActionMemory(projectForTurn))
   ) {
     const critiqueResult = await runAtlasCritiquePipeline({
-      project: input.project,
+      project: projectForTurn,
       request:
         "Complete my website for launch — prioritize the highest-impact coordinated improvements.",
       mode: "critique",
@@ -551,7 +571,7 @@ export async function runAtlasBrain(
         explanation: `I couldn’t finish the launch-ready plan (${critiqueResult.message}). Try again in a moment.`,
         operations: [],
         changes: [],
-        project: withMemory(input.project, request),
+        project: withMemory(projectForTurn, request),
         applyStatus: "no_changes",
         decision: confirmDecision(
           "Complete website",
@@ -562,18 +582,18 @@ export async function runAtlasBrain(
           "Improve SEO",
           "Add testimonials",
         ],
-        atlasMemory: input.project.atlasMemory,
+        atlasMemory: projectForTurn.atlasMemory,
       };
     }
 
     const creative = reviewCreativeDirector({
-      project: input.project,
+      project: projectForTurn,
       limit: 1,
     });
     const supportPlan = formatRecommendationSupportPlan(
       critiqueResult.recommendations,
     );
-    const actionMemory = storeRecommendations(getActionMemory(input.project), {
+    const actionMemory = storeRecommendations(getActionMemory(projectForTurn), {
       creative: critiqueResult.recommendations,
       creativeReport: {
         overallCompleteness: creative.overallCompleteness,
@@ -594,7 +614,7 @@ export async function runAtlasBrain(
       },
     });
     const project = withActionMemory(
-      withMemory(input.project, request),
+      withMemory(projectForTurn, request),
       actionMemory,
     );
     return {
@@ -637,25 +657,43 @@ export async function runAtlasBrain(
 
   const decision = decideAtlasBrain({
     request,
-    project: input.project,
+    project: projectForTurn,
     history,
   });
+
+  const atlasRequestId =
+    input.atlasRequestId?.trim() || createAiRequestId();
+  if (
+    decision.selectedPath === "atlas_critique_pipeline" ||
+    decision.intent === "design_critique" ||
+    decision.intent === "design_redesign" ||
+    decision.intent === "recommend"
+  ) {
+    logAtlasBrainRouting({
+      atlasRequestId,
+      detectedIntent: decision.intent,
+      selectedPath: decision.selectedPath ?? "atlas_critique_pipeline",
+      confidence: decision.confidence,
+      matchedSignals: decision.matchedSignals ?? [],
+      pipelineVersion: CRITIQUE_PIPELINE_VERSION,
+    });
+  }
 
   // Decision engine Stage 1 may surface continue_plan if short-circuit missed.
   if (decision.intent === "continue_plan") {
     const again = await tryContinueActionMemory({
-      project: input.project,
+      project: projectForTurn,
       request,
     });
     if (again) return again;
   }
 
-  const preferenceNote = formatNaturalPreferenceNote(input.project.atlasMemory);
+  const preferenceNote = formatNaturalPreferenceNote(projectForTurn.atlasMemory);
   const planText = formatExecutionPlanForUser(decision.executionPlan);
 
   if (decision.needsClarification) {
     const actionMemory = storePendingClarification(
-      getActionMemory(input.project),
+      getActionMemory(projectForTurn),
       {
         question:
           decision.clarificationQuestion ||
@@ -665,7 +703,7 @@ export async function runAtlasBrain(
       },
     );
     const project = withActionMemory(
-      withMemory(input.project, request, decision.memoryPatch),
+      withMemory(projectForTurn, request, decision.memoryPatch),
       actionMemory,
     );
     return {
@@ -685,7 +723,7 @@ export async function runAtlasBrain(
 
   // Publish guidance — no mutation beyond memory
   if (decision.intent === "publish") {
-    const project = withMemory(input.project, request, decision.memoryPatch);
+    const project = withMemory(projectForTurn, request, decision.memoryPatch);
     return {
       ok: true,
       explanation: decision.explanation,
@@ -700,14 +738,38 @@ export async function runAtlasBrain(
     };
   }
 
-  // Sprint 28.1 — recommend / question always use the unified critique pipeline.
-  if (decision.intent === "recommend" || decision.intent === "question") {
+  // Informational questions — explain only; never critique pipeline or edits.
+  if (decision.intent === "question") {
+    const project = withMemory(projectForTurn, request, decision.memoryPatch);
+    return {
+      ok: true,
+      explanation: decision.explanation,
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision,
+      followUpSuggestions: decision.followUpSuggestions,
+      executionPlan: decision.executionPlan,
+      atlasMemory: project.atlasMemory,
+    };
+  }
+
+  // Sprint 28.1A — design_critique / design_redesign / recommend → unified pipeline only.
+  if (
+    decision.intent === "design_critique" ||
+    decision.intent === "design_redesign" ||
+    decision.intent === "recommend"
+  ) {
+    const wantsExecute =
+      decision.intent === "design_redesign" ||
+      decision.shouldExecuteEdits === true;
     const critiqueResult = await runAtlasCritiquePipeline({
-      project: input.project,
+      project: projectForTurn,
       request,
-      mode: "critique",
+      mode: wantsExecute ? "execute" : "critique",
       history,
-      atlasRequestId: input.atlasRequestId,
+      atlasRequestId,
     });
 
     if (!critiqueResult.ok) {
@@ -716,24 +778,25 @@ export async function runAtlasBrain(
         explanation: `I couldn’t finish the design critique (${critiqueResult.message}). Try again in a moment, or ask for a specific change.`,
         operations: [],
         changes: [],
-        project: withMemory(input.project, request, decision.memoryPatch),
+        project: withMemory(projectForTurn, request, decision.memoryPatch),
         applyStatus: "no_changes",
         decision,
         followUpSuggestions: ["Improve SEO", "Add testimonials", "Apply All"],
         executionPlan: decision.executionPlan,
-        atlasMemory: input.project.atlasMemory,
+        atlasMemory: projectForTurn.atlasMemory,
       };
     }
 
     // Creative Director is presentation/maturity only — not a second reasoning engine.
     const creative = reviewCreativeDirector({
-      project: input.project,
+      project: projectForTurn,
       limit: 1,
     });
     const supportPlan = formatRecommendationSupportPlan(
       critiqueResult.recommendations,
     );
-    const actionMemory = storeRecommendations(getActionMemory(input.project), {
+    const applyable = critiqueResult.recommendations.filter((r) => r.applyable);
+    const actionMemory = storeRecommendations(getActionMemory(projectForTurn), {
       creative: critiqueResult.recommendations,
       creativeReport: {
         overallCompleteness: creative.overallCompleteness,
@@ -743,10 +806,51 @@ export async function runAtlasBrain(
       },
       executionPlan: decision.executionPlan,
     });
-    const project = withActionMemory(
-      withMemory(input.project, request, decision.memoryPatch),
+    let project = withActionMemory(
+      withMemory(projectForTurn, request, decision.memoryPatch),
       actionMemory,
     );
+
+    if (wantsExecute && applyable.length > 0) {
+      const batch = applyAllCreativeRecommendations({
+        project,
+        recommendations: applyable.slice(0, 6),
+      });
+      if (batch.ok && batch.status === "applied") {
+        invalidateCritiquePipelineCache(
+          creativeDirectorFingerprint(batch.project),
+        );
+        project = withActionMemory(
+          batch.project,
+          clearRecommendations(getActionMemory(batch.project)),
+        );
+        return {
+          ok: true,
+          explanation: [
+            critiqueResult.explanation
+              .replace(/I’m applying the coordinated plan next\.?/i, "")
+              .trim(),
+            batch.explanation,
+            supportPlan,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          operations: applyable.flatMap((r) => r.operations).slice(0, 24),
+          changes: batch.changes,
+          project,
+          applyStatus: "applied",
+          decision,
+          followUpSuggestions: [
+            "Add matching images",
+            "Improve SEO",
+            "Add subtle animations",
+          ],
+          executionPlan: decision.executionPlan,
+          atlasMemory: project.atlasMemory,
+        };
+      }
+    }
+
     return {
       ok: true,
       explanation: [critiqueResult.explanation, "", supportPlan]
@@ -769,7 +873,7 @@ export async function runAtlasBrain(
     };
   }
 
-  let project = input.project;
+  let project = projectForTurn;
   const operations: Array<EditOperation | ImageOperation> = [];
   const changes: EditChangeSummary[] = [];
   let explanation = decision.explanation;

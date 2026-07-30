@@ -164,7 +164,7 @@ describe("Brain routes agency prompt through unified pipeline", () => {
       project: sampleProject(),
       request: AGENCY_PROMPT,
     });
-    expect(decision.intent).toBe("recommend");
+    expect(decision.intent).toBe("design_critique");
 
     const a = await runAtlasBrain({
       project: sampleProject(),

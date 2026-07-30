@@ -4,6 +4,7 @@
  * Never mutates BusinessProject; never logs prompt/website payloads.
  */
 
+import { classifyCritiqueRequest } from "@/lib/ai/critique-request";
 import { AiError } from "@/lib/ai/errors";
 import { getAiProviderId, getOpenAiModel } from "@/lib/ai/provider";
 import {
@@ -1030,24 +1031,12 @@ export async function runDesignCritique(
   };
 }
 
-/** Detect critique-only review asks. */
+/** Detect critique-only review asks (Sprint 28.1A signal model). */
 export function isDesignCritiqueRequest(request: string): boolean {
-  return /\b(best\s+web\s+design\s+agency|how\s+would\s+you\s+redesign|what\s+would\s+a\s+(top|world[- ]class|great)\s+agency|review\s+(this|my)\s+(homepage|home\s+page|site|website)|why\s+does\s+this\s+feel|what\s+should\s+i\s+change\s+before\s+launch|critique\s+(my|this)|design\s+critique|what\s+would\s+you\s+improve)\b/i.test(
-    request,
-  );
+  return classifyCritiqueRequest(request).kind === "critique";
 }
 
 /** Detect execution-oriented redesign asks (not “how would you redesign…?”). */
 export function isDesignCritiqueExecuteRequest(request: string): boolean {
-  if (/\b(how|what)\s+would\s+you\b/i.test(request)) return false;
-  if (
-    /\b(best\s+web\s+design\s+agency|what\s+would\s+a\s+(top|world[- ]class|great)\s+agency)\b/i.test(
-      request,
-    )
-  ) {
-    return false;
-  }
-  return /\b(redesign\s+(this|it|my\s+(homepage|site|website))|make\s+(this|it)\s+look\s+like\s+a\s+premium\s+agency|premium\s+agency\s+designed|make\s+all\s+of\s+(those|these)\s+improvements|apply\s+the\s+(critique\s+)?plan)\b/i.test(
-    request,
-  );
+  return classifyCritiqueRequest(request).kind === "execute";
 }

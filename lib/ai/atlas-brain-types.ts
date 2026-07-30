@@ -32,6 +32,10 @@ export type AtlasBrainIntent =
   | "publish"
   | "recommend"
   | "multi_goal"
+  /** Sprint 28.1A — advisory design critique (no auto-edit) */
+  | "design_critique"
+  /** Sprint 28.1A — critique + coordinated redesign execution */
+  | "design_redesign"
   /** Sprint 26.2 — continue Action Memory plan */
   | "continue_plan"
   /** Sprint 26.2 — explicit command categories */
@@ -88,6 +92,12 @@ export type AtlasBrainDecision = {
   decisionStage?: string;
   /** Sprint 26.2 — explicit command kind when applicable. */
   commandKind?: string;
+  /** Sprint 28.1A — canonical specialist path (e.g. atlas_critique_pipeline). */
+  selectedPath?: string;
+  /** Sprint 28.1A — whether Brain should apply edits after critique planning. */
+  shouldExecuteEdits?: boolean;
+  /** Sprint 28.1A — safe routing signal ids (no prompt text). */
+  matchedSignals?: string[];
 };
 
 export const ATLAS_BRAIN_CLARIFICATION_OPTIONS = [

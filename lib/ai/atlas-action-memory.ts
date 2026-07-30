@@ -8,6 +8,7 @@ import type { AtlasExecutionPlan } from "@/lib/ai/atlas-brain-types";
 import { ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
 import type { CreativeDirectorRecommendation } from "@/lib/ai/creative-director-types";
 import type { BusinessRecommendation } from "@/lib/ai/business-advisor-types";
+import { shouldOverridePendingClarification } from "@/lib/ai/critique-request";
 import {
   isEditOperationKind,
   type EditOperation,
@@ -493,12 +494,23 @@ export function toAdvisorRecommendations(
 
 /**
  * True when the request should short-circuit routing and execute action memory.
+ * Critique / redesign asks never short-circuit sticky clarification — they re-route.
  */
 export function shouldExecuteActionMemory(
   request: string,
   memory: AtlasActionMemory | null | undefined,
 ): boolean {
-  if (hasPendingClarification(memory)) return true;
+  if (shouldOverridePendingClarification(request)) {
+    return false;
+  }
+  if (hasPendingClarification(memory)) {
+    // Only short-circuit when the reply looks like a clarification answer / confirm.
+    const matched = memory?.pendingClarification
+      ? matchClarificationAnswer(request, memory.pendingClarification)
+      : null;
+    const confirmation = detectActionConfirmation(request);
+    return Boolean(matched) || confirmation.kind !== "none";
+  }
   if (!hasActiveRecommendations(memory) && !memory?.applyAllPending) {
     return false;
   }

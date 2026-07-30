@@ -437,6 +437,7 @@ export {
   formatNaturalPreferenceNote,
   stageContinuation,
   stageExplicitCommand,
+  stageCritique,
   stageExplicitDesign,
   stageBusinessGoal,
   stageQuestion,
@@ -447,6 +448,17 @@ export {
   CONFIDENCE_EXECUTE_EXPLAIN,
   CONFIDENCE_CLARIFY,
 } from "@/lib/ai/atlas-brain-decision-engine";
+export {
+  classifyCritiqueRequest,
+  isCritiqueOrRedesignRequest,
+  shouldOverridePendingClarification,
+  CRITIQUE_ROUTING_PATH,
+} from "@/lib/ai/critique-request";
+export type {
+  CritiqueClassification,
+  CritiqueRouteIntent,
+  CritiqueSignalId,
+} from "@/lib/ai/critique-request";
 export type {
   DecisionStage,
   CommandKind,

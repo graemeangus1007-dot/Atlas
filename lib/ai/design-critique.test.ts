@@ -479,15 +479,16 @@ describe("mock provider + openai invocation wiring", () => {
 });
 
 describe("Atlas Brain routing — sprint prompts", () => {
-  it("routes agency redesign question to recommend without auto-editing", async () => {
+  it("routes agency redesign question to design_critique without auto-editing", async () => {
     const request =
       "If you were the best web design agency in the world, how would you redesign this homepage?";
     const decision = decideAtlasBrain({
       project: sampleProject(),
       request,
     });
-    expect(decision.intent).toBe("recommend");
+    expect(decision.intent).toBe("design_critique");
     expect(decision.needsClarification).toBe(false);
+    expect(decision.shouldExecuteEdits).toBe(false);
 
     const result = await runAtlasBrain({
       project: sampleProject(),
@@ -510,7 +511,8 @@ describe("Atlas Brain routing — sprint prompts", () => {
       project: sampleProject(),
       request,
     });
-    expect(decision.intent).toBe("feel_direction");
+    expect(decision.intent).toBe("design_redesign");
+    expect(decision.shouldExecuteEdits).toBe(true);
 
     const result = await runAtlasBrain({
       project: sampleProject(),
@@ -551,6 +553,7 @@ describe("Atlas Brain routing — sprint prompts", () => {
     });
     expect(decision.selectedAgents).toEqual(["editor_agent"]);
     expect(decision.intent).not.toBe("recommend");
+    expect(decision.intent).not.toBe("design_critique");
     expect(decision.intent).not.toBe("feel_direction");
   });
 

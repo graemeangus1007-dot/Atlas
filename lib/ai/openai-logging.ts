@@ -97,3 +97,36 @@ export function createAiRequestId(): string {
   }
   return `ai-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+export type AtlasBrainRoutingLogInput = {
+  atlasRequestId: string;
+  detectedIntent: string;
+  selectedPath: string;
+  confidence: number;
+  matchedSignals: string[];
+  pipelineVersion: string;
+};
+
+/**
+ * Safe Brain routing diagnostics — never logs prompts or project content.
+ */
+export function logAtlasBrainRouting(input: AtlasBrainRoutingLogInput): void {
+  const payload = {
+    event: "atlas.brain.routing",
+    atlasRequestId: input.atlasRequestId,
+    detectedIntent: input.detectedIntent,
+    selectedPath: input.selectedPath,
+    confidence: input.confidence,
+    matchedSignals: input.matchedSignals,
+    pipelineVersion: input.pipelineVersion,
+  };
+
+  captureMessage({
+    message: "atlas.brain.routing",
+    level: "info",
+    context: {
+      tags: { route: "atlas.brain.routing" },
+      extra: payload,
+    },
+  });
+}

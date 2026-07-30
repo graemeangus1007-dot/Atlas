@@ -20,15 +20,20 @@ import type {
   AtlasProjectMemory,
 } from "@/lib/ai/atlas-brain-types";
 import { ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
+import {
+  classifyCritiqueRequest,
+  shouldOverridePendingClarification,
+} from "@/lib/ai/critique-request";
 import { detectPreferredLanguage } from "@/lib/ai/design-system-intelligence";
 import { isImageEditRequest } from "@/lib/ai/image-agent";
 import { routeIntent } from "@/lib/ai/intent-router";
 import type { BusinessProject } from "@/types/business-project";
 
-/** Pipeline stages in priority order (highest first). */
+/** Pipeline stages in priority order (highest first). Sprint 28.1A order. */
 export const DECISION_STAGES = [
   "continuation",
   "explicit_command",
+  "critique",
   "explicit_design",
   "business_goal",
   "question",
@@ -82,9 +87,6 @@ const FEEL_DIRECTION =
 
 const BUSINESS_GOAL_PHRASE =
   /\b((want|need)\s+more\s+(catering\s+)?(orders?|customers?|leads?|calls?|bookings?|inquir(?:y|ies))|increase\s+(my\s+)?(catering\s+)?(orders?|sales|conversions?|bookings?|trust)|more\s+(calls?|leads?|bookings?|customers?)|more\s+people\s+to\s+call|need\s+more\s+leads|build\s+trust|get\s+more\s+catering)\b/i;
-
-const RECOMMEND_ONLY =
-  /\b(what\s+should\s+i\s+(do|fix|improve)|review\s+(my\s+)?(site|website|homepage|home\s+page)|any\s+suggestions?|how\s+can\s+i\s+improve|how\s+launch[- ]ready\s+is\s+this|what\s+would\s+you\s+improve|best\s+web\s+design\s+agency|how\s+would\s+you\s+redesign|what\s+would\s+a\s+(top|world[- ]class|great)\s+agency|why\s+does\s+this\s+feel|what\s+should\s+i\s+change\s+before\s+launch|critique\s+(my|this)|design\s+critique)\b/i;
 
 const AGENCY_REDESIGN_EXECUTE =
   /\b(redesign\s+(this|it|my\s+(homepage|site|website))|make\s+(this|it)\s+look\s+like\s+a\s+premium\s+agency|premium\s+agency\s+designed|make\s+all\s+of\s+(those|these)\s+improvements)\b/i;
@@ -369,6 +371,10 @@ export function stageContinuation(
   input: AtlasDecisionEngineInput,
 ): AtlasDecisionEngineResult | null {
   const memory = getActionMemory(input.project);
+  // Latest critique/redesign asks always beat sticky clarification memory.
+  if (shouldOverridePendingClarification(input.request)) {
+    return null;
+  }
   if (!shouldExecuteActionMemory(input.request, memory)) return null;
   if (!hasPendingClarification(memory) && !hasActiveRecommendations(memory)) {
     return null;
@@ -511,7 +517,68 @@ export function stageExplicitCommand(
 }
 
 /**
- * Stage 3 — Explicit design / feel requests.
+ * Stage 3 — Explicit critique / review (before design transforms & business goals).
+ */
+export function stageCritique(
+  input: AtlasDecisionEngineInput,
+): AtlasDecisionEngineResult | null {
+  const request = input.request.trim();
+  const classified = classifyCritiqueRequest(request);
+  if (classified.kind === "none" || !classified.intent) return null;
+
+  const isExecute = classified.kind === "execute";
+  return {
+    stage: "critique",
+    decision: withConfidencePolicy({
+      intent: classified.intent,
+      confidence: classified.confidence,
+      selectedAgents: isExecute
+        ? ["creative_director", "editor_agent", "image_agent"]
+        : ["creative_director", "business_advisor"],
+      needsClarification: false,
+      executionPlan: plan(
+        isExecute
+          ? "Execute a coordinated premium redesign"
+          : "Review the website",
+        isExecute
+          ? [
+              {
+                id: "critique.pipeline",
+                agent: "creative_director",
+                label: "Plan coordinated redesign via critique pipeline",
+              },
+              {
+                id: "critique.apply",
+                agent: "editor_agent",
+                label: "Apply coordinated improvements",
+              },
+            ]
+          : [
+              {
+                id: "critique.pipeline",
+                agent: "creative_director",
+                label: "Run unified design critique",
+              },
+            ],
+        "high",
+      ),
+      explanation: isExecute
+        ? "I’ll critique the homepage, then apply a coordinated redesign plan."
+        : "I’ll review the site and share the highest-impact opportunities — without changing anything yet.",
+      followUpSuggestions: isExecute
+        ? ["Apply All", "Add matching images", "Improve SEO"]
+        : ["Apply All", "Complete my website", "Improve SEO"],
+      memoryPatch: inferMemoryFromMessage(request),
+      decisionStage: "critique",
+      selectedPath: classified.selectedPath ?? undefined,
+      shouldExecuteEdits: classified.shouldExecuteEdits,
+      matchedSignals: classified.matchedSignals,
+    }),
+  };
+}
+
+/**
+ * Stage 4 — Explicit design / feel requests.
  */
 export function stageExplicitDesign(
   input: AtlasDecisionEngineInput,
@@ -523,12 +590,19 @@ export function stageExplicitDesign(
     project: input.project,
     history: input.history,
   });
+  const critiqueClassified = classifyCritiqueRequest(request);
 
-  // Imperative redesign only — “how would you redesign…?” is critique/recommend.
+  // Imperative redesign only — “how would you redesign…?” is critique.
   const wantsRedesignExecute =
-    AGENCY_REDESIGN_EXECUTE.test(request) &&
-    !/\b(how|what)\s+would\s+you\b/i.test(request) &&
-    !RECOMMEND_ONLY.test(request);
+    critiqueClassified.kind === "execute" ||
+    (AGENCY_REDESIGN_EXECUTE.test(request) &&
+      !/\b(how|what)\s+would\s+you\b/i.test(request) &&
+      critiqueClassified.kind !== "critique");
+
+  // Critique stage owns advisory redesign / agency hypotheticals.
+  if (critiqueClassified.kind === "critique") {
+    return null;
+  }
 
   // Don't steal pure business goals (e.g. “more catering orders” must not
   // become a restaurant design-language pick via industry aliases).
@@ -661,12 +735,15 @@ export function stageExplicitDesign(
 }
 
 /**
- * Stage 4 — Business goals.
+ * Stage 5 — Business goals.
  */
 export function stageBusinessGoal(
   input: AtlasDecisionEngineInput,
 ): AtlasDecisionEngineResult | null {
   const request = input.request.trim();
+  // Latest critique request always beats stored business goals / memory.
+  if (classifyCritiqueRequest(request).kind !== "none") return null;
+
   const intentRoute = routeIntent({
     request,
     project: input.project,
@@ -728,12 +805,14 @@ export function stageBusinessGoal(
 }
 
 /**
- * Stage 5 — Questions (never execute edits).
+ * Stage 6 — Informational questions (never execute edits; critique handled earlier).
  */
 export function stageQuestion(
   input: AtlasDecisionEngineInput,
 ): AtlasDecisionEngineResult | null {
   const request = input.request.trim();
+  if (classifyCritiqueRequest(request).kind !== "none") return null;
+
   const intentRoute = routeIntent({
     request,
     project: input.project,
@@ -741,57 +820,79 @@ export function stageQuestion(
   });
 
   const isQuestion =
-    RECOMMEND_ONLY.test(request) ||
     intentRoute.category === "question" ||
     (QUESTION_SHAPE.test(request) && !matchCommand(request));
 
   if (!isQuestion) return null;
 
-  const recommendStyle = RECOMMEND_ONLY.test(request);
   return {
-    stage: recommendStyle ? "recommend" : "question",
+    stage: "question",
     decision: withConfidencePolicy({
-      intent: recommendStyle ? "recommend" : "question",
-      confidence: recommendStyle ? 0.9 : 0.85,
+      intent: "question",
+      confidence: 0.85,
       selectedAgents: ["creative_director", "business_advisor"],
       needsClarification: false,
-      executionPlan: plan(
-        recommendStyle ? "Review the website" : "Answer the question",
-        [
-          {
-            id: "q.cd",
-            agent: "creative_director",
-            label: "Review completeness",
-          },
-          {
-            id: "q.ba",
-            agent: "business_advisor",
-            label: "Surface opportunities",
-          },
-        ],
-        "medium",
-      ),
-      explanation: recommendStyle
-        ? "I’ll review the site and share the highest-impact opportunities."
-        : "I’ll explain the current design choices and what I’d improve — without changing the site yet.",
+      executionPlan: plan("Answer the question", [
+        {
+          id: "q.cd",
+          agent: "creative_director",
+          label: "Explain design choices",
+        },
+        {
+          id: "q.ba",
+          agent: "business_advisor",
+          label: "Surface opportunities",
+        },
+      ], "medium"),
+      explanation:
+        "I’ll explain the current design choices and what I’d improve — without changing the site yet.",
       followUpSuggestions: [
-        "Apply All",
+        "Review my website",
         "Complete my website",
         "Improve SEO",
       ],
       memoryPatch: inferMemoryFromMessage(request),
-      decisionStage: recommendStyle ? "recommend" : "question",
+      decisionStage: "question",
     }),
   };
 }
 
 /**
- * Stage 6 — Clarification (once; never loops — Action Memory stores pending).
+ * Stage 7 — Clarification (once; never loops — Action Memory stores pending).
  */
 export function stageClarification(
   input: AtlasDecisionEngineInput,
 ): AtlasDecisionEngineResult {
   const request = input.request.trim();
+  // Never clarify clear critique / redesign asks.
+  const critique = classifyCritiqueRequest(request);
+  if (critique.kind !== "none" && critique.intent) {
+    return {
+      stage: "critique",
+      decision: withConfidencePolicy({
+        intent: critique.intent,
+        confidence: critique.confidence,
+        selectedAgents: ["creative_director"],
+        needsClarification: false,
+        executionPlan: plan("Review the website", [
+          {
+            id: "critique.pipeline",
+            agent: "creative_director",
+            label: "Run unified design critique",
+          },
+        ], "high"),
+        explanation:
+          "I’ll review the site and share the highest-impact opportunities.",
+        followUpSuggestions: ["Apply All", "Complete my website", "Improve SEO"],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "critique",
+        selectedPath: critique.selectedPath ?? undefined,
+        shouldExecuteEdits: critique.shouldExecuteEdits,
+        matchedSignals: critique.matchedSignals,
+      }),
+    };
+  }
+
   const intentRoute = routeIntent({
     request,
     project: input.project,
@@ -822,7 +923,8 @@ export function stageClarification(
 }
 
 /**
- * Run the full decision pipeline in priority order.
+ * Run the full decision pipeline in priority order (Sprint 28.1A).
+ * continuation → explicit command → critique → design → business → question → clarify
  */
 export function decideWithAtlasBrainEngine(
   input: AtlasDecisionEngineInput,
@@ -835,6 +937,7 @@ export function decideWithAtlasBrainEngine(
   return (
     stageContinuation(input) ??
     stageExplicitCommand(input) ??
+    stageCritique(input) ??
     stageExplicitDesign(input) ??
     stageBusinessGoal(input) ??
     stageQuestion(input) ??
