@@ -18,6 +18,69 @@ export const OPENAI_DEFAULTS = {
   retryBaseDelayMs: 500,
 } as const;
 
+/**
+ * Critique-specific output budget (Sprint 28.0E).
+ * Nested strengths / problems / improvements + proposedChanges need far more
+ * than the tiny diagnostic probe (64) or the old schema-probe override (400).
+ */
+export const OPENAI_CRITIQUE_DEFAULTS = {
+  /** Default max_output_tokens for design critique Responses calls. */
+  maxOutputTokens: 8192,
+  /** Hard upper bound for critique output (and the single bounded retry). */
+  maxOutputTokensCap: 16_384,
+  /** Floor so misconfigured env values cannot starve the schema. */
+  maxOutputTokensMin: 2048,
+  /** Temperature for critique (with reasoning.effort none on gpt-5). */
+  temperature: 0.35,
+  /** Critique request timeout. */
+  timeoutMs: 90_000,
+} as const;
+
+export type OpenAiCritiqueOutputConfig = {
+  maxOutputTokens: number;
+  maxOutputTokensCap: number;
+  retryMaxOutputTokens: number;
+  temperature: number;
+  timeoutMs: number;
+};
+
+/**
+ * Resolve critique max_output_tokens from OPENAI_CRITIQUE_MAX_OUTPUT_TOKENS.
+ * Does not reuse OPENAI_MAX_OUTPUT_TOKENS (draft path) or tiny probe limits.
+ */
+export function resolveOpenAiCritiqueOutputConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  overrides: Partial<{
+    maxOutputTokens: number;
+    temperature: number;
+    timeoutMs: number;
+  }> = {},
+): OpenAiCritiqueOutputConfig {
+  const parsed = parsePositiveInt(
+    env.OPENAI_CRITIQUE_MAX_OUTPUT_TOKENS,
+    OPENAI_CRITIQUE_DEFAULTS.maxOutputTokens,
+  );
+  const capped = Math.min(
+    OPENAI_CRITIQUE_DEFAULTS.maxOutputTokensCap,
+    Math.max(
+      OPENAI_CRITIQUE_DEFAULTS.maxOutputTokensMin,
+      overrides.maxOutputTokens ?? parsed,
+    ),
+  );
+  const retryMaxOutputTokens = Math.min(
+    OPENAI_CRITIQUE_DEFAULTS.maxOutputTokensCap,
+    Math.max(capped + 4096, Math.floor(capped * 1.5)),
+  );
+  return {
+    maxOutputTokens: capped,
+    maxOutputTokensCap: OPENAI_CRITIQUE_DEFAULTS.maxOutputTokensCap,
+    retryMaxOutputTokens,
+    temperature:
+      overrides.temperature ?? OPENAI_CRITIQUE_DEFAULTS.temperature,
+    timeoutMs: overrides.timeoutMs ?? OPENAI_CRITIQUE_DEFAULTS.timeoutMs,
+  };
+}
+
 export type OpenAiRuntimeConfig = {
   model: string;
   temperature: number;

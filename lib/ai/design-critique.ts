@@ -460,7 +460,7 @@ export function buildMockDesignCritique(
       ? `${name}'s homepage explains the service clearly, but it does not yet create a strong emotional impression or guide visitors toward one obvious action.`
       : `For ${name}, the foundation is understandable; the opportunity is a more coordinated, premium first impression tied to how ${industry} buyers decide.`,
     currentStrengths: strengths.slice(0, 5),
-    coreProblems: problems.slice(0, 7),
+    coreProblems: problems.slice(0, 5),
     designDirection: {
       name: "Premium landscape-led",
       rationale: `Move ${name} toward larger project imagery, a shorter hero message, stronger spacing, and social proof closer to the estimate CTA.`,
@@ -472,7 +472,7 @@ export function buildMockDesignCritique(
         "Typography hierarchy that leads the eye",
       ],
     },
-    prioritizedImprovements: dedupeImprovements(improvements).slice(0, 7),
+    prioritizedImprovements: dedupeImprovements(improvements).slice(0, 5),
     expectedOutcome: `A homepage that feels agency-designed for a ${industry}: clearer hierarchy, stronger trust, and a smoother path to contact.`,
     confidence: 0.82,
   };

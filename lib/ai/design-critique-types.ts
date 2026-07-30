@@ -203,6 +203,7 @@ export type CritiqueFallbackReason =
   | "schema"
   | "refusal"
   | "incomplete"
+  | "output_limit"
   | "validation"
   | "unknown";
 

@@ -145,7 +145,7 @@ export const DESIGN_CRITIQUE_JSON_SCHEMA = {
     currentStrengths: {
       type: "array",
       minItems: 1,
-      maxItems: 5,
+      maxItems: 3,
       items: {
         type: "object",
         additionalProperties: false,
@@ -160,7 +160,7 @@ export const DESIGN_CRITIQUE_JSON_SCHEMA = {
     coreProblems: {
       type: "array",
       minItems: 1,
-      maxItems: 7,
+      maxItems: 5,
       items: {
         type: "object",
         additionalProperties: false,
@@ -197,7 +197,7 @@ export const DESIGN_CRITIQUE_JSON_SCHEMA = {
     prioritizedImprovements: {
       type: "array",
       minItems: 1,
-      maxItems: 7,
+      maxItems: 5,
       items: {
         type: "object",
         additionalProperties: false,

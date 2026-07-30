@@ -163,7 +163,7 @@ export function validateDesignCritiqueWithIssues(
   }
   const currentStrengths: CritiqueStrength[] = [];
   if (Array.isArray(obj.currentStrengths)) {
-    for (const [i, item] of obj.currentStrengths.slice(0, 5).entries()) {
+    for (const [i, item] of obj.currentStrengths.slice(0, 3).entries()) {
       const row = requireObject(item, `currentStrengths.${i}`, issues);
       if (!row) continue;
       const title = clip(row.title, 120);
@@ -195,7 +195,7 @@ export function validateDesignCritiqueWithIssues(
   }
   const coreProblems: CritiqueFinding[] = [];
   if (Array.isArray(obj.coreProblems)) {
-    for (const [i, item] of obj.coreProblems.slice(0, 7).entries()) {
+    for (const [i, item] of obj.coreProblems.slice(0, 5).entries()) {
       const row = requireObject(item, `coreProblems.${i}`, issues);
       if (!row) continue;
       if (row.severity !== "missing" && row.severity !== "weak") {
@@ -261,7 +261,7 @@ export function validateDesignCritiqueWithIssues(
   }
   const prioritizedImprovements: CritiqueImprovement[] = [];
   if (Array.isArray(obj.prioritizedImprovements)) {
-    for (const [i, item] of obj.prioritizedImprovements.slice(0, 7).entries()) {
+    for (const [i, item] of obj.prioritizedImprovements.slice(0, 5).entries()) {
       const row = requireObject(item, `prioritizedImprovements.${i}`, issues);
       if (!row) continue;
       if (

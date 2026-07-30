@@ -388,10 +388,15 @@ export {
   findUnsupportedOpenAiSchemaKeywords,
 } from "@/lib/ai/design-critique-schema";
 export {
+  categorizeIncompleteReason,
   categorizeOpenAiFailure,
   formatFallbackUserMessage,
   sanitizeOpenAiSchemaError,
 } from "@/lib/ai/openai-error-categories";
+export {
+  OPENAI_CRITIQUE_DEFAULTS,
+  resolveOpenAiCritiqueOutputConfig,
+} from "@/lib/ai/openai-config";
 export {
   composeCritiqueAssistantContent,
   formatCritiqueFallbackCard,

@@ -1,8 +1,9 @@
 /**
- * TEMPORARY Sprint 28.0D diagnostic — remove after production verification.
+ * TEMPORARY Sprint 28.0D/E diagnostic — remove after production verification.
  * POST /api/debug/ai-runtime/critique-schema-probe
  *
- * Probes the real critique wire schema (not the tiny ok:true diagnostic).
+ * Probes the real critique wire schema via the production critique path
+ * (same output budget / temperature / timeout).
  * Returns only success/failure, request IDs, model, latency, sanitized error.
  * Never returns prompts or generated critique content.
  */
@@ -53,9 +54,10 @@ export async function POST(request: Request) {
           model: null,
           latencyMs: 0,
           httpStatus: null,
-          openaiErrorCode: null,
-          openaiErrorParam: null,
-          schemaPath: null,
+          incompleteReason: null,
+          configuredMaxOutputTokens: null,
+          retriedForOutputLimit: false,
+          responseStatus: null,
           schemaName: "atlas_design_critique",
         },
         { requestId, status: 200 },
@@ -76,10 +78,15 @@ export async function POST(request: Request) {
         model: result.model,
         latencyMs: result.latencyMs,
         httpStatus: result.httpStatus,
+        incompleteReason: result.incompleteReason,
+        configuredMaxOutputTokens: result.configuredMaxOutputTokens,
+        retriedForOutputLimit: result.retriedForOutputLimit,
+        responseStatus: result.responseStatus,
         openaiErrorCode: result.openaiErrorCode,
         openaiErrorParam: result.openaiErrorParam,
         schemaPath: result.schemaPath,
         schemaName: result.schemaName,
+        usage: result.usage,
       },
       { requestId },
     );

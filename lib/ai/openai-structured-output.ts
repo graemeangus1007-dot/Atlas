@@ -206,18 +206,32 @@ export function errorFromStructuredExtraction(
   extracted: ExtractedStructuredJson,
 ): AiError {
   switch (extracted.status) {
-    case "refusal":
-      return new AiError(
+    case "refusal": {
+      const err = new AiError(
         "invalid_response",
         "OpenAI refused to generate structured critique output.",
       );
-    case "incomplete":
-      return new AiError(
-        "invalid_response",
-        `OpenAI returned an incomplete critique response${
-          extracted.incompleteReason ? ` (${extracted.incompleteReason})` : ""
-        }.`,
+      (err as AiError & { category?: string }).category = "refusal";
+      return err;
+    }
+    case "incomplete": {
+      const reason = extracted.incompleteReason ?? "incomplete";
+      const isOutputLimit = /max_output_tokens|max_tokens|output_token/i.test(
+        reason,
       );
+      const err = new AiError(
+        "invalid_response",
+        isOutputLimit
+          ? `OpenAI returned an incomplete critique response (${reason}).`
+          : `OpenAI returned an incomplete critique response${
+              extracted.incompleteReason ? ` (${extracted.incompleteReason})` : ""
+            }.`,
+      );
+      (err as AiError & { category?: string; incompleteReason?: string }).category =
+        isOutputLimit ? "output_limit" : "incomplete";
+      (err as AiError & { incompleteReason?: string }).incompleteReason = reason;
+      return err;
+    }
     case "failed":
       return new AiError(
         "provider_error",

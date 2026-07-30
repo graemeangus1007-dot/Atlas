@@ -15,6 +15,7 @@ export const OPENAI_FAILURE_CATEGORIES = [
   "schema",
   "refusal",
   "incomplete",
+  "output_limit",
   "validation",
   "unknown",
 ] as const;
@@ -38,7 +39,28 @@ export type CategorizedAiFailure = {
   openaiErrorParam?: string | null;
   /** Sanitized schema path extracted from the error message. */
   schemaPath?: string | null;
+  /** Responses API incomplete_details.reason when present. */
+  incompleteReason?: string | null;
 };
+
+/**
+ * Map Responses API incomplete_details.reason to an Atlas failure category.
+ */
+export function categorizeIncompleteReason(
+  reason: string | null | undefined,
+): OpenAiFailureCategory {
+  const lower = (reason ?? "").toLowerCase();
+  if (!lower) return "incomplete";
+  if (/max_output_tokens|max_tokens|output_token/i.test(lower)) {
+    return "output_limit";
+  }
+  if (
+    /content_filter|content_policy|safety|refusal|blocked/i.test(lower)
+  ) {
+    return "refusal";
+  }
+  return "incomplete";
+}
 
 /**
  * Extract sanitized schema-rejection diagnostics from an OpenAI SDK error.
@@ -58,20 +80,38 @@ export function sanitizeOpenAiSchemaError(error: unknown): {
   let openaiErrorParam: string | null = null;
   let message = messageOf(error);
 
+  const atlasCodes = new Set([
+    "bad_request",
+    "provider_error",
+    "invalid_response",
+    "unauthorized",
+    "forbidden",
+    "rate_limited",
+    "not_configured",
+    "not_implemented",
+  ]);
   const walk = (value: unknown, depth = 0): void => {
     if (!value || typeof value !== "object" || depth > 4) return;
     const obj = value as Record<string, unknown>;
+    // Prefer nested OpenAI payload before Atlas AiError wrappers.
+    if (obj.error) walk(obj.error, depth + 1);
+    if (obj.cause) walk(obj.cause, depth + 1);
     if (typeof obj.code === "string" && !openaiErrorCode) {
-      openaiErrorCode = obj.code.slice(0, 80);
+      const code = obj.code.slice(0, 80);
+      if (!atlasCodes.has(code)) {
+        openaiErrorCode = code;
+      }
     }
     if (typeof obj.param === "string" && !openaiErrorParam) {
       openaiErrorParam = obj.param.slice(0, 200);
     }
-    if (typeof obj.type === "string" && obj.type.includes("invalid") && !openaiErrorCode) {
+    if (
+      typeof obj.type === "string" &&
+      obj.type.includes("invalid") &&
+      !openaiErrorCode
+    ) {
       openaiErrorCode = obj.type.slice(0, 80);
     }
-    if (obj.error) walk(obj.error, depth + 1);
-    if (obj.cause) walk(obj.cause, depth + 1);
   };
   walk(error);
 
@@ -144,8 +184,17 @@ export function extractOpenAiRequestId(errorOrResponse: unknown): string | null 
   if (typeof obj.id === "string" && obj.id.startsWith("resp_")) {
     return obj.id;
   }
+  // Responses API objects always carry object:"response" + id.
+  if (
+    typeof obj.id === "string" &&
+    obj.id.length > 0 &&
+    (obj.object === "response" || typeof obj.output !== "undefined")
+  ) {
+    return obj.id;
+  }
   if (typeof obj.request_id === "string") return obj.request_id;
   if (typeof obj.requestId === "string") return obj.requestId;
+  if (typeof obj.openaiRequestId === "string") return obj.openaiRequestId;
 
   const headers = obj.headers;
   if (headers && typeof headers === "object") {
@@ -355,13 +404,23 @@ export function categorizeOpenAiFailure(error: unknown): CategorizedAiFailure {
     if (
       (OPENAI_FAILURE_CATEGORIES as readonly string[]).includes(stamped)
     ) {
+      const stampedIncomplete =
+        "incompleteReason" in error &&
+        typeof (error as { incompleteReason: unknown }).incompleteReason ===
+          "string"
+          ? (error as { incompleteReason: string }).incompleteReason
+          : null;
       return {
         category: stamped as OpenAiFailureCategory,
-        message,
+        message:
+          stamped === "output_limit"
+            ? "OpenAI stopped the critique because the output token limit was reached."
+            : message,
         status,
         openaiRequestId,
         code,
         retryable: isRetryableOpenAiCategory(stamped as OpenAiFailureCategory),
+        incompleteReason: stampedIncomplete,
       };
     }
   }
@@ -377,14 +436,37 @@ export function categorizeOpenAiFailure(error: unknown): CategorizedAiFailure {
     };
   }
 
-  if (/incomplete|max_output|length limit|truncated/i.test(lower)) {
+  const stampedIncompleteReason =
+    typeof error === "object" &&
+    error !== null &&
+    "incompleteReason" in error &&
+    typeof (error as { incompleteReason: unknown }).incompleteReason === "string"
+      ? (error as { incompleteReason: string }).incompleteReason
+      : null;
+
+  if (
+    stampedIncompleteReason ||
+    /incomplete|max_output|length limit|truncated/i.test(lower)
+  ) {
+    const reasonMatch = lower.match(
+      /\((max_output_tokens|content_filter|[^)]+)\)/i,
+    );
+    const incompleteReason =
+      stampedIncompleteReason ?? reasonMatch?.[1] ?? null;
+    const category = categorizeIncompleteReason(incompleteReason);
     return {
-      category: "incomplete",
-      message: "OpenAI returned an incomplete critique response.",
+      category,
+      message:
+        category === "output_limit"
+          ? "OpenAI stopped the critique because the output token limit was reached."
+          : category === "refusal"
+            ? "OpenAI refused to generate a critique for this request."
+            : "OpenAI returned an incomplete critique response.",
       status: status ?? 502,
       openaiRequestId,
       code: code ?? "invalid_response",
       retryable: false,
+      incompleteReason,
     };
   }
 
@@ -456,6 +538,8 @@ export function formatFallbackUserMessage(input: {
         .join("\n");
     case "incomplete":
       return `OpenAI returned an incomplete response${id}. Showing a labeled local review instead.`;
+    case "output_limit":
+      return `AI critique stopped because the model hit its output token limit${id}. Showing a labeled local review instead.`;
     case "refusal":
       return `OpenAI refused to generate a critique for this request${id}. Showing a labeled local review instead.`;
     case "timeout":
@@ -500,7 +584,8 @@ export function aiErrorFromCategory(
           ? "rate_limited"
           : categorized.category === "validation" ||
               categorized.category === "refusal" ||
-              categorized.category === "incomplete"
+              categorized.category === "incomplete" ||
+              categorized.category === "output_limit"
             ? "invalid_response"
             : categorized.category === "provider_unavailable"
               ? "not_configured"

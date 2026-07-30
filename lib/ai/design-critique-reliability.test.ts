@@ -648,6 +648,7 @@ describe("critique schema probe", () => {
     });
     expect(result.success).toBe(true);
     expect(result.message).toBeNull();
+    expect(result.configuredMaxOutputTokens).toBe(8192);
     expect(JSON.stringify(result)).not.toMatch(/Clear service promise/);
   });
 });
