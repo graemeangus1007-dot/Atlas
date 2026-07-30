@@ -70,6 +70,7 @@ export async function POST(request: Request) {
       request: prompt,
       history: body.history,
       imageEditorState: body.imageEditorState,
+      atlasRequestId: requestId,
     });
 
     if (!result.ok) {

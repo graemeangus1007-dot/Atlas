@@ -214,7 +214,7 @@ const COMMAND_RULES: CommandRule[] = [
   {
     kind: "images",
     pattern:
-      /\b(replace|change|swap|update|add|set)\b[\s\S]{0,40}\b(hero\s+image|logo|gallery|photo|picture|image)\b|\b(hero\s+image|logo|gallery\s+image)\b/i,
+      /\b(replace|change|swap|update|add|set)\b[\s\S]{0,40}\b(hero\s+images?|logo|gallery|photos?|pictures?|images?)\b|\b(hero\s+images?|logo|gallery\s+images?|matching\s+images?)\b/i,
     confidence: 0.96,
     agents: ["image_agent"],
     intent: "image_edit",
@@ -438,11 +438,22 @@ export function stageExplicitCommand(
           "high",
         ),
         explanation: "I’ll update the imagery to match what you asked for.",
-        followUpSuggestions: [
-          "Add matching images elsewhere",
-          "Improve visual hierarchy",
-          "Add subtle animations",
-        ],
+        followUpSuggestions: (() => {
+          const hasMedia = (input.project.mediaLibrary ?? []).some(
+            (asset) => !asset.unavailable,
+          );
+          return hasMedia
+            ? [
+                "Add matching images elsewhere",
+                "Improve visual hierarchy",
+                "Add subtle animations",
+              ]
+            : [
+                "Improve visual hierarchy",
+                "Add subtle animations",
+                "Improve SEO",
+              ];
+        })(),
         memoryPatch: inferMemoryFromMessage(request),
         decisionStage: "explicit_command",
         commandKind: "images",

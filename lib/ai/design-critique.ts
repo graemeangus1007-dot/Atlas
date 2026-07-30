@@ -1,28 +1,40 @@
 /**
- * LLM Design Critique orchestration (Sprint 28.0A).
+ * LLM Design Critique orchestration (Sprint 28.0A / 28.0B).
  * Builds safe context → provider → validate → recommendations.
  * Never mutates BusinessProject; never logs prompt/website payloads.
  */
 
 import { AiError } from "@/lib/ai/errors";
 import { getAiProviderId, getOpenAiModel } from "@/lib/ai/provider";
-import { createAiRequestId } from "@/lib/ai/openai-logging";
+import {
+  createAiRequestId,
+  logAiCritique,
+} from "@/lib/ai/openai-logging";
+import {
+  categorizeOpenAiFailure,
+  formatFallbackUserMessage,
+  type CritiqueFallbackReason,
+} from "@/lib/ai/openai-error-categories";
 import {
   critiqueToRecommendations,
   dedupeImprovements,
 } from "@/lib/ai/critique-to-operations";
 import {
-  PROPOSED_CHANGE_KINDS,
-  type CritiqueFinding,
-  type CritiqueImprovement,
-  type CritiqueStrength,
-  type DesignCritique,
-  type DesignCritiqueContext,
-  type DesignCritiqueFailure,
-  type DesignCritiqueInput,
-  type DesignCritiqueMode,
-  type DesignCritiqueResult,
-  type ProposedChange,
+  validateDesignCritique,
+  validateDesignCritiqueWithIssues,
+  type CritiqueValidationIssue,
+} from "@/lib/ai/design-critique-validation";
+import type {
+  CritiqueFinding,
+  CritiqueImprovement,
+  CritiqueStrength,
+  DesignCritique,
+  DesignCritiqueContext,
+  DesignCritiqueFailure,
+  DesignCritiqueInput,
+  DesignCritiqueMode,
+  DesignCritiqueResult,
+  ProposedChange,
 } from "@/lib/ai/design-critique-types";
 import { reviewCreativeDirector } from "@/lib/ai/creative-director";
 import { scoreBusinessProject } from "@/lib/ai/critique-scoring";
@@ -34,41 +46,16 @@ import { sanitizePlainText } from "@/lib/leads/sanitize";
 import type { BusinessProject } from "@/types/business-project";
 import { GALLERY_SLOT_COUNT } from "@/types/media";
 
-const KIND_SET = new Set<string>(PROPOSED_CHANGE_KINDS);
+export {
+  validateDesignCritique,
+  validateDesignCritiqueWithIssues,
+} from "@/lib/ai/design-critique-validation";
 
 function clip(value: unknown, max: number): string {
   return sanitizePlainText(
     typeof value === "string" ? value : value == null ? "" : String(value),
     { maxLength: max, trimEnds: true },
   );
-}
-
-function requireObject(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new AiError("invalid_response", `Critique ${label} must be an object.`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function requireStringArray(value: unknown, label: string, max: number): string[] {
-  if (!Array.isArray(value) || value.length < 1) {
-    throw new AiError(
-      "invalid_response",
-      `Critique ${label} must be a non-empty array.`,
-    );
-  }
-  return value
-    .slice(0, max)
-    .map((item, i) => {
-      const s = clip(item, 160);
-      if (!s) {
-        throw new AiError(
-          "invalid_response",
-          `Critique ${label}[${i}] is empty.`,
-        );
-      }
-      return s;
-    });
 }
 
 function emptyProposedChange(): ProposedChange {
@@ -102,212 +89,10 @@ function emptyProposedChange(): ProposedChange {
   };
 }
 
-function parseProposedChange(raw: unknown, index: number): ProposedChange {
-  const row = requireObject(raw, `proposedChanges[${index}]`);
-  const kind = clip(row.kind, 40);
-  if (!KIND_SET.has(kind)) {
-    throw new AiError(
-      "invalid_response",
-      `Unknown proposed change kind at index ${index}.`,
-    );
-  }
-  const base = emptyProposedChange();
-  return {
-    ...base,
-    kind: kind as ProposedChange["kind"],
-    target: clip(row.target, 80),
-    value: clip(row.value, 2000),
-    sectionType: clip(row.sectionType, 40),
-    headingFont: clip(row.headingFont, 40),
-    bodyFont: clip(row.bodyFont, 40),
-    buttonStyle: clip(row.buttonStyle, 40),
-    siteWidth: clip(row.siteWidth, 20),
-    templateId: clip(row.templateId, 40),
-    theme: clip(row.theme, 20),
-    primary: clip(row.primary, 40),
-    secondary: clip(row.secondary, 40),
-    accent: clip(row.accent, 40),
-    background: clip(row.background, 40),
-    fromColor: clip(row.fromColor, 40),
-    toColor: clip(row.toColor, 40),
-    siteTitle: clip(row.siteTitle, 120),
-    metaDescription: clip(row.metaDescription, 160),
-    spacing: clip(row.spacing, 20),
-    serviceIcons: Boolean(row.serviceIcons),
-    motion: Boolean(row.motion),
-    visualHierarchy: Boolean(row.visualHierarchy),
-    contactFormEnabled: Boolean(row.contactFormEnabled),
-    assetHint: clip(row.assetHint, 80),
-    sectionSlot: clip(row.sectionSlot, 40),
-    servicesJson: clip(row.servicesJson, 4000),
-  };
-}
-
-/**
- * Runtime validation after Structured Outputs parsing.
- */
-export function validateDesignCritique(raw: unknown): DesignCritique {
-  const obj = requireObject(raw, "root");
-  const summary = clip(obj.summary, 800);
-  if (!summary) {
-    throw new AiError("invalid_response", "Critique summary is required.");
-  }
-
-  if (!Array.isArray(obj.currentStrengths) || obj.currentStrengths.length < 1) {
-    throw new AiError(
-      "invalid_response",
-      "Critique must include currentStrengths.",
-    );
-  }
-  const currentStrengths: CritiqueStrength[] = obj.currentStrengths
-    .slice(0, 5)
-    .map((item, i) => {
-      const row = requireObject(item, `currentStrengths[${i}]`);
-      return {
-        id: clip(row.id, 64) || `strength-${i + 1}`,
-        title: clip(row.title, 120),
-        evidence: clip(row.evidence, 400),
-      };
-    })
-    .filter((s) => s.title && s.evidence);
-
-  if (currentStrengths.length < 1) {
-    throw new AiError("invalid_response", "No valid strengths in critique.");
-  }
-
-  if (!Array.isArray(obj.coreProblems) || obj.coreProblems.length < 1) {
-    throw new AiError("invalid_response", "Critique must include coreProblems.");
-  }
-  const coreProblems: CritiqueFinding[] = [];
-  for (const [i, item] of obj.coreProblems.slice(0, 7).entries()) {
-    const row = requireObject(item, `coreProblems[${i}]`);
-    const severityRaw = row.severity;
-    if (severityRaw !== "missing" && severityRaw !== "weak") {
-      throw new AiError(
-        "invalid_response",
-        `Invalid severity at coreProblems[${i}].`,
-      );
-    }
-    const title = clip(row.title, 120);
-    const observation = clip(row.observation, 600);
-    if (!title || !observation) continue;
-    coreProblems.push({
-      id: clip(row.id, 64) || `problem-${i + 1}`,
-      title,
-      observation,
-      severity: severityRaw,
-      affectedAreas: requireStringArray(
-        row.affectedAreas,
-        `coreProblems[${i}].affectedAreas`,
-        8,
-      ),
-    });
-  }
-
-  if (coreProblems.length < 1) {
-    throw new AiError("invalid_response", "No valid core problems in critique.");
-  }
-
-  const direction = requireObject(obj.designDirection, "designDirection");
-  const designDirection = {
-    name: clip(direction.name, 80),
-    rationale: clip(direction.rationale, 600),
-    emotionalGoal: clip(direction.emotionalGoal, 300),
-    visualPrinciples: requireStringArray(
-      direction.visualPrinciples,
-      "designDirection.visualPrinciples",
-      6,
-    ),
-  };
-  if (!designDirection.name || !designDirection.rationale) {
-    throw new AiError("invalid_response", "designDirection is incomplete.");
-  }
-
-  if (
-    !Array.isArray(obj.prioritizedImprovements) ||
-    obj.prioritizedImprovements.length < 1
-  ) {
-    throw new AiError(
-      "invalid_response",
-      "Critique must include prioritizedImprovements.",
-    );
-  }
-
-  const prioritizedImprovements: CritiqueImprovement[] = [];
-  for (const [i, item] of obj.prioritizedImprovements.slice(0, 7).entries()) {
-    const row = requireObject(item, `prioritizedImprovements[${i}]`);
-    const impactRaw = row.impact;
-    if (
-      impactRaw !== "high" &&
-      impactRaw !== "medium" &&
-      impactRaw !== "low"
-    ) {
-      throw new AiError(
-        "invalid_response",
-        `Invalid impact at prioritizedImprovements[${i}].`,
-      );
-    }
-    const title = clip(row.title, 120);
-    const observation = clip(row.observation, 600);
-    const rationale = clip(row.rationale, 800);
-    if (!title || !observation || !rationale) continue;
-    const changes = Array.isArray(row.proposedChanges)
-      ? row.proposedChanges.slice(0, 8).map((c, ci) => parseProposedChange(c, ci))
-      : [];
-    prioritizedImprovements.push({
-      id: clip(row.id, 64) || `improve-${i + 1}`,
-      title,
-      observation,
-      rationale,
-      expectedBusinessOutcome: clip(row.expectedBusinessOutcome, 400),
-      impact: impactRaw,
-      affectedAreas: requireStringArray(
-        row.affectedAreas,
-        `prioritizedImprovements[${i}].affectedAreas`,
-        8,
-      ),
-      proposedChanges: changes,
-    });
-  }
-
-  const deduped = dedupeImprovements(prioritizedImprovements);
-  if (deduped.length < 1) {
-    throw new AiError(
-      "invalid_response",
-      "No valid prioritized improvements after dedupe.",
-    );
-  }
-
-  const expectedOutcome = clip(obj.expectedOutcome, 600);
-  if (!expectedOutcome) {
-    throw new AiError("invalid_response", "expectedOutcome is required.");
-  }
-
-  const confidence =
-    typeof obj.confidence === "number" && Number.isFinite(obj.confidence)
-      ? Math.min(1, Math.max(0, obj.confidence))
-      : null;
-  if (confidence === null) {
-    throw new AiError("invalid_response", "confidence must be a number 0–1.");
-  }
-
-  // Reject generic filler summaries
-  if (/^improve the design\.?$/i.test(summary.trim())) {
-    throw new AiError(
-      "invalid_response",
-      "Critique summary is too generic.",
-    );
-  }
-
-  return {
-    summary,
-    currentStrengths,
-    coreProblems,
-    designDirection,
-    prioritizedImprovements: deduped,
-    expectedOutcome,
-    confidence,
-  };
+function proposed(
+  partial: Partial<ProposedChange> & { kind: ProposedChange["kind"] },
+): ProposedChange {
+  return { ...emptyProposedChange(), ...partial };
 }
 
 /**
@@ -451,12 +236,6 @@ export function buildDesignCritiqueContext(
       })),
     viewportHint: clip(viewportHint ?? "", 80),
   };
-}
-
-function proposed(
-  partial: Partial<ProposedChange> & { kind: ProposedChange["kind"] },
-): ProposedChange {
-  return { ...emptyProposedChange(), ...partial };
 }
 
 /**
@@ -697,6 +476,8 @@ export function formatDesignCritiqueExplanation(input: {
   mode: DesignCritiqueMode;
   usedFallback?: boolean;
   requestId?: string;
+  fallbackReason?: CritiqueFallbackReason | null;
+  audience?: "customer" | "owner";
 }): string {
   const { critique, mode } = input;
   const strengths = critique.currentStrengths
@@ -712,9 +493,11 @@ export function formatDesignCritiqueExplanation(input: {
     .join("\n");
 
   const fallbackNote = input.usedFallback
-    ? `I couldn’t complete a full AI critique just now${
-        input.requestId ? ` (request ${input.requestId})` : ""
-      }. Showing an explicitly labeled fallback review from Atlas’ local checks:\n\n`
+    ? `${formatFallbackUserMessage({
+        category: input.fallbackReason ?? "unknown",
+        requestId: input.requestId,
+        audience: input.audience,
+      })}\n\n`
     : "";
 
   const close =
@@ -746,37 +529,77 @@ async function callOpenAiCritique(input: {
   request: string;
   mode: DesignCritiqueMode;
   context: DesignCritiqueContext;
+  atlasRequestId?: string | null;
 }): Promise<{
   critique: DesignCritique;
   requestId: string;
+  openaiRequestId: string | null;
   model: string;
   latencyMs: number;
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
+  responseStatus: string | null;
+  validationIssues: CritiqueValidationIssue[] | null;
 }> {
-  // Dynamic import keeps the OpenAI SDK out of client bundles.
   const { runOpenAiDesignCritique } = await import(
     "@/lib/ai/design-critique-provider"
   );
-  const result = await runOpenAiDesignCritique(input);
-  try {
-    return {
-      critique: validateDesignCritique(result.raw),
-      requestId: result.requestId,
+  const result = await runOpenAiDesignCritique(
+    {
+      request: input.request,
+      mode: input.mode,
+      context: input.context,
+    },
+    { atlasRequestId: input.atlasRequestId },
+  );
+
+  const validated = validateDesignCritiqueWithIssues(result.raw);
+  if (!validated.ok) {
+    logAiCritique({
+      provider: "openai",
       model: result.model,
-      latencyMs: result.latencyMs,
+      requestId: result.requestId,
+      openaiRequestId: result.openaiRequestId,
+      durationMs: result.latencyMs,
+      ok: false,
+      code: "invalid_response",
+      category: "validation",
+      responseStatus: result.responseStatus,
+      critiqueMode: input.mode,
+      validationIssues: validated.issues,
       promptTokens: result.promptTokens,
       completionTokens: result.completionTokens,
       totalTokens: result.totalTokens,
-    };
-  } catch (error) {
-    throw new AiError(
+    });
+    const err = new AiError(
       "invalid_response",
       "OpenAI critique failed schema validation.",
-      { cause: error },
     );
+    (err as AiError & {
+      category?: string;
+      openaiRequestId?: string | null;
+      validationIssues?: CritiqueValidationIssue[];
+    }).category = "validation";
+    (err as AiError & { openaiRequestId?: string | null }).openaiRequestId =
+      result.openaiRequestId;
+    (err as AiError & { validationIssues?: CritiqueValidationIssue[] }).validationIssues =
+      validated.issues;
+    throw err;
   }
+
+  return {
+    critique: validated.critique,
+    requestId: result.requestId,
+    openaiRequestId: result.openaiRequestId,
+    model: result.model,
+    latencyMs: result.latencyMs,
+    promptTokens: result.promptTokens,
+    completionTokens: result.completionTokens,
+    totalTokens: result.totalTokens,
+    responseStatus: result.responseStatus,
+    validationIssues: null,
+  };
 }
 
 /**
@@ -784,10 +607,13 @@ async function callOpenAiCritique(input: {
  * On OpenAI failure, returns labeled mock fallback (never silent generic success).
  */
 export async function runDesignCritique(
-  input: DesignCritiqueInput,
+  input: DesignCritiqueInput & {
+    atlasRequestId?: string | null;
+    audience?: "customer" | "owner";
+  },
 ): Promise<DesignCritiqueResult | DesignCritiqueFailure> {
   const started = Date.now();
-  const requestId = createAiRequestId();
+  const requestId = input.atlasRequestId?.trim() || createAiRequestId();
   const history = (input.history ?? [])
     .filter(
       (m): m is { role: "user" | "assistant"; content: string } =>
@@ -806,12 +632,14 @@ export async function runDesignCritique(
   const providerId = getAiProviderId();
   let critique: DesignCritique;
   let usedFallback = false;
+  let fallbackReason: CritiqueFallbackReason | null = null;
   let model = providerId === "openai" ? getOpenAiModel() : "mock-critique";
   let latencyMs = 0;
   let promptTokens: number | null = null;
   let completionTokens: number | null = null;
   let totalTokens: number | null = null;
   let diagRequestId = requestId;
+  let openaiRequestId: string | null = null;
 
   try {
     if (input.critiqueFn) {
@@ -825,26 +653,51 @@ export async function runDesignCritique(
       latencyMs = Date.now() - started;
     } else if (providerId === "openai") {
       try {
-        const openai = await callOpenAiCritique({
-          request: input.request,
-          mode: input.mode,
-          context,
-        });
+        const openai = input.openAiCall
+          ? await input.openAiCall({
+              context,
+              request: input.request,
+              mode: input.mode,
+              atlasRequestId: requestId,
+            })
+          : await callOpenAiCritique({
+              request: input.request,
+              mode: input.mode,
+              context,
+              atlasRequestId: requestId,
+            });
         critique = openai.critique;
         diagRequestId = openai.requestId;
+        openaiRequestId = openai.openaiRequestId ?? null;
         model = openai.model;
         latencyMs = openai.latencyMs;
         promptTokens = openai.promptTokens;
         completionTokens = openai.completionTokens;
         totalTokens = openai.totalTokens;
       } catch (error) {
-        // Labeled fallback — never imply AI analysis succeeded.
+        const categorized = categorizeOpenAiFailure(error);
         usedFallback = true;
+        fallbackReason = categorized.category;
+        openaiRequestId =
+          categorized.openaiRequestId ??
+          (error as { openaiRequestId?: string | null })?.openaiRequestId ??
+          null;
         critique = buildMockDesignCritique(context, input.request);
         latencyMs = Date.now() - started;
-        if (error instanceof AiError && error.code === "not_configured") {
-          // keep fallback
-        }
+        logAiCritique({
+          provider: "openai",
+          model,
+          requestId: diagRequestId,
+          openaiRequestId,
+          durationMs: latencyMs,
+          ok: false,
+          code: categorized.code ?? "provider_error",
+          category: categorized.category,
+          critiqueMode: input.mode,
+          validationIssues:
+            (error as { validationIssues?: CritiqueValidationIssue[] })
+              ?.validationIssues ?? null,
+        });
       }
     } else {
       critique = buildMockDesignCritique(context, input.request);
@@ -867,10 +720,12 @@ export async function runDesignCritique(
         provider: providerId,
         model,
         requestId: diagRequestId,
+        openaiRequestId,
         latencyMs: Date.now() - started,
         critiqueMode: input.mode,
         usedFallback: false,
         fallbackLabeled: false,
+        fallbackReason: null,
       },
     };
   }
@@ -885,6 +740,8 @@ export async function runDesignCritique(
     mode: input.mode,
     usedFallback,
     requestId: diagRequestId,
+    fallbackReason,
+    audience: input.audience,
   });
 
   return {
@@ -894,10 +751,12 @@ export async function runDesignCritique(
     operations,
     explanation,
     usedFallback,
+    fallbackReason,
     diagnostics: {
       provider: usedFallback ? "mock" : providerId,
       model: usedFallback ? "mock-critique-fallback" : model,
       requestId: diagRequestId,
+      openaiRequestId,
       latencyMs,
       promptTokens,
       completionTokens,
@@ -907,6 +766,7 @@ export async function runDesignCritique(
       operationCount: operations.length,
       usedFallback,
       fallbackLabeled: usedFallback,
+      fallbackReason,
     },
   };
 }

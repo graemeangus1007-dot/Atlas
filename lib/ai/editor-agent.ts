@@ -45,6 +45,8 @@ export type EditorAgentInput = {
   history?: EditorAgentHistoryItem[] | EditorConversation | EditorConversationMessage[];
   /** Optional image selection cues for “this / that image”. */
   imageEditorState?: ImageEditorState | null;
+  /** Atlas HTTP / client request id for OpenAI correlation (Sprint 28.0B). */
+  atlasRequestId?: string | null;
 };
 
 export type EditorAgentApplyStatus =

@@ -89,7 +89,15 @@ export type ActionConfirmation = {
 
 /** Phrases that mean “execute the pending recommendations”. */
 export const APPLY_ALL_PHRASES =
-  /\b(apply\s+all|apply\s+everything|do\s+(it|all)|go\s+ahead|yes+|yep|yeah|sure|ok(ay)?|everything|all\s+of\s+(them|it)|all\s+of\s+'?em|proceed|sounds\s+good|let'?s\s+do\s+(it|that)|make\s+it\s+so)\b/i;
+  /\b(apply\s+all|apply\s+everything|apply\s+the\s+full\s+plan|do\s+(it|all)|do\s+all\s+of\s+it|go\s+ahead|yes+|yep|yeah|sure|ok(ay)?|everything|all\s+of\s+(them|it)|all\s+of\s+'?em|proceed|sounds\s+good|let'?s\s+do\s+(it|that)|make\s+it\s+so|complete\s+my\s+website|finish\s+my\s+website|make\s+it\s+launch[- ]ready)\b/i;
+
+/** First-class completion / launch-ready phrases (Sprint 28.0B). */
+export const COMPLETE_WEBSITE_PHRASES =
+  /\b(complete\s+my\s+website|finish\s+my\s+website|make\s+it\s+launch[- ]ready|apply\s+everything|apply\s+the\s+full\s+plan|do\s+all\s+of\s+it)\b/i;
+
+export function isCompleteWebsiteRequest(request: string): boolean {
+  return COMPLETE_WEBSITE_PHRASES.test(request.trim());
+}
 
 const APPLY_ONE_PHRASES =
   /\b(apply(\s+that|\s+this|\s+the\s+(first|top|selected))?|the\s+first\s+one|just\s+that\s+one)\b/i;
@@ -192,7 +200,11 @@ export function detectActionConfirmation(request: string): ActionConfirmation {
     };
   }
 
-  if (APPLY_ALL_PHRASES.test(text) || /\bapply\s+all\b/i.test(text)) {
+  if (
+    APPLY_ALL_PHRASES.test(text) ||
+    COMPLETE_WEBSITE_PHRASES.test(text) ||
+    /\bapply\s+all\b/i.test(text)
+  ) {
     return { kind: "apply_all", matchedPhrase: text };
   }
 

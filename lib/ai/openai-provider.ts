@@ -45,7 +45,10 @@ export type OpenAiResponsesClient = {
   responses: {
     create: (
       body: OpenAI.Responses.ResponseCreateParamsNonStreaming,
-      options?: { signal?: AbortSignal },
+      options?: {
+        signal?: AbortSignal;
+        headers?: Record<string, string>;
+      },
     ) => Promise<OpenAI.Responses.Response>;
   };
 };

@@ -383,13 +383,23 @@ export {
 export {
   DESIGN_CRITIQUE_JSON_SCHEMA,
   DESIGN_CRITIQUE_SCHEMA_NAME,
+  assertCritiqueSchemaStrictShape,
 } from "@/lib/ai/design-critique-schema";
+export {
+  categorizeOpenAiFailure,
+  formatFallbackUserMessage,
+} from "@/lib/ai/openai-error-categories";
+export {
+  getAiRuntimeSnapshot,
+  AI_RUNTIME_DEBUG_TEMPORARY,
+} from "@/lib/ai/ai-runtime-diagnostics";
 export type {
   DesignCritique,
   DesignCritiqueContext,
   DesignCritiqueMode,
   DesignCritiqueResult,
   CritiqueImprovement,
+  CritiqueFallbackReason,
   ProposedChange,
 } from "@/lib/ai/design-critique-types";
 export {

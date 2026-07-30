@@ -19,6 +19,7 @@ import {
   runDesignCritique,
   validateDesignCritique,
 } from "@/lib/ai/design-critique";
+import { validateDesignCritiqueWithIssues } from "@/lib/ai/design-critique-validation";
 import {
   critiqueToRecommendations,
   dedupeImprovements,
@@ -321,13 +322,23 @@ describe("context + schema", () => {
     const valid = validateDesignCritique(validCritiqueJson());
     expect(valid.prioritizedImprovements.length).toBeGreaterThan(0);
 
-    expect(() => validateDesignCritique({ summary: "x" })).toThrow(/strengths|invalid/i);
+    expect(() => validateDesignCritique({ summary: "x" })).toThrow(
+      /schema validation|invalid/i,
+    );
     expect(() =>
       validateDesignCritique({
         ...validCritiqueJson(),
         summary: "improve the design",
       }),
-    ).toThrow(/generic/i);
+    ).toThrow(/schema validation|generic/i);
+    const tooGeneric = validateDesignCritiqueWithIssues({
+      ...validCritiqueJson(),
+      summary: "improve the design",
+    });
+    expect(tooGeneric.ok).toBe(false);
+    if (!tooGeneric.ok) {
+      expect(tooGeneric.issues.some((i) => i.code === "too_generic")).toBe(true);
+    }
   });
 });
 

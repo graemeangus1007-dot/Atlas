@@ -193,10 +193,24 @@ export type DesignCritiqueContext = {
   viewportHint: string;
 };
 
+export type CritiqueFallbackReason =
+  | "provider_unavailable"
+  | "authentication"
+  | "quota"
+  | "rate_limit"
+  | "timeout"
+  | "model"
+  | "schema"
+  | "refusal"
+  | "incomplete"
+  | "validation"
+  | "unknown";
+
 export type DesignCritiqueDiagnostics = {
   provider: "openai" | "mock";
   model: string;
   requestId: string;
+  openaiRequestId?: string | null;
   latencyMs: number;
   promptTokens: number | null;
   completionTokens: number | null;
@@ -206,6 +220,7 @@ export type DesignCritiqueDiagnostics = {
   operationCount: number;
   usedFallback: boolean;
   fallbackLabeled: boolean;
+  fallbackReason?: CritiqueFallbackReason | null;
 };
 
 export type DesignCritiqueInput = {
@@ -214,12 +229,31 @@ export type DesignCritiqueInput = {
   mode: DesignCritiqueMode;
   history?: Array<Pick<EditorConversationMessage, "role" | "content">>;
   viewportHint?: string | null;
-  /** Injected for tests — bypasses provider factory. */
+  /** Injected for tests — bypasses provider factory (treated as success). */
   critiqueFn?: (input: {
     context: DesignCritiqueContext;
     request: string;
     mode: DesignCritiqueMode;
   }) => Promise<DesignCritique> | DesignCritique;
+  /**
+   * Test-only OpenAI call replacement. When provided with AI_PROVIDER=openai,
+   * failures here trigger the labeled fallback path.
+   */
+  openAiCall?: (input: {
+    context: DesignCritiqueContext;
+    request: string;
+    mode: DesignCritiqueMode;
+    atlasRequestId?: string | null;
+  }) => Promise<{
+    critique: DesignCritique;
+    requestId: string;
+    openaiRequestId?: string | null;
+    model: string;
+    latencyMs: number;
+    promptTokens: number | null;
+    completionTokens: number | null;
+    totalTokens: number | null;
+  }>;
 };
 
 export type DesignCritiqueResult = {
@@ -231,6 +265,7 @@ export type DesignCritiqueResult = {
   diagnostics: DesignCritiqueDiagnostics;
   /** True when configured openai failed and labeled mock fallback was used. */
   usedFallback: boolean;
+  fallbackReason?: CritiqueFallbackReason | null;
 };
 
 export type DesignCritiqueFailure = {

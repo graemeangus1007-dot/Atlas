@@ -11,6 +11,7 @@ import {
   getActionMemory,
   hasActiveRecommendations,
   hasPendingClarification,
+  isCompleteWebsiteRequest,
   matchClarificationAnswer,
   selectRecommendationsToApply,
   shouldExecuteActionMemory,
@@ -22,6 +23,7 @@ import {
   type AtlasActionMemory,
   type ClarificationDestination,
 } from "@/lib/ai/atlas-action-memory";
+import { planCompleteWebsite } from "@/lib/ai/creative-director";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
   formatNaturalPreferenceNote,
@@ -100,6 +102,24 @@ function withMemory(
 ): BusinessProject {
   const atlasMemory = updateAtlasMemory(project, request, patch);
   return { ...project, atlasMemory };
+}
+
+function hasUsableMedia(project: BusinessProject): boolean {
+  return (project.mediaLibrary ?? []).some((asset) => !asset.unavailable);
+}
+
+/** Drop “Add matching images” chips when the library is empty. */
+function followUpsForProject(
+  project: BusinessProject,
+  suggestions: string[],
+): string[] {
+  const hasMedia = hasUsableMedia(project);
+  return suggestions
+    .filter((item) => {
+      if (!hasMedia && /matching images/i.test(item)) return false;
+      return true;
+    })
+    .slice(0, 4);
 }
 
 function confirmDecision(
@@ -486,6 +506,70 @@ export async function runAtlasBrain(
     return continued;
   }
 
+  // Sprint 28.0B — Complete my website with no active plan → create plan, ask once
+  if (
+    isCompleteWebsiteRequest(request) &&
+    !hasActiveRecommendations(getActionMemory(input.project))
+  ) {
+    const plan = planCompleteWebsite(input.project);
+    const actionMemory = storeRecommendations(getActionMemory(input.project), {
+      creative: plan.recommendations,
+      creativeReport: {
+        overallCompleteness: plan.overallCompleteness,
+        maturityLevel: plan.maturityLevel,
+        fingerprint: `${plan.overallCompleteness}:${plan.maturityLevel}`,
+        reviewedAt: new Date().toISOString(),
+      },
+      executionPlan: {
+        goal: "Complete the website for launch",
+        steps: [
+          {
+            id: "complete.apply",
+            agent: "creative_director",
+            label: "Apply the launch-ready plan",
+          },
+        ],
+        estimatedImpact: "high",
+      },
+    });
+    const project = withActionMemory(
+      withMemory(input.project, request),
+      actionMemory,
+    );
+    return {
+      ok: true,
+      explanation: [
+        plan.narrative,
+        "",
+        "Say Apply All (or Complete my website again) when you want me to make these changes.",
+      ].join("\n"),
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: {
+        intent: "recommend",
+        confidence: 0.94,
+        selectedAgents: ["creative_director"],
+        needsClarification: false,
+        executionPlan: actionMemory.executionPlan!,
+        explanation: "I prepared a launch-ready completion plan.",
+        followUpSuggestions: followUpsForProject(project, [
+          "Apply All",
+          "Improve SEO",
+          "Add subtle animations",
+        ]),
+      },
+      followUpSuggestions: followUpsForProject(project, [
+        "Apply All",
+        "Improve SEO",
+        "Add subtle animations",
+      ]),
+      executionPlan: actionMemory.executionPlan,
+      atlasMemory: project.atlasMemory,
+    };
+  }
+
   const decision = decideAtlasBrain({
     request,
     project: input.project,
@@ -566,6 +650,7 @@ export async function runAtlasBrain(
         request,
         mode: "critique",
         history,
+        atlasRequestId: input.atlasRequestId,
       });
 
       if (!critiqueResult.ok) {
@@ -823,6 +908,7 @@ export async function runAtlasBrain(
         request,
         mode: "execute",
         history,
+        atlasRequestId: input.atlasRequestId,
       });
       if (critiqueResult.ok) {
         const applyable = critiqueResult.recommendations.filter((r) => r.applyable);
@@ -969,10 +1055,12 @@ export async function runAtlasBrain(
   project = withMemory(project, request, decision.memoryPatch);
 
   // Soft follow-ups after successful work
-  const followUps =
+  const followUps = followUpsForProject(
+    project,
     applyStatus === "applied"
       ? decision.followUpSuggestions
-      : decision.followUpSuggestions.slice(0, 3);
+      : decision.followUpSuggestions.slice(0, 3),
+  );
 
   if (applyStatus === "applied") {
     explanation = appendExplanation(

@@ -287,7 +287,7 @@ function requireAssetOrClarify(
     if (!project.mediaLibrary.length) {
       return {
         clarify:
-          "I don’t see any images in your media library yet. Upload a photo first, then ask me to place it.",
+          "There aren’t any uploaded images available yet. I can help place uploaded photos now; AI image generation is not enabled yet.",
       };
     }
     return {
@@ -299,7 +299,7 @@ function requireAssetOrClarify(
   if (!fallback) {
     return {
       clarify:
-        "I don’t see any images in your media library yet. Upload a photo first, then ask me to place it.",
+        "There aren’t any uploaded images available yet. I can help place uploaded photos now; AI image generation is not enabled yet.",
     };
   }
   return { asset: fallback };
