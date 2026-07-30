@@ -459,6 +459,15 @@ export type {
   CritiqueRouteIntent,
   CritiqueSignalId,
 } from "@/lib/ai/critique-request";
+export {
+  applyImprovementRequest,
+  parseCritiqueMessage,
+  toExecutiveSummary,
+} from "@/lib/ai/critique-message-presentation";
+export type {
+  CritiqueImprovementCard,
+  ParsedCritiqueMessage,
+} from "@/lib/ai/critique-message-presentation";
 export type {
   DecisionStage,
   CommandKind,
