@@ -71,6 +71,26 @@ export default function PublishedSite({ slug }: PublishedSiteProps) {
       <div
         className="site-canvas flex min-h-0 flex-1 flex-col"
         style={themeStyle}
+        data-template={template.id}
+        data-motion={content.creativePolish?.motion ? "on" : "off"}
+        data-motion-preset={
+          content.creativePolish?.motionPreset ??
+          (content.creativePolish?.motion ? "subtle" : "none")
+        }
+        data-section-reveal={
+          (content.creativePolish?.sectionReveal ??
+          content.creativePolish?.motion)
+            ? "on"
+            : "off"
+        }
+        data-hover-effects={
+          (content.creativePolish?.hoverEffects ??
+          content.creativePolish?.motion)
+            ? "on"
+            : "off"
+        }
+        data-hierarchy={content.creativePolish?.visualHierarchy ? "on" : "off"}
+        data-spacing={content.creativePolish?.spacing ?? "default"}
       >
         <WebsiteRenderer content={content} template={template} />
       </div>

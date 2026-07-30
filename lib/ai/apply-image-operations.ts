@@ -12,7 +12,10 @@ import type {
 import { resolveMediaUrl } from "@/lib/media";
 import type { BusinessProject } from "@/types/business-project";
 import { GALLERY_SLOT_COUNT } from "@/types/media";
-import { getTemplate } from "@/lib/templates";
+import {
+  defaultProjectSectionOrder,
+  moveSectionInOrder,
+} from "@/lib/ai/section-order";
 import "@/lib/templates";
 
 function cloneGalleryIds(project: BusinessProject): string[] {
@@ -163,36 +166,7 @@ function setLogoFromAsset(
 }
 
 function defaultSectionOrder(project: BusinessProject): string[] {
-  const template = getTemplate(project.templateId || "modern");
-  const design = project.designSections?.enabled ?? [];
-  return [...template.sectionOrder, ...design];
-}
-
-function moveSectionInOrder(
-  order: string[],
-  section: string,
-  position: string,
-  relativeTo?: string,
-): string[] {
-  const without = order.filter((id) => id !== section);
-  if (position === "top") return [section, ...without];
-  if (position === "bottom") return [...without, section];
-  if (!relativeTo) return [...without, section];
-
-  const anchor = without.indexOf(relativeTo);
-  if (anchor < 0) return [...without, section];
-
-  if (position === "above" || position === "before") {
-    const next = [...without];
-    next.splice(anchor, 0, section);
-    return next;
-  }
-  if (position === "below" || position === "after" || position === "next_to") {
-    const next = [...without];
-    next.splice(anchor + 1, 0, section);
-    return next;
-  }
-  return [...without, section];
+  return defaultProjectSectionOrder(project);
 }
 
 /**

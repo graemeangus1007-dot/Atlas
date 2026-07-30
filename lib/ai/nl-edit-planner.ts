@@ -10,9 +10,13 @@ import {
   resolveNamedColor,
   NAMED_COLORS,
 } from "@/lib/ai/named-colors";
+import {
+  isSectionOrderRequest,
+  parseSectionMoveRequest,
+} from "@/lib/ai/section-order";
 import type { BusinessProject } from "@/types/business-project";
 
-export const NL_EDIT_PLANNER_VERSION = "28.2.0";
+export const NL_EDIT_PLANNER_VERSION = "28.3.0";
 export const NL_EDIT_EXECUTE_CONFIDENCE = 0.95;
 
 export type NlEditCategory =
@@ -46,6 +50,12 @@ export type NlEditPlanStep =
   | { type: "setLuxuryTypography" }
   | { type: "updateNavigation"; mode?: "sticky" | "shorten" }
   | { type: "moveContactFormHigher" }
+  | {
+      type: "moveSection";
+      section: string;
+      position: "first" | "last" | "before" | "after";
+      relativeTo?: string;
+    }
   | { type: "useDarkerColors" }
   | { type: "useLighterColors" };
 
@@ -74,7 +84,7 @@ const AMBIGUOUS_ONLY =
   /^(make\s+it\s+nicer|change\s+it|improve\s+it|make\s+it\s+better|update\s+it|fix\s+it)[.!?]?$/i;
 
 const EDIT_SIGNAL =
-  /\b(color|colour|colors|colours|palette|theme|green|gold|navy|button|buttons|readab|contrast|spacing|whitespace|font|typography|navigation|nav|sticky|contact\s+form|round|rounded|luxur|darker|lighter|easy\s+to\s+read|easier\s+to\s+read|stand\s+out)\b/i;
+  /\b(color|colour|colors|colours|palette|theme|green|gold|navy|button|buttons|readab|contrast|spacing|whitespace|font|typography|navigation|nav|sticky|contact\s+form|round|rounded|luxur|darker|lighter|easy\s+to\s+read|easier\s+to\s+read|stand\s+out|move\s+(?:the\s+)?(?:contact|gallery|about|services|testimonials|faq)|put\s+(?:the\s+)?(?:contact|gallery|about|services|testimonials|faq))\b/i;
 
 const COLOR_PAIR =
   /\b(?:turn|change|update|set|make|use|switch)\b[\s\S]{0,40}\b(?:colors?|colours?|palette|theme)\b|\b(?:colors?|colours?|palette)\b[\s\S]{0,40}\b(?:to|into|as)\b|\b(green|forest\s+green|emerald|sage|olive|gold|mustard|bronze|navy|charcoal|cream|white|black)\b[\s\S]{0,30}\b(and|&)\b[\s\S]{0,10}\b(green|forest\s+green|emerald|sage|olive|gold|mustard|bronze|navy|charcoal|cream|white|black)\b/i;
@@ -331,6 +341,17 @@ function stepsToOperations(
         notes.push("Contact form prominence");
         break;
       }
+      case "moveSection": {
+        operations.push({
+          operation: "moveSection",
+          section: step.section,
+          position: step.position,
+          ...(step.relativeTo ? { relativeTo: step.relativeTo } : {}),
+        });
+        categories.push("layout");
+        notes.push(`Section order (${step.section})`);
+        break;
+      }
       case "useDarkerColors": {
         operations.push({
           operation: "changeTheme",
@@ -391,6 +412,8 @@ function buildExplanation(
     lead = "I’ll switch to a more luxurious type pairing.";
   } else if (steps.some((s) => s.type === "updateNavigation")) {
     lead = "I’ll update the navigation so it stays clear and easy to use.";
+  } else if (steps.some((s) => s.type === "moveSection")) {
+    lead = "I’ll reorder the page sections to match that layout.";
   } else if (steps.some((s) => s.type === "moveContactFormHigher")) {
     lead = "I’ll make the contact form more prominent higher on the page.";
   }
@@ -513,7 +536,19 @@ export function extractNaturalLanguageEditPlan(input: {
     steps.push({ type: "updateNavigation", mode: "sticky" });
   }
 
-  if (wantsContactHigher(request)) {
+  // Section-position phrases beat generic contact-form “higher” polish.
+  const sectionMove = parseSectionMoveRequest(request);
+  if (sectionMove.ok) {
+    matchedSignals.push("section_order");
+    steps.push({
+      type: "moveSection",
+      section: sectionMove.intent.section,
+      position: sectionMove.intent.position,
+      ...(sectionMove.intent.relativeTo
+        ? { relativeTo: sectionMove.intent.relativeTo }
+        : {}),
+    });
+  } else if (wantsContactHigher(request) && !isSectionOrderRequest(request)) {
     matchedSignals.push("layout");
     steps.push({ type: "moveContactFormHigher" });
   }
@@ -544,7 +579,8 @@ export function extractNaturalLanguageEditPlan(input: {
           matchedSignals.includes("spacing") ||
           matchedSignals.includes("typography") ||
           matchedSignals.includes("navigation") ||
-          matchedSignals.includes("layout")
+          matchedSignals.includes("layout") ||
+          matchedSignals.includes("section_order")
         ? 0.97
         : 0.9;
 

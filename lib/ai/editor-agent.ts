@@ -576,13 +576,29 @@ export function planDirectEditOperations(input: {
   }
 
   if (
-    /\b(animations?|motion|scroll\s+animations?|micro[- ]?interactions?)\b/.test(
+    /\b(remove|disable|turn\s+off)\s+(all\s+)?(animations?|motion)\b/i.test(text)
+  ) {
+    operations.push({
+      operation: "setCreativePolish",
+      motion: false,
+      motionPreset: "none",
+      sectionReveal: false,
+      hoverEffects: false,
+      respectReducedMotion: true,
+    });
+    notes.push("Disabled animations");
+  } else if (
+    /\b(animations?|motion|scroll\s+animations?|micro[- ]?interactions?|smooth\s+scroll\s+animations?)\b/.test(
       text,
     )
   ) {
     operations.push({
       operation: "setCreativePolish",
       motion: true,
+      motionPreset: "subtle",
+      sectionReveal: true,
+      hoverEffects: true,
+      respectReducedMotion: true,
       visualHierarchy: true,
     });
     notes.push("Enabled subtle animations");

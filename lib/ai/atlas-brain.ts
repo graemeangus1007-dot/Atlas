@@ -12,7 +12,10 @@ import {
   hasActiveRecommendations,
   hasPendingClarification,
   isCompleteWebsiteRequest,
+  looksLikePlanReference,
   matchClarificationAnswer,
+  removeAppliedRecommendations,
+  resolvePlanReference,
   selectRecommendationsToApply,
   shouldExecuteActionMemory,
   storePendingClarification,
@@ -23,6 +26,17 @@ import {
   type AtlasActionMemory,
   type ClarificationDestination,
 } from "@/lib/ai/atlas-action-memory";
+import {
+  desiredMotionPresetFromRequest,
+  isMotionStateActive,
+  motionAlreadyActiveMessage,
+  motionAppliedMessage,
+  motionFieldsForPreset,
+} from "@/lib/ai/motion-model";
+import {
+  isSectionOrderRequest,
+  parseSectionMoveRequest,
+} from "@/lib/ai/section-order";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
   formatNaturalPreferenceNote,
@@ -168,23 +182,103 @@ function confirmDecision(
   };
 }
 
+function dedupeChangeLabels(changes: EditChangeSummary[]): EditChangeSummary[] {
+  const seen = new Set<string>();
+  const out: EditChangeSummary[] = [];
+  for (const change of changes) {
+    const key = change.label.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(change);
+  }
+  return out;
+}
+
 function applyActionMemoryRecommendations(input: {
   project: BusinessProject;
   memory: AtlasActionMemory;
   request: string;
   destination?: ClarificationDestination | null;
+  recommendationIds?: string[];
 }): AtlasBrainResult {
+  const planRef = resolvePlanReference(input.request, input.memory);
+  if (planRef.kind === "out_of_range" || (planRef.reason && !planRef.matched)) {
+    const project = withActionMemory(
+      withMemory(input.project, input.request),
+      clearPendingClarification(input.memory),
+    );
+    return {
+      ok: true,
+      explanation:
+        planRef.reason ??
+        "Which recommendation number should I apply from the current plan?",
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "needs_clarification",
+      decision: confirmDecision(
+        "Clarify plan reference",
+        "Ordinal was out of range for the active plan.",
+      ),
+      followUpSuggestions: [
+        "Apply the first one",
+        "Apply All",
+        "Review my website",
+      ],
+      atlasMemory: project.atlasMemory,
+      executionPlan: input.memory.executionPlan,
+    };
+  }
+
+  if (planRef.kind === "unsupported" && planRef.reason) {
+    const project = withActionMemory(
+      withMemory(input.project, input.request),
+      clearPendingClarification(input.memory),
+    );
+    return {
+      ok: true,
+      explanation: planRef.reason,
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: confirmDecision(
+        "Unsupported recommendation",
+        "Selected recommendation cannot be auto-applied.",
+      ),
+      followUpSuggestions: [
+        "Apply the first one",
+        "Apply All",
+        "Review my website",
+      ],
+      atlasMemory: project.atlasMemory,
+      executionPlan: input.memory.executionPlan,
+    };
+  }
+
   const confirmation = detectActionConfirmation(input.request);
-  const selected = selectRecommendationsToApply(
-    input.memory,
-    confirmation,
-    input.destination,
-  );
+  if (planRef.matched && planRef.recommendationId) {
+    confirmation.recommendationId = planRef.recommendationId;
+    if (planRef.ordinal != null) {
+      confirmation.kind = "ordinal";
+      confirmation.ordinalIndex = planRef.ordinal - 1;
+    }
+  }
+
+  const selected = input.recommendationIds?.length
+    ? (input.memory.recommendations ?? []).filter(
+        (r) => input.recommendationIds!.includes(r.id) && r.applyable,
+      )
+    : selectRecommendationsToApply(
+        input.memory,
+        confirmation,
+        input.destination,
+      );
 
   if (selected.length === 0) {
     const project = withActionMemory(
       withMemory(input.project, input.request),
-      clearRecommendations(clearPendingClarification(input.memory)),
+      clearPendingClarification(input.memory),
     );
     return {
       ok: true,
@@ -208,6 +302,7 @@ function applyActionMemoryRecommendations(input: {
   const changes: EditChangeSummary[] = [];
   const operations: Array<EditOperation | ImageOperation> = [];
   const appliedTitles: string[] = [];
+  const appliedIds: string[] = [];
 
   const creative = toCreativeRecommendations(selected);
   let applyAllNote = "";
@@ -228,6 +323,7 @@ function applyActionMemoryRecommendations(input: {
             .filter((r) => batch.appliedIds.includes(r.id))
             .map((r) => r.title),
         );
+        appliedIds.push(...batch.appliedIds);
         for (const rec of creative) {
           if (batch.appliedIds.includes(rec.id)) {
             operations.push(...rec.operations);
@@ -245,22 +341,26 @@ function applyActionMemoryRecommendations(input: {
       project = applied.project;
       changes.push(...applied.changes);
       appliedTitles.push(rec.title);
+      appliedIds.push(rec.id);
       operations.push(...rec.operations);
     }
   }
 
-  const nextMemory: AtlasActionMemory = {
-    ...clearRecommendations(clearPendingClarification(input.memory)),
-    lastRecommendationSelected: selected[0]?.id ?? null,
-    updatedAt: new Date().toISOString(),
-  };
+  const uniqueChanges = dedupeChangeLabels(changes);
+  // Drop selected recommendations from the active plan (applied or already satisfied).
+  const idsToRemove = selected.map((r) => r.id);
+  const nextMemory = removeAppliedRecommendations(
+    clearPendingClarification(input.memory),
+    idsToRemove,
+  );
   project = withActionMemory(withMemory(project, input.request), nextMemory);
 
   const applied = appliedTitles.length > 0;
   const explanation = [
     applied
       ? [
-          `Done — I applied ${appliedTitles.length} improvement${appliedTitles.length === 1 ? "" : "s"} from the plan:`,
+          `${appliedTitles.length} recommendation${appliedTitles.length === 1 ? "" : "s"} applied`,
+          `${uniqueChanges.length} website change${uniqueChanges.length === 1 ? "" : "s"} made`,
           ...appliedTitles.slice(0, 6).map((title) => `• ${title}`),
         ].join("\n")
       : "Those improvements were already in place, so there was nothing new to apply.",
@@ -275,7 +375,7 @@ function applyActionMemoryRecommendations(input: {
     ok: true,
     explanation,
     operations: applied ? operations : [],
-    changes: applied ? changes : [],
+    changes: applied ? uniqueChanges : [],
     project,
     applyStatus: applied ? "applied" : "no_changes",
     decision: confirmDecision(
@@ -302,6 +402,18 @@ async function tryContinueActionMemory(input: {
   const memory = getActionMemory(input.project);
   if (!shouldExecuteActionMemory(input.request, memory)) {
     return null;
+  }
+
+  // Ordinal / named plan references run before clarification chips.
+  if (
+    hasActiveRecommendations(memory) &&
+    looksLikePlanReference(input.request)
+  ) {
+    return applyActionMemoryRecommendations({
+      project: input.project,
+      memory,
+      request: input.request,
+    });
   }
 
   // Clarification must resolve once — never re-ask.
@@ -925,35 +1037,145 @@ export async function runAtlasBrain(
 
   const agents = new Set(decision.selectedAgents);
 
-  // Explicit polish commands — apply before broader specialists
+  // Explicit section-order commands — before polish / NL / editor
   if (
-    decision.commandKind === "animations" ||
-    decision.intent === "command_animations"
+    decision.commandKind === "section_order" ||
+    isSectionOrderRequest(request)
   ) {
+    const parsed = parseSectionMoveRequest(request);
+    if (!parsed.ok) {
+      if (parsed.reason) {
+        project = withMemory(project, request, decision.memoryPatch);
+        return {
+          ok: true,
+          explanation: parsed.reason,
+          operations: [],
+          changes: [],
+          project,
+          applyStatus: "needs_clarification",
+          decision,
+          followUpSuggestions: [
+            "Move Contact to the bottom",
+            "Put Testimonials above Services",
+            "Make the hero first",
+          ],
+          executionPlan: decision.executionPlan,
+          atlasMemory: project.atlasMemory,
+        };
+      }
+    } else {
+      try {
+        const ops = validateEditOperations([
+          {
+            operation: "moveSection",
+            section: parsed.intent.section,
+            position: parsed.intent.position,
+            ...(parsed.intent.relativeTo
+              ? { relativeTo: parsed.intent.relativeTo }
+              : {}),
+          },
+        ]);
+        const applied = applyEditOperations(project, ops);
+        if (hasMeaningfulProjectDiff(project, applied.project)) {
+          project = applied.project;
+          operations.push(...ops);
+          changes.push(...dedupeChangeLabels(applied.changes));
+          applyStatus = "applied";
+          explanation = appendExplanation(
+            explanation,
+            `Moved ${parsed.intent.section} ${
+              parsed.intent.position === "last"
+                ? "to the bottom"
+                : parsed.intent.position === "first"
+                  ? "to the top"
+                  : `${parsed.intent.position} ${parsed.intent.relativeTo}`
+            }.`,
+          );
+        } else {
+          project = withMemory(project, request, decision.memoryPatch);
+          return {
+            ok: true,
+            explanation: `“${parsed.intent.section}” is already in that position.`,
+            operations: [],
+            changes: [],
+            project,
+            applyStatus: "no_changes",
+            decision,
+            followUpSuggestions: decision.followUpSuggestions,
+            executionPlan: decision.executionPlan,
+            atlasMemory: project.atlasMemory,
+          };
+        }
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  // Explicit polish commands — apply before broader specialists
+  const isMotionCommand =
+    decision.commandKind === "animations" ||
+    decision.commandKind === "remove_animations" ||
+    decision.intent === "command_animations";
+  const motionPreset = isMotionCommand
+    ? (desiredMotionPresetFromRequest(request) ??
+      (decision.commandKind === "remove_animations" ? "none" : "subtle"))
+    : null;
+
+  if (motionPreset && isMotionCommand) {
+    if (isMotionStateActive(project, motionPreset)) {
+      project = withMemory(project, request, decision.memoryPatch);
+      return {
+        ok: true,
+        explanation: motionAlreadyActiveMessage(motionPreset),
+        operations: [],
+        changes: [],
+        project,
+        applyStatus: "no_changes",
+        decision,
+        followUpSuggestions: [
+          "Remove all animations",
+          "Improve visual hierarchy",
+          "Review my website",
+        ],
+        executionPlan: decision.executionPlan,
+        atlasMemory: project.atlasMemory,
+      };
+    }
+
     try {
+      const fields = motionFieldsForPreset(motionPreset);
       const ops = validateEditOperations([
-        { operation: "setCreativePolish", motion: true, visualHierarchy: true },
+        {
+          operation: "setCreativePolish",
+          ...fields,
+          ...(motionPreset !== "none" ? { visualHierarchy: true } : {}),
+        },
       ]);
       const applied = applyEditOperations(project, ops);
       if (hasMeaningfulProjectDiff(project, applied.project)) {
         project = applied.project;
         operations.push(...ops);
-        changes.push(...applied.changes);
+        changes.push(...dedupeChangeLabels(applied.changes));
         applyStatus = "applied";
         explanation = appendExplanation(
           explanation,
-          "Subtle animations are now enabled across the page.",
+          motionAppliedMessage(motionPreset),
         );
-      } else if (!project.creativePolish?.motion) {
-        project = {
-          ...project,
-          creativePolish: { ...(project.creativePolish ?? {}), motion: true },
+      } else {
+        project = withMemory(project, request, decision.memoryPatch);
+        return {
+          ok: true,
+          explanation: motionAlreadyActiveMessage(motionPreset),
+          operations: [],
+          changes: [],
+          project,
+          applyStatus: "no_changes",
+          decision,
+          followUpSuggestions: decision.followUpSuggestions,
+          executionPlan: decision.executionPlan,
+          atlasMemory: project.atlasMemory,
         };
-        applyStatus = "applied";
-        explanation = appendExplanation(
-          explanation,
-          "Subtle animations are now enabled across the page.",
-        );
       }
     } catch {
       // fall through to editor
@@ -1152,7 +1374,14 @@ export async function runAtlasBrain(
   }
 
   // Editor specialist — content/design edits
-  if (agents.has("editor_agent")) {
+  const skipEditorAfterExplicitApply =
+    applyStatus === "applied" &&
+    (decision.commandKind === "section_order" ||
+      decision.commandKind === "animations" ||
+      decision.commandKind === "remove_animations" ||
+      decision.intent === "command_animations");
+
+  if (agents.has("editor_agent") && !skipEditorAfterExplicitApply) {
     const edited = runEditorSpecialist({ project, request, history });
     if (edited.reasoning) reasoning = edited.reasoning;
     if (edited.needsClarification && applyStatus !== "applied") {

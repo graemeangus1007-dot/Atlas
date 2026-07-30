@@ -637,7 +637,13 @@ export function renderStaticSiteBody(
         )
       : "";
 
-  return `<div class="site-canvas" data-template="${escapeAttr(template.id)}" data-card-style="${escapeAttr(template.cardStyle)}" data-hero-layout="${escapeAttr(template.heroLayout)}" data-nav-style="${escapeAttr(template.navStyle)}" data-gallery-layout="${escapeAttr(template.galleryLayout)}" data-footer-layout="${escapeAttr(template.footerLayout)}">
+  const motionOn = Boolean(content.creativePolish?.motion);
+  const motionPreset =
+    content.creativePolish?.motionPreset ?? (motionOn ? "subtle" : "none");
+  const sectionReveal = content.creativePolish?.sectionReveal ?? motionOn;
+  const hoverEffects = content.creativePolish?.hoverEffects ?? motionOn;
+
+  return `<div class="site-canvas" data-template="${escapeAttr(template.id)}" data-card-style="${escapeAttr(template.cardStyle)}" data-hero-layout="${escapeAttr(template.heroLayout)}" data-nav-style="${escapeAttr(template.navStyle)}" data-gallery-layout="${escapeAttr(template.galleryLayout)}" data-footer-layout="${escapeAttr(template.footerLayout)}" data-motion="${motionOn ? "on" : "off"}" data-motion-preset="${escapeAttr(motionPreset)}" data-section-reveal="${sectionReveal ? "on" : "off"}" data-hover-effects="${hoverEffects ? "on" : "off"}" data-hierarchy="${content.creativePolish?.visualHierarchy ? "on" : "off"}" data-spacing="${escapeAttr(content.creativePolish?.spacing ?? "default")}">
 ${renderNav(content.businessName, template.navStyle, content.logoUrl)}
 <main>
 ${sections}

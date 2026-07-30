@@ -101,6 +101,10 @@ export type GeneratedWebsiteContent = {
   creativePolish?: {
     serviceIcons?: boolean;
     motion?: boolean;
+    motionPreset?: "none" | "subtle" | "polished";
+    sectionReveal?: boolean;
+    hoverEffects?: boolean;
+    respectReducedMotion?: boolean;
     visualHierarchy?: boolean;
     spacing?: "default" | "comfortable" | "airy";
   };

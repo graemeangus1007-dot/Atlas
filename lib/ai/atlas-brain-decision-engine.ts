@@ -54,6 +54,8 @@ export const COMMAND_KINDS = [
   "accessibility",
   "performance",
   "animations",
+  "remove_animations",
+  "section_order",
   "icons",
   "images",
   "typography",
@@ -125,16 +127,42 @@ const COMMAND_RULES: CommandRule[] = [
     ],
   },
   {
+    kind: "remove_animations",
+    pattern:
+      /\b(remove|disable|turn\s+off|no)\s+(all\s+)?(animations?|motion|scroll\s+animations?)\b|\b(animations?|motion)\s+off\b/i,
+    confidence: 0.97,
+    agents: ["editor_agent"],
+    intent: "command_animations",
+    goal: "Remove animations",
+    explanation: "I’ll turn animations off while keeping reduced-motion behavior respected.",
+    steps: [
+      { id: "cmd.motion.off", agent: "editor_agent", label: "Disable animations" },
+    ],
+  },
+  {
     kind: "animations",
     pattern:
-      /\b(add\s+)?(subtle\s+)?(animations?|motion|scroll\s+animations?|micro[- ]?interactions?)\b/i,
+      /\b((add|enable|implement|turn\s+on)\s+)?(subtle\s+|smooth\s+)?(scroll\s+)?(animations?|motion|micro[- ]?interactions?)\b|\bsmooth\s+scroll\s+animations?\b|\bmore\s+alive\b/i,
     confidence: 0.96,
-    agents: ["creative_director", "editor_agent"],
+    agents: ["editor_agent"],
     intent: "command_animations",
     goal: "Add subtle animations",
     explanation: "I’ll add subtle motion so the page feels more polished without getting distracting.",
     steps: [
       { id: "cmd.motion", agent: "editor_agent", label: "Enable subtle animations" },
+    ],
+  },
+  {
+    kind: "section_order",
+    pattern:
+      /\b(move|put|place)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?(above|below|before|after|to\s+the\s+bottom|to\s+the\s+top|first|last|to\s+the\s+end)\b|\b(?:make|put|move)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?first\b/i,
+    confidence: 0.97,
+    agents: ["editor_agent"],
+    intent: "explicit_design_edit",
+    goal: "Reorder sections",
+    explanation: "I’ll reorder the page sections to match that layout.",
+    steps: [
+      { id: "cmd.section_order", agent: "editor_agent", label: "Update section order" },
     ],
   },
   {

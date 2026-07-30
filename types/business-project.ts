@@ -139,6 +139,11 @@ export type BusinessProject = {
   creativePolish?: {
     serviceIcons?: boolean;
     motion?: boolean;
+    /** Canonical motion preset (Sprint 28.3). */
+    motionPreset?: "none" | "subtle" | "polished";
+    sectionReveal?: boolean;
+    hoverEffects?: boolean;
+    respectReducedMotion?: boolean;
     visualHierarchy?: boolean;
     spacing?: "default" | "comfortable" | "airy";
   };

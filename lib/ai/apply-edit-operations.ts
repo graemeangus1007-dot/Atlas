@@ -18,6 +18,7 @@ import {
   createDefaultTestimonials,
 } from "@/lib/ai/design-sections-canonical";
 import { findFaqIndexByQuestion } from "@/lib/ai/content-edit-planner";
+import { applySectionMove } from "@/lib/ai/section-order";
 import { defaultProjectSeo } from "@/lib/seo/defaults";
 
 const BLUE_TOKENS = ["blue", "#2563eb", "#3b82f6", "#1d4ed8", "#60a5fa", "#1e40af"];
@@ -228,8 +229,43 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
       return { id, label: "FAQ added", ok: true };
     case "deleteFaq":
       return { id, label: "FAQ item removed", ok: true };
-    case "setCreativePolish":
+    case "setCreativePolish": {
+      if (op.motionPreset === "none" || op.motion === false) {
+        return { id, label: "Animations disabled", ok: true };
+      }
+      if (
+        op.motion === true ||
+        op.motionPreset === "subtle" ||
+        op.motionPreset === "polished" ||
+        op.sectionReveal === true
+      ) {
+        return { id, label: "Motion updated", ok: true };
+      }
+      if (op.serviceIcons !== undefined) {
+        return { id, label: "Service icons updated", ok: true };
+      }
+      if (op.spacing !== undefined) {
+        return { id, label: "Whitespace adjusted", ok: true };
+      }
+      if (op.visualHierarchy !== undefined) {
+        return { id, label: "Visual hierarchy updated", ok: true };
+      }
+      if (op.contactFormEnabled) {
+        return { id, label: "Contact form enabled", ok: true };
+      }
       return { id, label: "Creative polish updated", ok: true };
+    }
+    case "moveSection": {
+      const label =
+        op.position === "last"
+          ? `${op.section} moved to bottom`
+          : op.position === "first"
+            ? `${op.section} moved to top`
+            : op.relativeTo
+              ? `${op.section} moved ${op.position} ${op.relativeTo}`
+              : `${op.section} reordered`;
+      return { id, label, ok: true };
+    }
     default: {
       const _exhaustive: never = op;
       return _exhaustive;
@@ -482,7 +518,34 @@ export function applyEditOperations(
       case "setCreativePolish": {
         const polish = { ...(next.creativePolish ?? {}) };
         if (op.serviceIcons !== undefined) polish.serviceIcons = op.serviceIcons;
-        if (op.motion !== undefined) polish.motion = op.motion;
+        if (op.motionPreset !== undefined) {
+          polish.motionPreset = op.motionPreset;
+          polish.motion = op.motionPreset !== "none";
+        }
+        if (op.motion !== undefined) {
+          polish.motion = op.motion;
+          if (op.motionPreset === undefined) {
+            polish.motionPreset = op.motion ? "subtle" : "none";
+          }
+        }
+        if (op.sectionReveal !== undefined) {
+          polish.sectionReveal = op.sectionReveal;
+        } else if (op.motionPreset !== undefined || op.motion !== undefined) {
+          polish.sectionReveal = Boolean(
+            polish.motionPreset !== "none" && polish.motion,
+          );
+        }
+        if (op.hoverEffects !== undefined) {
+          polish.hoverEffects = op.hoverEffects;
+        } else if (op.motionPreset !== undefined || op.motion !== undefined) {
+          polish.hoverEffects = Boolean(
+            polish.motionPreset !== "none" && polish.motion,
+          );
+        }
+        polish.respectReducedMotion =
+          op.respectReducedMotion !== undefined
+            ? op.respectReducedMotion
+            : true;
         if (op.visualHierarchy !== undefined) {
           polish.visualHierarchy = op.visualHierarchy;
         }
@@ -494,6 +557,15 @@ export function applyEditOperations(
             contact: { ...next.contact, formEnabled: true },
           };
         }
+        break;
+      }
+      case "moveSection": {
+        const moved = applySectionMove(next, {
+          section: op.section,
+          position: op.position,
+          relativeTo: op.relativeTo,
+        });
+        next = moved.project;
         break;
       }
       default: {

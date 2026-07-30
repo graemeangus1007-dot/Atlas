@@ -863,6 +863,70 @@ h1, h2, h3, p {
     align-items: start;
   }
 }
+
+/* Motion (Sprint 28.3) — driven by data-motion on .site-canvas */
+.site-canvas[data-motion="on"][data-hover-effects="on"] .site-motion-card,
+.site-canvas[data-motion="on"][data-hover-effects="on"] .site-card-grid li {
+  transition:
+    transform 280ms ease,
+    border-color 280ms ease,
+    box-shadow 280ms ease,
+    opacity 400ms ease;
+}
+
+.site-canvas[data-motion="on"][data-hover-effects="on"] .site-motion-card:hover,
+.site-canvas[data-motion="on"][data-hover-effects="on"] .site-card-grid li:hover {
+  transform: translateY(-4px);
+}
+
+.site-canvas[data-motion="on"][data-hover-effects="on"] .site-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+@keyframes site-section-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.site-canvas[data-motion="on"][data-section-reveal="on"] .site-section,
+.site-canvas[data-motion="on"][data-section-reveal="on"] [id="about"],
+.site-canvas[data-motion="on"][data-section-reveal="on"] [id="services"],
+.site-canvas[data-motion="on"][data-section-reveal="on"] [id="features"],
+.site-canvas[data-motion="on"][data-section-reveal="on"] [id="gallery"],
+.site-canvas[data-motion="on"][data-section-reveal="on"] [id="contact"],
+.site-canvas[data-motion="on"][data-section-reveal="on"] [id="testimonials"],
+.site-canvas[data-motion="on"][data-section-reveal="on"] [id="faq"] {
+  animation: site-section-reveal 0.55s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .site-canvas[data-motion="on"][data-section-reveal="on"] .site-section,
+  .site-canvas[data-motion="on"][data-section-reveal="on"] [id="about"],
+  .site-canvas[data-motion="on"][data-section-reveal="on"] [id="services"],
+  .site-canvas[data-motion="on"][data-section-reveal="on"] [id="features"],
+  .site-canvas[data-motion="on"][data-section-reveal="on"] [id="gallery"],
+  .site-canvas[data-motion="on"][data-section-reveal="on"] [id="contact"],
+  .site-canvas[data-motion="on"][data-section-reveal="on"] [id="testimonials"],
+  .site-canvas[data-motion="on"][data-section-reveal="on"] [id="faq"],
+  .site-canvas[data-motion="on"][data-hover-effects="on"] .site-motion-card,
+  .site-canvas[data-motion="on"][data-hover-effects="on"] .site-button,
+  .site-canvas[data-motion="on"][data-hover-effects="on"] .site-card-grid li {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
 `;
 }
 

@@ -76,6 +76,7 @@ export type ActionConfirmationKind =
   | "apply_one"
   | "affirm"
   | "ordinal"
+  | "named"
   | "kind_filter"
   | "none";
 
@@ -83,10 +84,177 @@ export type ActionConfirmation = {
   kind: ActionConfirmationKind;
   /** 0-based index when kind is ordinal */
   ordinalIndex?: number;
+  /** Stable recommendation id when kind is named / ordinal */
+  recommendationId?: string;
   /** Filter kinds when kind is kind_filter (e.g. visual) */
   kindFilter?: string[];
   matchedPhrase?: string;
 };
+
+/** Result of resolving “Apply the second one” / named plan references. */
+export type PlanReferenceResult = {
+  matched: boolean;
+  recommendationId?: string;
+  /** 1-based ordinal in user language */
+  ordinal?: number;
+  reason?: string;
+  kind?: "ordinal" | "named" | "last" | "unsupported" | "out_of_range";
+};
+
+const ORDINAL_WORD_TO_1_BASED: Record<string, number> = {
+  first: 1,
+  "1st": 1,
+  second: 2,
+  "2nd": 2,
+  third: 3,
+  "3rd": 3,
+  fourth: 4,
+  "4th": 4,
+  fifth: 5,
+  "5th": 5,
+};
+
+/**
+ * Detect ordinal / named references to the active recommendation list.
+ * Ordinals are 1-based in user language. Does not mutate memory.
+ */
+export function resolvePlanReference(
+  message: string,
+  atlasActionMemory: AtlasActionMemory | null | undefined,
+): PlanReferenceResult {
+  const text = message.trim();
+  const recs = atlasActionMemory?.recommendations ?? [];
+  if (!text || recs.length === 0) return { matched: false };
+
+  const named = text.match(
+    /\b(?:just\s+)?(?:the\s+)?([a-z][a-z0-9\s/-]{1,40}?)\s+recommendation\b/i,
+  );
+  if (named?.[1]) {
+    const needle = named[1].trim().toLowerCase();
+    const hitIndex = recs.findIndex(
+      (r) =>
+        r.title.toLowerCase().includes(needle) ||
+        r.kind.toLowerCase().includes(needle) ||
+        r.id.toLowerCase().includes(needle.replace(/\s+/g, ".")),
+    );
+    if (hitIndex < 0) {
+      return {
+        matched: false,
+        reason: `I couldn’t find a “${named[1].trim()}” recommendation in the current plan. Which number should I apply (1–${recs.length})?`,
+      };
+    }
+    const hit = recs[hitIndex]!;
+    if (!hit.applyable) {
+      return {
+        matched: true,
+        recommendationId: hit.id,
+        ordinal: hitIndex + 1,
+        kind: "unsupported",
+        reason: `Recommendation ${hitIndex + 1} (“${hit.title}”) isn’t something I can apply automatically. Pick another number from 1–${recs.length}, or ask me to handle it differently.`,
+      };
+    }
+    return {
+      matched: true,
+      recommendationId: hit.id,
+      ordinal: hitIndex + 1,
+      kind: "named",
+    };
+  }
+
+  if (
+    /\b(?:the\s+)?last\s+one\b|\blast\s+recommendation\b|\bapply\s+the\s+last\b/i.test(
+      text,
+    )
+  ) {
+    const hitIndex = recs.length - 1;
+    const hit = recs[hitIndex]!;
+    if (!hit.applyable) {
+      return {
+        matched: true,
+        recommendationId: hit.id,
+        ordinal: hitIndex + 1,
+        kind: "unsupported",
+        reason: `The last recommendation (“${hit.title}”) isn’t applyable automatically. Pick another number from 1–${recs.length}.`,
+      };
+    }
+    return {
+      matched: true,
+      recommendationId: hit.id,
+      ordinal: hitIndex + 1,
+      kind: "last",
+    };
+  }
+
+  const numberMatch =
+    text.match(/\b(?:number|no\.?|#)\s*(\d+)\b/i) ||
+    text.match(/\bapply\s+(\d+)\b/i);
+
+  // Match first/second/third BEFORE any bare “one” — “Apply the second one”
+  // previously matched trailing \bone\b as ordinal 1.
+  const wordMatch = text.match(
+    /\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\b/i,
+  );
+
+  let ordinal1Based: number | undefined;
+  if (numberMatch?.[1]) {
+    ordinal1Based = Number.parseInt(numberMatch[1], 10);
+  } else if (wordMatch?.[1]) {
+    ordinal1Based = ORDINAL_WORD_TO_1_BASED[wordMatch[1].toLowerCase()];
+  } else if (
+    /\b(?:the|just|that)\s+one\b/i.test(text) &&
+    !/\b(second|third|fourth|fifth)\b/i.test(text)
+  ) {
+    ordinal1Based = 1;
+  }
+
+  if (ordinal1Based == null || !Number.isFinite(ordinal1Based)) {
+    return { matched: false };
+  }
+
+  if (ordinal1Based < 1 || ordinal1Based > recs.length) {
+    return {
+      matched: false,
+      ordinal: ordinal1Based,
+      kind: "out_of_range",
+      reason: `There are only ${recs.length} recommendations in the current plan. Which one should I apply (1–${recs.length})?`,
+    };
+  }
+
+  const hit = recs[ordinal1Based - 1]!;
+  if (!hit.applyable) {
+    return {
+      matched: true,
+      recommendationId: hit.id,
+      ordinal: ordinal1Based,
+      kind: "unsupported",
+      reason: `Recommendation ${ordinal1Based} (“${hit.title}”) isn’t applyable automatically. Pick another number from 1–${recs.length}, or ask me to tackle it differently.`,
+    };
+  }
+
+  return {
+    matched: true,
+    recommendationId: hit.id,
+    ordinal: ordinal1Based,
+    kind: "ordinal",
+  };
+}
+
+/** True when the user is pointing at an active-plan recommendation. */
+export function looksLikePlanReference(request: string): boolean {
+  const text = request.trim();
+  if (!text) return false;
+  return (
+    /\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)\s+one\b/i.test(
+      text,
+    ) ||
+    /\b(?:number|no\.?|#)\s*\d+\b/i.test(text) ||
+    /\bapply\s+(?:the\s+)?(?:first|second|third|fourth|fifth|last|\d+)\b/i.test(
+      text,
+    ) ||
+    /\brecommendation\b/i.test(text) ||
+    /\bdo\s+the\s+last\s+one\b/i.test(text)
+  );
+}
 
 /** Phrases that mean “execute the pending recommendations”. */
 export const APPLY_ALL_PHRASES =
@@ -144,38 +312,53 @@ export function detectActionConfirmation(request: string): ActionConfirmation {
   const text = request.trim();
   if (!text) return { kind: "none" };
 
-  // Ordinals: "the first one", "second", "#2"
-  const ordinal =
-    text.match(/\b(?:the\s+)?(first|1st|one|#?\s*1)\b/i) ||
-    text.match(/\b(?:the\s+)?(second|2nd|#?\s*2)\b/i) ||
-    text.match(/\b(?:the\s+)?(third|3rd|#?\s*3)\b/i) ||
-    text.match(/\b(?:the\s+)?(fourth|4th|#?\s*4)\b/i) ||
-    text.match(/\b(?:the\s+)?(fifth|5th|#?\s*5)\b/i);
+  // Ordinals: "the first one", "second", "#2", "number 2"
+  // Never match bare trailing "one" in "second one" as first.
+  const numberMatch =
+    text.match(/\b(?:number|no\.?|#)\s*(\d+)\b/i) ||
+    text.match(/\bapply\s+(\d+)\b/i);
+  const wordMatch = text.match(
+    /\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)\b/i,
+  );
 
-  if (ordinal) {
-    const token = ordinal[1]!.toLowerCase().replace(/[#\s]/g, "");
-    const map: Record<string, number> = {
-      first: 0,
-      "1st": 0,
-      one: 0,
-      "1": 0,
-      second: 1,
-      "2nd": 1,
-      "2": 1,
-      third: 2,
-      "3rd": 2,
-      "3": 3 - 1,
-      fourth: 3,
-      "4th": 3,
-      "4": 3,
-      fifth: 4,
-      "5th": 4,
-      "5": 4,
-    };
-    const ordinalIndex = map[token];
-    if (ordinalIndex !== undefined) {
-      return { kind: "ordinal", ordinalIndex, matchedPhrase: ordinal[0] };
+  if (numberMatch?.[1]) {
+    const n = Number.parseInt(numberMatch[1], 10);
+    if (Number.isFinite(n) && n >= 1) {
+      return {
+        kind: "ordinal",
+        ordinalIndex: n - 1,
+        matchedPhrase: numberMatch[0],
+      };
     }
+  }
+
+  if (wordMatch?.[1]) {
+    const token = wordMatch[1].toLowerCase();
+    if (token === "last") {
+      return { kind: "ordinal", ordinalIndex: -1, matchedPhrase: wordMatch[0] };
+    }
+    const oneBased = ORDINAL_WORD_TO_1_BASED[token];
+    if (oneBased != null) {
+      return {
+        kind: "ordinal",
+        ordinalIndex: oneBased - 1,
+        matchedPhrase: wordMatch[0],
+      };
+    }
+  }
+
+  if (
+    /\b(?:the|just|that)\s+one\b/i.test(text) &&
+    !/\b(second|third|fourth|fifth)\b/i.test(text)
+  ) {
+    return { kind: "ordinal", ordinalIndex: 0, matchedPhrase: "one" };
+  }
+
+  const named = text.match(
+    /\b(?:just\s+)?(?:the\s+)?([a-z][a-z0-9\s/-]{1,40}?)\s+recommendation\b/i,
+  );
+  if (named) {
+    return { kind: "named", matchedPhrase: named[0] };
   }
 
   // Kind filters: "actually just the visuals", "Better visuals"
@@ -389,50 +572,91 @@ export function withActionMemory(
 
 /**
  * Select which stored recommendations to apply given a confirmation.
+ * Ordinals index the full ordered recommendation list (display order), not
+ * applyable-only — matching what the user saw in the critique UI.
  */
 export function selectRecommendationsToApply(
   memory: AtlasActionMemory,
   confirmation: ActionConfirmation,
   destination?: ClarificationDestination | null,
 ): AtlasStoredRecommendation[] {
-  const all = (memory.recommendations ?? []).filter((r) => r.applyable);
-  if (all.length === 0) return [];
+  const ordered = memory.recommendations ?? [];
+  const applyable = ordered.filter((r) => r.applyable);
+  if (applyable.length === 0 && confirmation.kind !== "ordinal") return [];
+
+  if (confirmation.recommendationId) {
+    const pick = ordered.find((r) => r.id === confirmation.recommendationId);
+    return pick?.applyable ? [pick] : [];
+  }
 
   if (destination === "visuals" || confirmation.kindFilter?.includes("visual")) {
-    const filtered = all.filter((r) =>
+    const filtered = applyable.filter((r) =>
       ["visual", "brand", "motion"].includes(r.kind),
     );
-    return filtered.length > 0 ? filtered : all;
+    return filtered.length > 0 ? filtered : applyable;
   }
   if (destination === "copy" || confirmation.kindFilter?.includes("content")) {
-    const filtered = all.filter((r) => r.kind === "content");
-    return filtered.length > 0 ? filtered : all;
+    const filtered = applyable.filter((r) => r.kind === "content");
+    return filtered.length > 0 ? filtered : applyable;
   }
   if (
     destination === "conversions" ||
     confirmation.kindFilter?.includes("conversion")
   ) {
-    const filtered = all.filter(
+    const filtered = applyable.filter(
       (r) =>
         r.kind === "conversion" ||
         r.source === "business_advisor" ||
         /cta|lead|call|contact/i.test(r.id + r.title),
     );
-    return filtered.length > 0 ? filtered : all;
+    return filtered.length > 0 ? filtered : applyable;
   }
 
   if (confirmation.kind === "ordinal" && confirmation.ordinalIndex != null) {
-    const pick = all[confirmation.ordinalIndex];
-    return pick ? [pick] : [];
+    const index =
+      confirmation.ordinalIndex === -1
+        ? ordered.length - 1
+        : confirmation.ordinalIndex;
+    const pick = ordered[index];
+    return pick?.applyable ? [pick] : [];
+  }
+
+  if (confirmation.kind === "named") {
+    const ref = resolvePlanReference(confirmation.matchedPhrase ?? "", memory);
+    if (ref.matched && ref.recommendationId) {
+      const pick = ordered.find((r) => r.id === ref.recommendationId);
+      return pick?.applyable ? [pick] : [];
+    }
+    return [];
   }
 
   if (confirmation.kind === "apply_one") {
-    const first = all[0];
+    const first = applyable[0];
     return first ? [first] : [];
   }
 
   // apply_all / affirm / default
-  return all;
+  return applyable;
+}
+
+/** Remove applied recommendations; keep the rest of the active plan. */
+export function removeAppliedRecommendations(
+  memory: AtlasActionMemory | null | undefined,
+  appliedIds: string[],
+): AtlasActionMemory {
+  const idSet = new Set(appliedIds);
+  const remaining = (memory?.recommendations ?? []).filter(
+    (r) => !idSet.has(r.id),
+  );
+  return {
+    ...(memory ?? emptyActionMemory()),
+    recommendations: remaining,
+    recommendationIds: remaining.map((r) => r.id),
+    applyAllPending: remaining.some((r) => r.applyable),
+    pendingClarification: null,
+    lastRecommendationSelected: appliedIds[0] ?? memory?.lastRecommendationSelected ?? null,
+    updatedAt: nowIso(),
+  };
 }
 
 /**
@@ -503,6 +727,12 @@ export function shouldExecuteActionMemory(
   if (shouldOverridePendingClarification(request)) {
     return false;
   }
+
+  // Ordinal / named plan references beat sticky clarification chips.
+  if (hasActiveRecommendations(memory) && looksLikePlanReference(request)) {
+    return true;
+  }
+
   if (hasPendingClarification(memory)) {
     // Only short-circuit when the reply looks like a clarification answer / confirm.
     const matched = memory?.pendingClarification

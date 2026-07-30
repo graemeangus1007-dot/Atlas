@@ -223,6 +223,20 @@ export default function EditorCanvas({
       className="site-canvas overflow-hidden rounded-2xl border border-border shadow-[0_24px_80px_-40px_rgba(0,0,0,0.65)] transition-all duration-300"
       data-template={template.id}
       data-motion={content.creativePolish?.motion ? "on" : "off"}
+      data-motion-preset={
+        content.creativePolish?.motionPreset ??
+        (content.creativePolish?.motion ? "subtle" : "none")
+      }
+      data-section-reveal={
+        (content.creativePolish?.sectionReveal ?? content.creativePolish?.motion)
+          ? "on"
+          : "off"
+      }
+      data-hover-effects={
+        (content.creativePolish?.hoverEffects ?? content.creativePolish?.motion)
+          ? "on"
+          : "off"
+      }
       data-hierarchy={content.creativePolish?.visualHierarchy ? "on" : "off"}
       data-spacing={content.creativePolish?.spacing ?? "default"}
     >

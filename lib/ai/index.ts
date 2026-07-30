@@ -508,11 +508,14 @@ export { ATLAS_AGENT_IDS, ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atl
 export type { AtlasBrainResult } from "@/lib/ai/atlas-brain";
 export {
   detectActionConfirmation,
+  resolvePlanReference,
+  looksLikePlanReference,
   shouldExecuteActionMemory,
   storeRecommendations,
   storePendingClarification,
   clearPendingClarification,
   clearRecommendations,
+  removeAppliedRecommendations,
   matchClarificationAnswer,
   hasActiveRecommendations,
   hasPendingClarification,
@@ -526,7 +529,20 @@ export type {
   AtlasPendingClarification,
   ActionConfirmation,
   ClarificationDestination,
+  PlanReferenceResult,
 } from "@/lib/ai/atlas-action-memory";
+export {
+  parseSectionMoveRequest,
+  isSectionOrderRequest,
+  moveSectionInOrder,
+  getEffectiveSectionOrder,
+} from "@/lib/ai/section-order";
+export {
+  readMotionState,
+  motionFieldsForPreset,
+  desiredMotionPresetFromRequest,
+  isMotionStateActive,
+} from "@/lib/ai/motion-model";
 export {
   resolveDesignSystem,
   designSystemToOperations,

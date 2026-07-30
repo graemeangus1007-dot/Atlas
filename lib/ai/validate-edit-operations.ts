@@ -18,6 +18,8 @@ import {
   isRequiredSectionId,
   type EditOperation,
 } from "@/lib/ai/edit-operations";
+import { resolveSectionAlias } from "@/lib/ai/section-order";
+import { MOTION_PRESETS } from "@/lib/ai/motion-model";
 import { TEMPLATE_IDS } from "@/lib/templates/types";
 
 const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -474,11 +476,30 @@ function validateOne(raw: unknown, index: number): EditOperation {
       };
       const serviceIcons = boolField("serviceIcons");
       const motion = boolField("motion");
+      const sectionReveal = boolField("sectionReveal");
+      const hoverEffects = boolField("hoverEffects");
+      const respectReducedMotion = boolField("respectReducedMotion");
       const visualHierarchy = boolField("visualHierarchy");
       const contactFormEnabled = boolField("contactFormEnabled");
+      const motionPreset =
+        row.motionPreset === undefined
+          ? undefined
+          : typeof row.motionPreset === "string" &&
+              (MOTION_PRESETS as readonly string[]).includes(row.motionPreset)
+            ? (row.motionPreset as (typeof MOTION_PRESETS)[number])
+            : (() => {
+                throw new AiError(
+                  "bad_request",
+                  `Invalid motionPreset at index ${index}.`,
+                );
+              })();
       if (
         serviceIcons === undefined &&
         motion === undefined &&
+        motionPreset === undefined &&
+        sectionReveal === undefined &&
+        hoverEffects === undefined &&
+        respectReducedMotion === undefined &&
         visualHierarchy === undefined &&
         spacing === undefined &&
         contactFormEnabled === undefined
@@ -492,9 +513,81 @@ function validateOne(raw: unknown, index: number): EditOperation {
         operation: "setCreativePolish",
         ...(serviceIcons !== undefined ? { serviceIcons } : {}),
         ...(motion !== undefined ? { motion } : {}),
+        ...(motionPreset !== undefined ? { motionPreset } : {}),
+        ...(sectionReveal !== undefined ? { sectionReveal } : {}),
+        ...(hoverEffects !== undefined ? { hoverEffects } : {}),
+        ...(respectReducedMotion !== undefined
+          ? { respectReducedMotion }
+          : {}),
         ...(visualHierarchy !== undefined ? { visualHierarchy } : {}),
         ...(spacing !== undefined ? { spacing } : {}),
         ...(contactFormEnabled !== undefined ? { contactFormEnabled } : {}),
+      };
+    }
+    case "moveSection": {
+      if (typeof row.section !== "string" || !row.section.trim()) {
+        throw new AiError(
+          "bad_request",
+          `moveSection.section is required at index ${index}.`,
+        );
+      }
+      const section =
+        resolveSectionAlias(row.section) ?? row.section.trim().toLowerCase();
+      const positionRaw =
+        typeof row.position === "string" ? row.position.trim().toLowerCase() : "";
+      const position =
+        positionRaw === "first" ||
+        positionRaw === "last" ||
+        positionRaw === "before" ||
+        positionRaw === "after"
+          ? positionRaw
+          : positionRaw === "top"
+            ? "first"
+            : positionRaw === "bottom" || positionRaw === "end"
+              ? "last"
+              : positionRaw === "above"
+                ? "before"
+                : positionRaw === "below"
+                  ? "after"
+                  : null;
+      if (!position) {
+        throw new AiError(
+          "bad_request",
+          `moveSection.position must be first|last|before|after at index ${index}.`,
+        );
+      }
+      const relativeToRaw =
+        row.relativeTo === undefined
+          ? undefined
+          : typeof row.relativeTo === "string"
+            ? resolveSectionAlias(row.relativeTo) ??
+              row.relativeTo.trim().toLowerCase()
+            : (() => {
+                throw new AiError(
+                  "bad_request",
+                  `moveSection.relativeTo must be a string at index ${index}.`,
+                );
+              })();
+      if (
+        (position === "before" || position === "after") &&
+        !relativeToRaw
+      ) {
+        throw new AiError(
+          "bad_request",
+          `moveSection.relativeTo is required for ${position} at index ${index}.`,
+        );
+      }
+      if (section === "footer") {
+        throw new AiError(
+          "bad_request",
+          `Footer cannot be reordered via moveSection at index ${index}.`,
+        );
+      }
+      return {
+        operation: "moveSection",
+        section,
+        position,
+        ...(relativeToRaw ? { relativeTo: relativeToRaw } : {}),
       };
     }
     default: {

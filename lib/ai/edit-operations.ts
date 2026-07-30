@@ -78,6 +78,7 @@ export const EDIT_OPERATION_KINDS = [
   "insertFaq",
   "deleteFaq",
   "setCreativePolish",
+  "moveSection",
 ] as const;
 
 export type EditOperationKind = (typeof EDIT_OPERATION_KINDS)[number];
@@ -190,10 +191,22 @@ export type SetCreativePolishOperation = {
   operation: "setCreativePolish";
   serviceIcons?: boolean;
   motion?: boolean;
+  motionPreset?: "none" | "subtle" | "polished";
+  sectionReveal?: boolean;
+  hoverEffects?: boolean;
+  respectReducedMotion?: boolean;
   visualHierarchy?: boolean;
   spacing?: "default" | "comfortable" | "airy";
   /** When true, ensures the contact lead form is enabled. */
   contactFormEnabled?: boolean;
+};
+
+/** Reorder a homepage section (Sprint 28.3). */
+export type MoveSectionOperation = {
+  operation: "moveSection";
+  section: string;
+  position: "first" | "last" | "before" | "after";
+  relativeTo?: string;
 };
 
 export type EditOperation =
@@ -213,7 +226,8 @@ export type EditOperation =
   | UpdateFaqQuestionOperation
   | InsertFaqOperation
   | DeleteFaqOperation
-  | SetCreativePolishOperation;
+  | SetCreativePolishOperation
+  | MoveSectionOperation;
 
 /** Human-readable bullet for the post-edit preview list. */
 export type EditChangeSummary = {
