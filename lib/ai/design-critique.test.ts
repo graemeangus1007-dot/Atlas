@@ -472,8 +472,8 @@ describe("mock provider + openai invocation wiring", () => {
       mode: "critique",
     });
     expect(text.match(/I reviewed your website/gi) ?? []).toHaveLength(0);
-    expect(text).toMatch(/Strengths:/);
-    expect(text).toMatch(/Top improvements:/);
+    expect(text).toMatch(/Strengths/);
+    expect(text).toMatch(/Top improvements/);
     expect(text).toMatch(/Apply All/i);
   });
 });

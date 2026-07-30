@@ -16,9 +16,59 @@ import {
   CRITIQUE_SCORE_CATEGORIES,
   type CritiqueScoreCategory,
 } from "@/lib/ai/critique-scoring";
+import { parseCritiqueAssistantContent } from "@/lib/ai/critique-fallback-presentation";
 import type { EditChangeSummary } from "@/lib/ai/edit-operations";
 import type { EditorConversationMessage } from "@/lib/ai/editor-conversation";
 import type { BusinessProject } from "@/types/business-project";
+
+function AtlasAssistantMessageBody({ content }: { content: string }) {
+  const parsed = parseCritiqueAssistantContent(content);
+  const body = parsed.body;
+  const sections = body.split(/\n{2,}/).filter(Boolean);
+
+  return (
+    <div className="mt-1 space-y-2">
+      {parsed.fallbackCard ? (
+        <div
+          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs leading-relaxed text-foreground"
+          data-testid="atlas-critique-fallback-card"
+        >
+          {parsed.fallbackCard.split("\n").map((line, i) => (
+            <p key={i} className="[&:not(:first-child)]:mt-0.5">
+              {line}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      <div className="space-y-2 leading-relaxed">
+        {sections.map((section, index) => {
+          const lines = section.split("\n");
+          const heading = lines[0]?.trim() ?? "";
+          const isHeading = /^(Strengths|Top improvements|Design direction|Expected outcome)$/i.test(
+            heading,
+          );
+          if (isHeading) {
+            return (
+              <div key={`${heading}-${index}`}>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  {heading}
+                </p>
+                <div className="mt-1 whitespace-pre-wrap text-sm">
+                  {lines.slice(1).join("\n")}
+                </div>
+              </div>
+            );
+          }
+          return (
+            <p key={`p-${index}`} className="whitespace-pre-wrap text-sm">
+              {section}
+            </p>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export type AtlasAiUiStatus =
   | "idle"
@@ -312,9 +362,13 @@ export default function AtlasAiPanel({
             <p className="text-[10px] uppercase tracking-wide text-muted">
               {message.role === "user" ? "You" : "Atlas"}
             </p>
-            <p className="mt-1 whitespace-pre-wrap leading-relaxed">
-              {message.content}
-            </p>
+            {message.role === "assistant" ? (
+              <AtlasAssistantMessageBody content={message.content} />
+            ) : (
+              <p className="mt-1 whitespace-pre-wrap leading-relaxed">
+                {message.content}
+              </p>
+            )}
             {message.role === "assistant" &&
             message.changes &&
             message.changes.length > 0 ? (

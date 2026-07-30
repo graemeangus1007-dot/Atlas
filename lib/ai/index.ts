@@ -384,11 +384,19 @@ export {
   DESIGN_CRITIQUE_JSON_SCHEMA,
   DESIGN_CRITIQUE_SCHEMA_NAME,
   assertCritiqueSchemaStrictShape,
+  buildOpenAiDesignCritiqueSchema,
+  findUnsupportedOpenAiSchemaKeywords,
 } from "@/lib/ai/design-critique-schema";
 export {
   categorizeOpenAiFailure,
   formatFallbackUserMessage,
+  sanitizeOpenAiSchemaError,
 } from "@/lib/ai/openai-error-categories";
+export {
+  composeCritiqueAssistantContent,
+  formatCritiqueFallbackCard,
+  parseCritiqueAssistantContent,
+} from "@/lib/ai/critique-fallback-presentation";
 export {
   getAiRuntimeSnapshot,
   AI_RUNTIME_DEBUG_TEMPORARY,

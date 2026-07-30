@@ -1,12 +1,15 @@
 /**
- * Strict JSON Schema for Design Critique Structured Outputs (Sprint 28.0A / 28.0B).
- * Runtime validation in design-critique.ts remains authoritative.
+ * Design Critique JSON Schema (Sprint 28.0A / 28.0D).
  *
- * OpenAI wire format is produced via toOpenAiStrictSchema() which strips
- * unsupported keywords (minLength/maxLength/minItems/…).
+ * Two layers:
+ * 1. DESIGN_CRITIQUE_JSON_SCHEMA — Atlas documentation schema (may include
+ *    length/array constraints enforced by validateDesignCritique).
+ * 2. buildOpenAiDesignCritiqueSchema() — OpenAI strict Structured Outputs wire
+ *    schema only (no unsupported keywords; every property required).
  */
 
 import { PROPOSED_CHANGE_KINDS } from "@/lib/ai/design-critique-types";
+import { toOpenAiStrictSchema } from "@/lib/ai/openai-structured-output";
 
 /** Atlas-side string constraints (enforced in validateDesignCritique). */
 const stringField = (maxLength: number, minLength = 1) =>
@@ -24,7 +27,36 @@ const optionalString = (maxLength: number) =>
     maxLength,
   }) as const;
 
+/** Wire-only string — no length keywords (OpenAI rejects minLength/maxLength). */
+const wireString = { type: "string" } as const;
+
 export const DESIGN_CRITIQUE_SCHEMA_NAME = "atlas_design_critique";
+
+/**
+ * Keywords that must never appear on the OpenAI wire schema.
+ * Length/array bounds are enforced by Atlas post-response validation.
+ */
+export const OPENAI_UNSUPPORTED_SCHEMA_KEYWORDS = [
+  "minLength",
+  "maxLength",
+  "minimum",
+  "maximum",
+  "multipleOf",
+  "pattern",
+  "format",
+  "minItems",
+  "maxItems",
+  "uniqueItems",
+  "minProperties",
+  "maxProperties",
+  "oneOf",
+  "anyOf",
+  "allOf",
+  "$ref",
+  "$defs",
+  "definitions",
+  "nullable",
+] as const;
 
 const proposedChangeSchema = {
   type: "object",
@@ -90,44 +122,11 @@ const proposedChangeSchema = {
   },
 } as const;
 
-const improvementSchema = {
-  type: "object",
-  additionalProperties: false,
-  // IDs are optional — Atlas generates stable ids when the model omits them.
-  required: [
-    "title",
-    "observation",
-    "rationale",
-    "expectedBusinessOutcome",
-    "impact",
-    "affectedAreas",
-    "proposedChanges",
-  ],
-  properties: {
-    id: optionalString(64),
-    title: stringField(120),
-    observation: stringField(600),
-    rationale: stringField(800),
-    expectedBusinessOutcome: stringField(400),
-    impact: { type: "string", enum: ["high", "medium", "low"] },
-    affectedAreas: {
-      type: "array",
-      minItems: 1,
-      maxItems: 8,
-      items: stringField(80),
-    },
-    proposedChanges: {
-      type: "array",
-      minItems: 0,
-      maxItems: 8,
-      items: proposedChangeSchema,
-    },
-  },
-} as const;
-
 /**
- * JSON Schema for LLM design critique (Atlas authoritative copy).
- * Pass through toOpenAiStrictSchema() before sending to OpenAI.
+ * Atlas documentation schema (may include constraints stripped for OpenAI).
+ * Note: `id` fields are Atlas-only — omitted from the wire schema so OpenAI
+ * strict mode does not reject optional properties. validateDesignCritique
+ * generates stable ids after parsing.
  */
 export const DESIGN_CRITIQUE_JSON_SCHEMA = {
   type: "object",
@@ -150,9 +149,9 @@ export const DESIGN_CRITIQUE_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
+        // id omitted — Atlas generates after parse (OpenAI strict requires all props).
         required: ["title", "evidence"],
         properties: {
-          id: optionalString(64),
           title: stringField(120),
           evidence: stringField(400),
         },
@@ -167,7 +166,6 @@ export const DESIGN_CRITIQUE_JSON_SCHEMA = {
         additionalProperties: false,
         required: ["title", "observation", "severity", "affectedAreas"],
         properties: {
-          id: optionalString(64),
           title: stringField(120),
           observation: stringField(600),
           severity: { type: "string", enum: ["missing", "weak"] },
@@ -200,12 +198,185 @@ export const DESIGN_CRITIQUE_JSON_SCHEMA = {
       type: "array",
       minItems: 1,
       maxItems: 7,
-      items: improvementSchema,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "title",
+          "observation",
+          "rationale",
+          "expectedBusinessOutcome",
+          "impact",
+          "affectedAreas",
+          "proposedChanges",
+        ],
+        properties: {
+          title: stringField(120),
+          observation: stringField(600),
+          rationale: stringField(800),
+          expectedBusinessOutcome: stringField(400),
+          impact: { type: "string", enum: ["high", "medium", "low"] },
+          affectedAreas: {
+            type: "array",
+            minItems: 1,
+            maxItems: 8,
+            items: stringField(80),
+          },
+          proposedChanges: {
+            type: "array",
+            minItems: 0,
+            maxItems: 8,
+            items: proposedChangeSchema,
+          },
+        },
+      },
     },
     expectedOutcome: stringField(600),
     confidence: { type: "number" },
   },
 } as const;
+
+/**
+ * OpenAI-compatible wire schema for Responses API strict Structured Outputs.
+ * - No unsupported keywords (minLength, minItems, oneOf, $ref, …)
+ * - Every object: additionalProperties: false
+ * - Every declared property listed in required
+ * - No id fields (Atlas assigns after parse)
+ */
+export function buildOpenAiDesignCritiqueSchema(): Record<string, unknown> {
+  const proposedChangeWire = {
+    type: "object",
+    additionalProperties: false,
+    required: [...proposedChangeSchema.required],
+    properties: {
+      kind: {
+        type: "string",
+        enum: [...PROPOSED_CHANGE_KINDS],
+      },
+      target: wireString,
+      value: wireString,
+      sectionType: wireString,
+      headingFont: wireString,
+      bodyFont: wireString,
+      buttonStyle: wireString,
+      siteWidth: wireString,
+      templateId: wireString,
+      theme: wireString,
+      primary: wireString,
+      secondary: wireString,
+      accent: wireString,
+      background: wireString,
+      fromColor: wireString,
+      toColor: wireString,
+      siteTitle: wireString,
+      metaDescription: wireString,
+      spacing: wireString,
+      serviceIcons: { type: "boolean" },
+      motion: { type: "boolean" },
+      visualHierarchy: { type: "boolean" },
+      contactFormEnabled: { type: "boolean" },
+      assetHint: wireString,
+      sectionSlot: wireString,
+      servicesJson: wireString,
+    },
+  };
+
+  const wire: Record<string, unknown> = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "summary",
+      "currentStrengths",
+      "coreProblems",
+      "designDirection",
+      "prioritizedImprovements",
+      "expectedOutcome",
+      "confidence",
+    ],
+    properties: {
+      summary: wireString,
+      currentStrengths: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["title", "evidence"],
+          properties: {
+            title: wireString,
+            evidence: wireString,
+          },
+        },
+      },
+      coreProblems: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["title", "observation", "severity", "affectedAreas"],
+          properties: {
+            title: wireString,
+            observation: wireString,
+            severity: { type: "string", enum: ["missing", "weak"] },
+            affectedAreas: {
+              type: "array",
+              items: wireString,
+            },
+          },
+        },
+      },
+      designDirection: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "rationale", "emotionalGoal", "visualPrinciples"],
+        properties: {
+          name: wireString,
+          rationale: wireString,
+          emotionalGoal: wireString,
+          visualPrinciples: {
+            type: "array",
+            items: wireString,
+          },
+        },
+      },
+      prioritizedImprovements: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "title",
+            "observation",
+            "rationale",
+            "expectedBusinessOutcome",
+            "impact",
+            "affectedAreas",
+            "proposedChanges",
+          ],
+          properties: {
+            title: wireString,
+            observation: wireString,
+            rationale: wireString,
+            expectedBusinessOutcome: wireString,
+            impact: { type: "string", enum: ["high", "medium", "low"] },
+            affectedAreas: {
+              type: "array",
+              items: wireString,
+            },
+            proposedChanges: {
+              type: "array",
+              items: proposedChangeWire,
+            },
+          },
+        },
+      },
+      expectedOutcome: wireString,
+      confidence: { type: "number" },
+    },
+  };
+
+  // Defense in depth: strip any unsupported keywords if they sneak in.
+  return toOpenAiStrictSchema(wire);
+}
 
 /** Assert every object node sets additionalProperties: false. */
 export function assertCritiqueSchemaStrictShape(
@@ -221,11 +392,21 @@ export function assertCritiqueSchemaStrictShape(
     if (obj.additionalProperties !== false) {
       issues.push(`${path}: additionalProperties must be false`);
     }
-    if (Array.isArray(obj.required) && obj.properties) {
+    if (obj.properties && typeof obj.properties === "object") {
       const props = Object.keys(obj.properties as object);
-      for (const key of obj.required as string[]) {
+      const required = Array.isArray(obj.required)
+        ? (obj.required as string[])
+        : [];
+      for (const key of required) {
         if (!props.includes(key)) {
           issues.push(`${path}: required "${key}" missing from properties`);
+        }
+      }
+      for (const key of props) {
+        if (!required.includes(key)) {
+          issues.push(
+            `${path}: property "${key}" must be listed in required (OpenAI strict)`,
+          );
         }
       }
     }
@@ -239,6 +420,38 @@ export function assertCritiqueSchemaStrictShape(
   }
   if (obj.items) {
     issues.push(...assertCritiqueSchemaStrictShape(obj.items, `${path}.items`));
+  }
+  return issues;
+}
+
+/** Collect unsupported keyword paths in a schema tree. */
+export function findUnsupportedOpenAiSchemaKeywords(
+  schema: unknown,
+  path = "root",
+): string[] {
+  const issues: string[] = [];
+  if (!schema || typeof schema !== "object") return issues;
+  if (Array.isArray(schema)) {
+    schema.forEach((item, i) => {
+      issues.push(
+        ...findUnsupportedOpenAiSchemaKeywords(item, `${path}[${i}]`),
+      );
+    });
+    return issues;
+  }
+  const obj = schema as Record<string, unknown>;
+  for (const key of OPENAI_UNSUPPORTED_SCHEMA_KEYWORDS) {
+    if (key in obj) {
+      issues.push(`${path}.${key}`);
+    }
+  }
+  for (const [key, value] of Object.entries(obj)) {
+    if (OPENAI_UNSUPPORTED_SCHEMA_KEYWORDS.includes(key as never)) continue;
+    if (value && typeof value === "object") {
+      issues.push(
+        ...findUnsupportedOpenAiSchemaKeywords(value, `${path}.${key}`),
+      );
+    }
   }
   return issues;
 }

@@ -20,6 +20,13 @@ const STRIP_KEYS = new Set([
   "uniqueItems",
   "minProperties",
   "maxProperties",
+  "oneOf",
+  "anyOf",
+  "allOf",
+  "$ref",
+  "$defs",
+  "definitions",
+  "nullable",
 ]);
 
 /**

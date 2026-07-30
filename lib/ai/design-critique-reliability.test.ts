@@ -23,12 +23,14 @@ import {
 import { planEditOperations } from "@/lib/ai/editor-agent";
 import {
   assertCritiqueSchemaStrictShape,
-  DESIGN_CRITIQUE_JSON_SCHEMA,
+  buildOpenAiDesignCritiqueSchema,
   DESIGN_CRITIQUE_SCHEMA_NAME,
+  findUnsupportedOpenAiSchemaKeywords,
 } from "@/lib/ai/design-critique-schema";
 import {
   buildOpenAiDesignCritiqueParams,
   buildOpenAiProbeParams,
+  runOpenAiCritiqueSchemaProbe,
   runOpenAiDesignCritique,
   runOpenAiRuntimeProbe,
 } from "@/lib/ai/design-critique-provider";
@@ -45,7 +47,6 @@ import {
 } from "@/lib/ai/openai-error-categories";
 import {
   extractStructuredJsonFromResponse,
-  toOpenAiStrictSchema,
 } from "@/lib/ai/openai-structured-output";
 import { getAiProviderId } from "@/lib/ai/provider";
 import { setMonitoringProvider } from "@/lib/monitoring";
@@ -127,12 +128,15 @@ describe("provider selection + env snapshot", () => {
 describe("structured-output schema contract", () => {
   it("keeps strict object shape and strips unsupported keywords for OpenAI", () => {
     expect(assertCritiqueSchemaStrictShape()).toEqual([]);
-    const wire = toOpenAiStrictSchema(DESIGN_CRITIQUE_JSON_SCHEMA);
+    const wire = buildOpenAiDesignCritiqueSchema();
+    expect(assertCritiqueSchemaStrictShape(wire)).toEqual([]);
+    expect(findUnsupportedOpenAiSchemaKeywords(wire)).toEqual([]);
     const json = JSON.stringify(wire);
     expect(json).not.toMatch(/"minLength"/);
     expect(json).not.toMatch(/"maxLength"/);
     expect(json).not.toMatch(/"minItems"/);
     expect(json).not.toMatch(/"minimum"/);
+    expect(json).not.toMatch(/"id"/);
     expect(wire.type).toBe("object");
     expect(wire.additionalProperties).toBe(false);
 
@@ -150,6 +154,7 @@ describe("structured-output schema contract", () => {
       name: DESIGN_CRITIQUE_SCHEMA_NAME,
       strict: true,
     });
+    expect((params.text?.format as { schema?: unknown }).schema).toEqual(wire);
     expect(params.temperature).toBe(0.35);
     expect(
       (params as { reasoning?: { effort: string } }).reasoning?.effort,
@@ -314,8 +319,23 @@ describe("validation diagnostics + fallback", () => {
       formatFallbackUserMessage({ category: "incomplete" }),
     ).toMatch(/incomplete response/i);
     expect(
-      formatFallbackUserMessage({ category: "schema" }),
-    ).toMatch(/schema was rejected/i);
+      formatFallbackUserMessage({
+        category: "schema",
+        requestId: "req-schema",
+      }),
+    ).toMatch(/response schema was rejected/i);
+    expect(
+      formatFallbackUserMessage({
+        category: "schema",
+        requestId: "req-schema",
+      }),
+    ).toMatch(/Request ID: req-schema/);
+    expect(
+      formatFallbackUserMessage({
+        category: "schema",
+        requestId: "req-schema",
+      }),
+    ).not.toMatch(/Showing a labeled local review instead/i);
     expect(
       formatFallbackUserMessage({
         category: "unknown",
@@ -537,6 +557,98 @@ describe("Complete my website routing", () => {
     ).toBe(true);
     expect(result.explanation).toMatch(/Apply All|launch-ready|everything/i);
     expect(result.decision.needsClarification).toBe(false);
+  });
+});
+
+describe("critique schema probe", () => {
+  it("reports sanitized schema rejection without prompt or critique content", async () => {
+    const client = mockClient(async () => {
+      const err = Object.assign(
+        new Error(
+          "Invalid schema for response_format 'atlas_design_critique': In context=('properties', 'currentStrengths', 'items'), 'id' is required to be listed in required.",
+        ),
+        {
+          status: 400,
+          error: {
+            message:
+              "Invalid schema for response_format 'atlas_design_critique': In context=('properties', 'currentStrengths', 'items'), 'id' is required to be listed in required.",
+            type: "invalid_request_error",
+            param: "text.format.schema",
+            code: "invalid_json_schema",
+          },
+        },
+      );
+      throw err;
+    });
+
+    const result = await runOpenAiCritiqueSchemaProbe({
+      client,
+      apiKey: "sk-test",
+      atlasRequestId: "schema-probe-1",
+    });
+    expect(result.success).toBe(false);
+    expect(result.category).toBe("schema");
+    expect(result.httpStatus).toBe(400);
+    expect(result.openaiErrorCode).toBe("invalid_json_schema");
+    expect(result.openaiErrorParam).toBe("text.format.schema");
+    expect(result.schemaPath).toMatch(/currentStrengths|text\.format\.schema|id/i);
+    expect(result.schemaName).toBe(DESIGN_CRITIQUE_SCHEMA_NAME);
+    expect(JSON.stringify(result)).not.toMatch(/sk-test/);
+    expect(JSON.stringify(result)).not.toMatch(/How would you redesign/i);
+  });
+
+  it("succeeds when the real critique schema is accepted", async () => {
+    const valid = {
+      summary: "Clear service promise with weak imagery.",
+      currentStrengths: [
+        { title: "Clarity", evidence: "Headline states the offer." },
+      ],
+      coreProblems: [
+        {
+          title: "Missing hero image",
+          observation: "Placeholder hero.",
+          severity: "missing",
+          affectedAreas: ["hero"],
+        },
+      ],
+      designDirection: {
+        name: "Premium",
+        rationale: "Stronger imagery.",
+        emotionalGoal: "Trust",
+        visualPrinciples: ["Imagery first", "One CTA"],
+      },
+      prioritizedImprovements: [
+        {
+          title: "Add hero photo",
+          observation: "No hero photo",
+          rationale: "Emotion",
+          expectedBusinessOutcome: "Trust",
+          impact: "high",
+          affectedAreas: ["hero"],
+          proposedChanges: [],
+        },
+      ],
+      expectedOutcome: "Better first impression.",
+      confidence: 0.8,
+    };
+    const client = mockClient(async (body) => {
+      expect(body.text?.format).toMatchObject({
+        name: DESIGN_CRITIQUE_SCHEMA_NAME,
+        strict: true,
+      });
+      expect((body.text?.format as { schema?: unknown }).schema).toEqual(
+        buildOpenAiDesignCritiqueSchema(),
+      );
+      return mockResponse({ output_text: JSON.stringify(valid) });
+    });
+    const result = await runOpenAiCritiqueSchemaProbe({
+      client,
+      apiKey: "sk-test",
+      atlasRequestId: "schema-probe-ok",
+    });
+    expect(result.success).toBe(true);
+    expect(result.message).toBeNull();
+    expect(JSON.stringify(result)).not.toMatch(/Clear service promise/);
   });
 });
 

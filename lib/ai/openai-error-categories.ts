@@ -32,7 +32,96 @@ export type CategorizedAiFailure = {
   /** Atlas AiError code when applicable. */
   code: string | null;
   retryable: boolean;
+  /** OpenAI error.code when present (e.g. invalid_json_schema). */
+  openaiErrorCode?: string | null;
+  /** OpenAI error.param when present (schema path hint). */
+  openaiErrorParam?: string | null;
+  /** Sanitized schema path extracted from the error message. */
+  schemaPath?: string | null;
 };
+
+/**
+ * Extract sanitized schema-rejection diagnostics from an OpenAI SDK error.
+ * Never returns prompts, project content, or raw response bodies.
+ */
+export function sanitizeOpenAiSchemaError(error: unknown): {
+  httpStatus: number | null;
+  openaiErrorCode: string | null;
+  openaiErrorParam: string | null;
+  schemaPath: string | null;
+  openaiRequestId: string | null;
+  message: string;
+} {
+  const httpStatus = readStatus(error);
+  const openaiRequestId = extractOpenAiRequestId(error);
+  let openaiErrorCode: string | null = null;
+  let openaiErrorParam: string | null = null;
+  let message = messageOf(error);
+
+  const walk = (value: unknown, depth = 0): void => {
+    if (!value || typeof value !== "object" || depth > 4) return;
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.code === "string" && !openaiErrorCode) {
+      openaiErrorCode = obj.code.slice(0, 80);
+    }
+    if (typeof obj.param === "string" && !openaiErrorParam) {
+      openaiErrorParam = obj.param.slice(0, 200);
+    }
+    if (typeof obj.type === "string" && obj.type.includes("invalid") && !openaiErrorCode) {
+      openaiErrorCode = obj.type.slice(0, 80);
+    }
+    if (obj.error) walk(obj.error, depth + 1);
+    if (obj.cause) walk(obj.cause, depth + 1);
+  };
+  walk(error);
+
+  // Prefer nested OpenAI error.message when present (cleaner than SDK wrapper).
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "error" in error &&
+    typeof (error as { error?: { message?: unknown } }).error?.message ===
+      "string"
+  ) {
+    message = String(
+      (error as { error: { message: string } }).error.message,
+    ).slice(0, 400);
+  } else {
+    message = message.slice(0, 400);
+  }
+
+  // Extract context=('properties', 'foo', ...) style paths — no field values.
+  const contextMatch = message.match(
+    /context=\(([^)]{1,240})\)/i,
+  );
+  const requiredMatch = message.match(
+    /(?:Missing|required|'required').{0,80}?'([A-Za-z0-9_.]+)'/i,
+  );
+  const propertyMatch = message.match(
+    /(?:property|properties)[^A-Za-z0-9_]*['"]?([A-Za-z0-9_]+)['"]?/i,
+  );
+  // Prefer concrete schema context path over the generic text.format.schema param.
+  const schemaPath =
+    (contextMatch ? `context=(${contextMatch[1]})` : null) ??
+    openaiErrorParam ??
+    (requiredMatch ? requiredMatch[1] : null) ??
+    (propertyMatch ? propertyMatch[1] : null);
+
+  // Strip any accidental long JSON blobs from the message.
+  const safeMessage = message
+    .replace(/\{[\s\S]{80,}\}/g, "{…}")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted]")
+    .slice(0, 280);
+
+  return {
+    httpStatus,
+    openaiErrorCode,
+    openaiErrorParam,
+    schemaPath: schemaPath ? String(schemaPath).slice(0, 200) : null,
+    openaiRequestId,
+    message: safeMessage || "The configured schema was rejected by the Responses API.",
+  };
+}
 
 function readStatus(error: unknown): number | null {
   if (isAiError(error)) return error.status;
@@ -111,6 +200,7 @@ export function categorizeOpenAiFailure(error: unknown): CategorizedAiFailure {
   const lower = message.toLowerCase();
   const openaiRequestId = extractOpenAiRequestId(error);
   const code = isAiError(error) ? error.code : null;
+  const schemaDiag = sanitizeOpenAiSchemaError(error);
 
   if (code === "not_configured") {
     return {
@@ -224,17 +314,22 @@ export function categorizeOpenAiFailure(error: unknown): CategorizedAiFailure {
   }
 
   if (
-    /invalid_json_schema|invalid schema|unsupported.*schema|json[_ ]schema|schema.*invalid|schema.*(reject|fail)|additionalproperties|strict.*schema|text\.format|response_format/i.test(
+    /invalid_json_schema|invalid schema|unsupported.*schema|json[_ ]schema|schema.*invalid|schema.*(reject|fail)|additionalproperties|strict.*schema|text\.format|response_format|required.*properties|properties.*required|'required'/i.test(
       lower,
     )
   ) {
     return {
       category: "schema",
-      message: "The configured schema was rejected by the Responses API.",
-      status: status ?? 400,
-      openaiRequestId,
+      message: schemaDiag.message.startsWith("Invalid")
+        ? schemaDiag.message
+        : "The configured schema was rejected by the Responses API.",
+      status: status ?? schemaDiag.httpStatus ?? 400,
+      openaiRequestId: schemaDiag.openaiRequestId ?? openaiRequestId,
       code: code ?? "bad_request",
       retryable: false,
+      openaiErrorCode: schemaDiag.openaiErrorCode,
+      openaiErrorParam: schemaDiag.openaiErrorParam,
+      schemaPath: schemaDiag.schemaPath,
     };
   }
 
@@ -352,7 +447,13 @@ export function formatFallbackUserMessage(input: {
     case "validation":
       return `AI critique failed because the structured response did not satisfy Atlas validation${id}. Showing a labeled local review instead.`;
     case "schema":
-      return `The configured schema was rejected by the Responses API${id}. Showing a labeled local review instead.`;
+      return [
+        "AI critique could not run because the response schema was rejected.",
+        "Atlas used its local review instead.",
+        input.requestId ? `Request ID: ${input.requestId}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
     case "incomplete":
       return `OpenAI returned an incomplete response${id}. Showing a labeled local review instead.`;
     case "refusal":

@@ -12,9 +12,12 @@ import {
 } from "@/lib/ai/openai-logging";
 import {
   categorizeOpenAiFailure,
-  formatFallbackUserMessage,
   type CritiqueFallbackReason,
 } from "@/lib/ai/openai-error-categories";
+import {
+  composeCritiqueAssistantContent,
+  stripCritiqueFallbackMarkers,
+} from "@/lib/ai/critique-fallback-presentation";
 import {
   createCritiquePipelineTrace,
   logCritiquePipelineTrace,
@@ -477,6 +480,8 @@ export function buildMockDesignCritique(
 
 /**
  * Format a single coherent Atlas narrative (no duplicated “I reviewed…” lines).
+ * Fallback errors are composed as a short card marker + structured body (see
+ * critique-fallback-presentation) — never a dense duplicated wall of text.
  */
 export function formatDesignCritiqueExplanation(input: {
   critique: DesignCritique;
@@ -500,31 +505,24 @@ export function formatDesignCritiqueExplanation(input: {
     )
     .join("\n");
 
-  const fallbackNote = input.usedFallback
-    ? `${formatFallbackUserMessage({
-        category: input.fallbackReason ?? "unknown",
-        requestId: input.requestId,
-        audience: input.audience,
-        failingStage: input.failingStage,
-      })}\n\n`
-    : "";
-
   const close =
     mode === "critique"
       ? "Say Apply All when you’re ready, or apply any single improvement."
       : "I’m applying the coordinated plan next.";
 
-  return [
-    fallbackNote + critique.summary,
+  const body = [
+    critique.summary,
     "",
-    `Design direction: ${critique.designDirection.name} — ${critique.designDirection.rationale}`,
+    "Design direction",
+    `${critique.designDirection.name} — ${critique.designDirection.rationale}`,
     "",
-    "Strengths:",
+    "Strengths",
     strengths,
     "",
-    "Top improvements:",
+    "Top improvements",
     improvements,
     "",
+    "Expected outcome",
     critique.expectedOutcome,
     "",
     close,
@@ -532,6 +530,15 @@ export function formatDesignCritiqueExplanation(input: {
     .filter((line, i, arr) => !(line === "" && arr[i - 1] === ""))
     .join("\n")
     .trim();
+
+  return composeCritiqueAssistantContent({
+    body,
+    usedFallback: input.usedFallback,
+    fallbackReason: input.fallbackReason,
+    requestId: input.requestId,
+    audience: input.audience,
+    failingStage: input.failingStage,
+  });
 }
 
 async function callOpenAiCritique(input: {
@@ -711,7 +718,10 @@ export async function runDesignCritique(
         (m.role === "user" || m.role === "assistant") &&
         typeof m.content === "string",
     )
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((m) => ({
+      role: m.role,
+      content: stripCritiqueFallbackMarkers(m.content),
+    }));
 
   const providerId = getAiProviderId();
   let model = providerId === "openai" ? getOpenAiModel() : "mock-critique";

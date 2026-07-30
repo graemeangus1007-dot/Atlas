@@ -10,7 +10,7 @@ import {
   type OpenAiRuntimeConfig,
 } from "@/lib/ai/openai-config";
 import {
-  DESIGN_CRITIQUE_JSON_SCHEMA,
+  buildOpenAiDesignCritiqueSchema,
   DESIGN_CRITIQUE_SCHEMA_NAME,
 } from "@/lib/ai/design-critique-schema";
 import {
@@ -26,6 +26,7 @@ import {
   categorizeOpenAiFailure,
   extractOpenAiRequestId,
   isRetryableOpenAiCategory,
+  sanitizeOpenAiSchemaError,
 } from "@/lib/ai/openai-error-categories";
 import {
   createAiRequestId,
@@ -37,9 +38,9 @@ import {
 import {
   errorFromStructuredExtraction,
   extractStructuredJsonFromResponse,
-  toOpenAiStrictSchema,
 } from "@/lib/ai/openai-structured-output";
 import type { OpenAiResponsesClient } from "@/lib/ai/openai-provider";
+import { captureMessage } from "@/lib/monitoring";
 
 export type DesignCritiqueProviderOptions = {
   apiKey?: string | null;
@@ -82,6 +83,7 @@ export function buildOpenAiDesignCritiqueParams(input: {
     buildDesignCritiqueDeveloperPrompt(input.mode),
   ].join("\n\n");
 
+  const wireSchema = buildOpenAiDesignCritiqueSchema();
   const params: OpenAI.Responses.ResponseCreateParamsNonStreaming = {
     model: input.model,
     max_output_tokens: input.maxOutputTokens,
@@ -91,7 +93,7 @@ export function buildOpenAiDesignCritiqueParams(input: {
         type: "json_schema",
         name: DESIGN_CRITIQUE_SCHEMA_NAME,
         strict: true,
-        schema: toOpenAiStrictSchema(DESIGN_CRITIQUE_JSON_SCHEMA),
+        schema: wireSchema,
       },
     },
     // Fold developer rules into system — avoids role compatibility surprises.
@@ -315,15 +317,18 @@ export async function runOpenAiDesignCritique(
     };
   } catch (error) {
     const categorized = categorizeOpenAiFailure(error);
+    const schemaDiag = sanitizeOpenAiSchemaError(error);
     // Keep the original OpenAI message when categorization is generic.
     const originalMessage =
       error instanceof Error && error.message
         ? error.message.slice(0, 240)
         : categorized.message;
     const message =
-      categorized.category === "unknown" || categorized.category === "model"
-        ? originalMessage || categorized.message
-        : categorized.message;
+      categorized.category === "schema"
+        ? categorized.message
+        : categorized.category === "unknown" || categorized.category === "model"
+          ? originalMessage || categorized.message
+          : categorized.message;
     const mapped =
       error instanceof AiError
         ? error
@@ -334,6 +339,28 @@ export async function runOpenAiDesignCritique(
     const latencyMs = Date.now() - started;
     openaiRequestId =
       categorized.openaiRequestId ?? openaiRequestId ?? extractOpenAiRequestId(error);
+
+    if (categorized.category === "schema") {
+      captureMessage({
+        message: "ai.critique.schema_rejected",
+        level: "warning",
+        context: {
+          tags: { route: "ai.critique.schema", provider: "openai" },
+          extra: {
+            event: "ai.critique.schema_rejected",
+            atlasRequestId: requestId,
+            openaiRequestId,
+            httpStatus: schemaDiag.httpStatus ?? categorized.status,
+            openaiErrorCode: schemaDiag.openaiErrorCode,
+            openaiErrorParam: schemaDiag.openaiErrorParam,
+            schemaPath: schemaDiag.schemaPath,
+            model: config.model,
+            // Never prompts / project content / raw bodies
+          },
+        },
+      });
+    }
+
     logAiCritique({
       provider: "openai",
       model: config.model,
@@ -361,6 +388,10 @@ export async function runOpenAiDesignCritique(
       openaiRequestId;
     (tagged as AiError & { failingFunction?: string }).failingFunction =
       "runOpenAiDesignCritique";
+    (tagged as AiError & { schemaPath?: string | null }).schemaPath =
+      schemaDiag.schemaPath;
+    (tagged as AiError & { openaiErrorCode?: string | null }).openaiErrorCode =
+      schemaDiag.openaiErrorCode;
     throw tagged;
   }
 }
@@ -506,6 +537,231 @@ export async function runOpenAiRuntimeProbe(
       openaiRequestId: categorized.openaiRequestId,
       model: config.model,
       latencyMs: Date.now() - started,
+    };
+  }
+}
+
+/** Minimal safe dummy context for schema probes — no real project content. */
+export function buildCritiqueSchemaProbeContext(): DesignCritiqueContext {
+  return {
+    businessName: "Probe Biz",
+    industry: "general",
+    businessDescription: "Schema probe only.",
+    targetAudience: "local customers",
+    primaryGoal: "win more customers",
+    services: [{ title: "Service", description: "Description" }],
+    homepageCopy: {
+      heroEyebrow: "",
+      heroTitle: "Welcome",
+      heroDescription: "We help customers.",
+      primaryCta: "Contact",
+      secondaryCta: "",
+      aboutTitle: "About",
+      aboutBody: "About us.",
+      contactTitle: "Contact",
+      contactDescription: "",
+      contactButtonText: "Send",
+    },
+    sectionOrder: ["hero", "about", "services", "contact"],
+    enabledSections: ["hero", "about", "services", "contact"],
+    designSystem: {
+      language: "clean",
+      label: "Clean",
+      imageryStyle: "photo",
+      motionStyle: "subtle",
+      explanation: "",
+    },
+    colors: {
+      primary: "#111111",
+      secondary: "#222222",
+      accent: "#333333",
+      background: "#ffffff",
+      theme: "light",
+    },
+    typography: { headingFont: "Inter", bodyFont: "Inter" },
+    spacing: "default",
+    buttons: "rounded",
+    siteWidth: "default",
+    templateId: "classic",
+    creativePolish: {
+      serviceIcons: false,
+      motion: false,
+      visualHierarchy: false,
+      spacing: "default",
+    },
+    imagery: {
+      hasHeroImage: false,
+      galleryFilledSlots: 0,
+      galleryTotalSlots: 6,
+      hasLogo: false,
+      libraryCount: 0,
+      placeholderSummary: ["hero image missing"],
+    },
+    seo: {
+      siteTitle: "Probe Biz",
+      metaDescription: "Probe",
+      socialTitle: "",
+      socialDescription: "",
+      robotsIndex: true,
+    },
+    maturity: {
+      overallCompleteness: 40,
+      maturityLevel: "draft",
+      categoryScores: {},
+    },
+    atlasMemory: {
+      preferredLayouts: [],
+      preferredThemes: [],
+      primaryGoal: "",
+      businessTone: "",
+      imageStyle: "",
+      notes: [],
+    },
+    recentConversation: [],
+    viewportHint: "desktop",
+  };
+}
+
+/**
+ * TEMPORARY: probe the real critique wire schema (not the tiny diagnostic schema).
+ * Returns only success/failure + sanitized diagnostics — never prompts or critique text.
+ */
+export async function runOpenAiCritiqueSchemaProbe(
+  options: DesignCritiqueProviderOptions = {},
+): Promise<{
+  success: boolean;
+  category: string | null;
+  message: string | null;
+  requestId: string;
+  openaiRequestId: string | null;
+  model: string;
+  latencyMs: number;
+  httpStatus: number | null;
+  openaiErrorCode: string | null;
+  openaiErrorParam: string | null;
+  schemaPath: string | null;
+  schemaName: string;
+}> {
+  const key =
+    options.apiKey?.trim() || process.env.OPENAI_API_KEY?.trim() || "";
+  const config = resolveOpenAiRuntimeConfig(process.env, {
+    model: options.model?.trim() || undefined,
+    temperature: 0,
+    maxOutputTokens: 400,
+    timeoutMs: options.timeoutMs ?? 45_000,
+    maxRetries: 0,
+  });
+  const requestId = options.atlasRequestId?.trim() || createAiRequestId();
+  const started = Date.now();
+  const schemaName = DESIGN_CRITIQUE_SCHEMA_NAME;
+
+  if (!key && !options.client) {
+    return {
+      success: false,
+      category: "provider_unavailable",
+      message: "OPENAI_API_KEY is not configured.",
+      requestId,
+      openaiRequestId: null,
+      model: config.model,
+      latencyMs: Date.now() - started,
+      httpStatus: 503,
+      openaiErrorCode: null,
+      openaiErrorParam: null,
+      schemaPath: null,
+      schemaName,
+    };
+  }
+
+  const client: OpenAiResponsesClient =
+    options.client ??
+    (new OpenAI({
+      apiKey: key,
+      timeout: config.timeoutMs,
+      maxRetries: 0,
+    }) as unknown as OpenAiResponsesClient);
+
+  const params = buildOpenAiDesignCritiqueParams({
+    model: config.model,
+    temperature: 0,
+    maxOutputTokens: config.maxOutputTokens,
+    request: "Schema probe: return a minimal valid critique JSON.",
+    mode: "critique",
+    context: buildCritiqueSchemaProbeContext(),
+  });
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+    let response: OpenAI.Responses.Response;
+    try {
+      response = await client.responses.create(params, {
+        signal: controller.signal,
+        headers: { "X-Client-Request-Id": requestId },
+      } as { signal?: AbortSignal; headers?: Record<string, string> });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const openaiRequestId =
+      extractOpenAiRequestId(response) ??
+      (typeof response.id === "string" ? response.id : null);
+    const extracted = extractStructuredJsonFromResponse(response);
+    if (extracted.json == null) {
+      throw errorFromStructuredExtraction(extracted);
+    }
+
+    return {
+      success: true,
+      category: null,
+      message: null,
+      requestId,
+      openaiRequestId,
+      model: config.model,
+      latencyMs: Date.now() - started,
+      httpStatus: 200,
+      openaiErrorCode: null,
+      openaiErrorParam: null,
+      schemaPath: null,
+      schemaName,
+    };
+  } catch (error) {
+    const categorized = categorizeOpenAiFailure(error);
+    const schemaDiag = sanitizeOpenAiSchemaError(error);
+    if (categorized.category === "schema") {
+      captureMessage({
+        message: "ai.critique.schema_probe_rejected",
+        level: "warning",
+        context: {
+          tags: { route: "debug.ai-runtime.critique-schema-probe" },
+          extra: {
+            event: "ai.critique.schema_probe_rejected",
+            atlasRequestId: requestId,
+            openaiRequestId:
+              schemaDiag.openaiRequestId ?? categorized.openaiRequestId,
+            httpStatus: schemaDiag.httpStatus ?? categorized.status,
+            openaiErrorCode: schemaDiag.openaiErrorCode,
+            openaiErrorParam: schemaDiag.openaiErrorParam,
+            schemaPath: schemaDiag.schemaPath,
+            model: config.model,
+            schemaName,
+          },
+        },
+      });
+    }
+    return {
+      success: false,
+      category: categorized.category,
+      message: categorized.message,
+      requestId,
+      openaiRequestId:
+        schemaDiag.openaiRequestId ?? categorized.openaiRequestId,
+      model: config.model,
+      latencyMs: Date.now() - started,
+      httpStatus: schemaDiag.httpStatus ?? categorized.status,
+      openaiErrorCode: schemaDiag.openaiErrorCode,
+      openaiErrorParam: schemaDiag.openaiErrorParam,
+      schemaPath: schemaDiag.schemaPath,
+      schemaName,
     };
   }
 }

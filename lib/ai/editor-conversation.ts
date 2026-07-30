@@ -4,6 +4,7 @@
 
 import type { AtlasAiOperation } from "@/lib/ai/editor-revisions";
 import type { EditChangeSummary } from "@/lib/ai/edit-operations";
+import { stripCritiqueFallbackMarkers } from "@/lib/ai/critique-fallback-presentation";
 
 export type EditorConversationRole = "user" | "assistant";
 
@@ -60,6 +61,6 @@ export function serializeConversationForAgent(
 ): Array<{ role: "user" | "assistant"; content: string }> {
   return conversation.messages.map((m) => ({
     role: m.role,
-    content: m.content,
+    content: stripCritiqueFallbackMarkers(m.content),
   }));
 }
