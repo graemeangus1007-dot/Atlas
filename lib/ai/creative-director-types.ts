@@ -63,6 +63,12 @@ export type MissingCapability = {
 /** Structured ops the Creative Director may apply (edit + image). */
 export type CreativeDirectorOperation = EditOperation | ImageOperation;
 
+/** Sprint 28.1 — whether Apply All can execute this recommendation. */
+export type CritiqueSupportStatus =
+  | "supported"
+  | "needs_images"
+  | "coming_soon";
+
 export type CreativeDirectorRecommendation = {
   id: string;
   kind: CreativeRecommendationKind;
@@ -78,6 +84,8 @@ export type CreativeDirectorRecommendation = {
   /** False when the user must upload media first, etc. */
   applyable: boolean;
   blockedReason?: string;
+  /** Explicit support label for planning / Apply All reporting. */
+  supportStatus?: CritiqueSupportStatus;
   estimatedTime: string;
 };
 

@@ -16,22 +16,16 @@ export type ParsedCritiqueAssistantContent = {
   body: string;
 };
 
-/** Short error card for schema (and other) critique fallbacks. */
+/**
+ * Short error card for critique fallbacks.
+ * Sprint 28.1: single formatter — delegates to formatFallbackUserMessage only.
+ */
 export function formatCritiqueFallbackCard(input: {
   category: OpenAiFailureCategory;
   requestId?: string | null;
   audience?: "customer" | "owner";
   failingStage?: string | null;
 }): string {
-  if (input.category === "schema") {
-    return [
-      "AI critique could not run because the response schema was rejected.",
-      "Atlas used its local review instead.",
-      input.requestId ? `Request ID: ${input.requestId}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
-  }
   return formatFallbackUserMessage({
     category: input.category,
     requestId: input.requestId,
@@ -39,6 +33,9 @@ export function formatCritiqueFallbackCard(input: {
     failingStage: input.failingStage,
   });
 }
+
+/** Sprint 28.1 canonical name. */
+export const formatCritiqueFallback = formatCritiqueFallbackCard;
 
 /**
  * Compose assistant content: optional short fallback card + structured critique body.

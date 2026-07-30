@@ -12,6 +12,7 @@ import type {
 import { PROPOSED_CHANGE_KINDS } from "@/lib/ai/design-critique-types";
 import type {
   CreativeDirectorRecommendation,
+  CritiqueSupportStatus,
   CreativeRecommendationKind,
 } from "@/lib/ai/creative-director-types";
 import {
@@ -359,7 +360,62 @@ export function dedupeImprovements(
     seen.add(key);
     out.push(item);
   }
-  return out.slice(0, 7);
+  return out.slice(0, 5);
+}
+
+const IMAGE_KINDS = new Set<ProposedChangeKind>([
+  "replaceHeroImage",
+  "setSectionImage",
+  "replacePlaceholder",
+]);
+
+function resolveSupportStatus(
+  improvement: CritiqueImprovement,
+  project: BusinessProject,
+  ops: Array<EditOperation | ImageOperation>,
+): { supportStatus: CritiqueSupportStatus; blockedReason?: string } {
+  if (ops.length > 0) {
+    return { supportStatus: "supported" };
+  }
+
+  const kinds = improvement.proposedChanges.map((c) => c.kind);
+  const wantsImage = kinds.some((k) => IMAGE_KINDS.has(k));
+  const areas = improvement.affectedAreas.join(" ").toLowerCase();
+  const title = improvement.title.toLowerCase();
+  const libraryCount =
+    project.mediaLibrary?.filter((a) => !a.unavailable).length ?? 0;
+
+  if (
+    wantsImage ||
+    /hero|gallery|image|photo|imagery|media/.test(`${areas} ${title}`)
+  ) {
+    if (libraryCount === 0) {
+      return {
+        supportStatus: "needs_images",
+        blockedReason: "Requires uploaded images",
+      };
+    }
+    return {
+      supportStatus: "needs_images",
+      blockedReason: "Requires uploaded images that match this section",
+    };
+  }
+
+  if (
+    /ai\s*image|generate\s+image|stock\s+photo|generate\s+hero/.test(
+      `${title} ${improvement.observation}`,
+    )
+  ) {
+    return {
+      supportStatus: "coming_soon",
+      blockedReason: "AI image generation coming soon",
+    };
+  }
+
+  return {
+    supportStatus: "coming_soon",
+    blockedReason: "Coming soon",
+  };
 }
 
 function validateOps(
@@ -407,6 +463,8 @@ function validateOps(
 /**
  * Convert a validated DesignCritique into Creative Director–shaped recommendations
  * plus a flat deduped operation list.
+ *
+ * Sprint 28.1: also exported as `critiqueToOperations` — the only converter.
  */
 export function critiqueToRecommendations(
   critique: DesignCritique,
@@ -426,7 +484,8 @@ export function critiqueToRecommendations(
     const ops = dedupeOperations(validateOps(rawOps, project));
     allOps.push(...ops);
 
-    const applyable = ops.length > 0;
+    const support = resolveSupportStatus(improvement, project, ops);
+    const applyable = support.supportStatus === "supported" && ops.length > 0;
     recommendations.push({
       id: `critique.${improvement.id}`,
       kind: inferKind(improvement.affectedAreas),
@@ -444,13 +503,13 @@ export function critiqueToRecommendations(
       operations: ops,
       capabilityIds: [],
       applyable,
+      supportStatus: support.supportStatus,
       ...(applyable
         ? {}
         : {
-            blockedReason:
-              "This improvement needs media or details Atlas cannot apply automatically yet.",
+            blockedReason: support.blockedReason ?? "Coming soon",
           }),
-      estimatedTime: "<15 seconds",
+      estimatedTime: applyable ? "<15 seconds" : "—",
     });
   }
 
@@ -458,4 +517,24 @@ export function critiqueToRecommendations(
     recommendations,
     operations: dedupeOperations(allOps),
   };
+}
+
+/** Sprint 28.1 canonical name — identical to critiqueToRecommendations. */
+export const critiqueToOperations = critiqueToRecommendations;
+
+/** Format a planning checklist before / after Apply All. */
+export function formatRecommendationSupportPlan(
+  recommendations: CreativeDirectorRecommendation[],
+): string {
+  if (recommendations.length === 0) return "";
+  const lines = recommendations.map((r) => {
+    if (r.supportStatus === "supported" || r.applyable) {
+      return `✓ ${r.title}`;
+    }
+    if (r.supportStatus === "needs_images") {
+      return `⚠ ${r.title} — ${r.blockedReason ?? "Requires uploaded images"}`;
+    }
+    return `⚠ ${r.title} — ${r.blockedReason ?? "Coming soon"}`;
+  });
+  return ["Plan:", ...lines].join("\n");
 }

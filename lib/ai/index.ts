@@ -376,9 +376,11 @@ export {
   validateDesignCritique,
 } from "@/lib/ai/design-critique";
 export {
+  critiqueToOperations,
   critiqueToRecommendations,
   dedupeImprovements,
   dedupeOperations,
+  formatRecommendationSupportPlan,
 } from "@/lib/ai/critique-to-operations";
 export {
   DESIGN_CRITIQUE_JSON_SCHEMA,
@@ -399,9 +401,24 @@ export {
 } from "@/lib/ai/openai-config";
 export {
   composeCritiqueAssistantContent,
+  formatCritiqueFallback,
   formatCritiqueFallbackCard,
   parseCritiqueAssistantContent,
 } from "@/lib/ai/critique-fallback-presentation";
+export {
+  CRITIQUE_CACHE_TTL_MS,
+  CRITIQUE_PIPELINE_VERSION,
+  CRITIQUE_PROMPT_VERSION,
+  CRITIQUE_SCHEMA_VERSION,
+  buildCritiqueCacheKey,
+  buildDesignCritiquePrompt,
+  getCritiquePipelineVersions,
+  invalidateCritiquePipelineCache,
+  invalidateCritiquePipelineCacheForProject,
+  parseDesignCritiqueResponse,
+  resetCritiquePipelineCacheForTests,
+  runAtlasCritiquePipeline,
+} from "@/lib/ai/critique-pipeline";
 export {
   getAiRuntimeSnapshot,
   AI_RUNTIME_DEBUG_TEMPORARY,

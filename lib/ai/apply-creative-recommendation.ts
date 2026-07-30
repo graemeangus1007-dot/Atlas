@@ -54,6 +54,7 @@ export type ApplyAllCreativeResult =
       changes: EditChangeSummary[];
       appliedIds: string[];
       skippedIds: string[];
+      unsupported: Array<{ id: string; title: string; reason: string }>;
       explanation: string;
     }
   | {
@@ -187,10 +188,20 @@ export function applyAllCreativeRecommendations(input: {
   const allChanges: EditChangeSummary[] = [];
   const appliedIds: string[] = [];
   const skippedIds: string[] = [];
+  const unsupported: Array<{ id: string; title: string; reason: string }> = [];
 
   for (const recommendation of input.recommendations) {
     if (!recommendation.applyable || recommendation.operations.length === 0) {
       skippedIds.push(recommendation.id);
+      unsupported.push({
+        id: recommendation.id,
+        title: recommendation.title,
+        reason:
+          recommendation.blockedReason ??
+          (recommendation.supportStatus === "needs_images"
+            ? "Requires uploaded images"
+            : "Coming soon"),
+      });
       continue;
     }
     const result = applyCreativeRecommendation({
@@ -211,6 +222,15 @@ export function applyAllCreativeRecommendations(input: {
     }
   }
 
+  const unsupportedLines =
+    unsupported.length > 0
+      ? [
+          "",
+          "Not applied:",
+          ...unsupported.map((u) => `⚠ ${u.title} — ${u.reason}`),
+        ].join("\n")
+      : "";
+
   if (appliedIds.length === 0) {
     return {
       ok: true,
@@ -220,8 +240,13 @@ export function applyAllCreativeRecommendations(input: {
       changes: [],
       appliedIds,
       skippedIds,
-      explanation:
-        "Nothing new to apply — upload images for blocked items, or the site already includes these upgrades.",
+      unsupported,
+      explanation: [
+        "Nothing new to apply automatically.",
+        unsupportedLines.trim(),
+      ]
+        .filter(Boolean)
+        .join("\n"),
     };
   }
 
@@ -234,6 +259,12 @@ export function applyAllCreativeRecommendations(input: {
     changes: allChanges,
     appliedIds,
     skippedIds,
-    explanation: `I applied ${appliedIds.length} improvement${appliedIds.length === 1 ? "" : "s"}. Your site is now ${refreshed.overallCompleteness}% complete (${refreshed.maturityLevel}).`,
+    unsupported,
+    explanation: [
+      `I applied ${appliedIds.length} improvement${appliedIds.length === 1 ? "" : "s"}. Your site is now ${refreshed.overallCompleteness}% complete (${refreshed.maturityLevel}).`,
+      unsupportedLines.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
 }

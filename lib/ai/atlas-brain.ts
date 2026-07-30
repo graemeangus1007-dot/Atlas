@@ -23,7 +23,6 @@ import {
   type AtlasActionMemory,
   type ClarificationDestination,
 } from "@/lib/ai/atlas-action-memory";
-import { planCompleteWebsite } from "@/lib/ai/creative-director";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
   formatNaturalPreferenceNote,
@@ -41,15 +40,20 @@ import { ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
 import { reviewBusinessProject } from "@/lib/ai/business-advisor";
 import {
   applyAllCreativeRecommendations,
-  applyCreativeRecommendation,
 } from "@/lib/ai/apply-creative-recommendation";
 import { applyAdvisorRecommendation } from "@/lib/ai/apply-advisor-recommendation";
-import { reviewCreativeDirector } from "@/lib/ai/creative-director";
+import {
+  creativeDirectorFingerprint,
+  reviewCreativeDirector,
+} from "@/lib/ai/creative-director";
 import {
   isDesignCritiqueExecuteRequest,
-  isDesignCritiqueRequest,
-  runDesignCritique,
 } from "@/lib/ai/design-critique";
+import {
+  invalidateCritiquePipelineCache,
+  runAtlasCritiquePipeline,
+} from "@/lib/ai/critique-pipeline";
+import { formatRecommendationSupportPlan } from "@/lib/ai/critique-to-operations";
 import type {
   EditorAgentHistoryItem,
   EditorAgentInput,
@@ -193,18 +197,31 @@ function applyActionMemoryRecommendations(input: {
   const appliedTitles: string[] = [];
 
   const creative = toCreativeRecommendations(selected);
+  let applyAllNote = "";
   if (creative.length > 0) {
     const batch = applyAllCreativeRecommendations({
       project,
       recommendations: creative,
     });
-    if (batch.ok && batch.status === "applied") {
-      project = batch.project;
-      changes.push(...batch.changes);
-      appliedTitles.push(...creative.map((r) => r.title));
-      for (const rec of creative) {
-        operations.push(...rec.operations);
+    if (batch.ok) {
+      if (batch.status === "applied") {
+        invalidateCritiquePipelineCache(
+          creativeDirectorFingerprint(batch.project),
+        );
+        project = batch.project;
+        changes.push(...batch.changes);
+        appliedTitles.push(
+          ...creative
+            .filter((r) => batch.appliedIds.includes(r.id))
+            .map((r) => r.title),
+        );
+        for (const rec of creative) {
+          if (batch.appliedIds.includes(rec.id)) {
+            operations.push(...rec.operations);
+          }
+        }
       }
+      applyAllNote = batch.explanation;
     }
   }
 
@@ -227,12 +244,19 @@ function applyActionMemoryRecommendations(input: {
   project = withActionMemory(withMemory(project, input.request), nextMemory);
 
   const applied = appliedTitles.length > 0;
-  const explanation = applied
-    ? [
-        `Done — I applied ${appliedTitles.length} improvement${appliedTitles.length === 1 ? "" : "s"} from the plan:`,
-        ...appliedTitles.slice(0, 6).map((title) => `• ${title}`),
-      ].join("\n")
-    : "Those improvements were already in place, so there was nothing new to apply.";
+  const explanation = [
+    applied
+      ? [
+          `Done — I applied ${appliedTitles.length} improvement${appliedTitles.length === 1 ? "" : "s"} from the plan:`,
+          ...appliedTitles.slice(0, 6).map((title) => `• ${title}`),
+        ].join("\n")
+      : "Those improvements were already in place, so there was nothing new to apply.",
+    applyAllNote && applyAllNote.includes("Not applied:")
+      ? applyAllNote.slice(applyAllNote.indexOf("Not applied:"))
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   return {
     ok: true,
@@ -506,19 +530,56 @@ export async function runAtlasBrain(
     return continued;
   }
 
-  // Sprint 28.0B — Complete my website with no active plan → create plan, ask once
+  // Sprint 28.1 — Complete my website uses the same critique pipeline (cache-aware).
   if (
     isCompleteWebsiteRequest(request) &&
     !hasActiveRecommendations(getActionMemory(input.project))
   ) {
-    const plan = planCompleteWebsite(input.project);
+    const critiqueResult = await runAtlasCritiquePipeline({
+      project: input.project,
+      request:
+        "Complete my website for launch — prioritize the highest-impact coordinated improvements.",
+      mode: "critique",
+      history,
+      atlasRequestId: input.atlasRequestId,
+      allowFingerprintReuse: true,
+    });
+
+    if (!critiqueResult.ok) {
+      return {
+        ok: true,
+        explanation: `I couldn’t finish the launch-ready plan (${critiqueResult.message}). Try again in a moment.`,
+        operations: [],
+        changes: [],
+        project: withMemory(input.project, request),
+        applyStatus: "no_changes",
+        decision: confirmDecision(
+          "Complete website",
+          "Critique pipeline could not complete.",
+        ),
+        followUpSuggestions: [
+          "Review my website",
+          "Improve SEO",
+          "Add testimonials",
+        ],
+        atlasMemory: input.project.atlasMemory,
+      };
+    }
+
+    const creative = reviewCreativeDirector({
+      project: input.project,
+      limit: 1,
+    });
+    const supportPlan = formatRecommendationSupportPlan(
+      critiqueResult.recommendations,
+    );
     const actionMemory = storeRecommendations(getActionMemory(input.project), {
-      creative: plan.recommendations,
+      creative: critiqueResult.recommendations,
       creativeReport: {
-        overallCompleteness: plan.overallCompleteness,
-        maturityLevel: plan.maturityLevel,
-        fingerprint: `${plan.overallCompleteness}:${plan.maturityLevel}`,
-        reviewedAt: new Date().toISOString(),
+        overallCompleteness: creative.overallCompleteness,
+        maturityLevel: creative.maturityLevel,
+        fingerprint: creative.fingerprint,
+        reviewedAt: creative.reviewedAt,
       },
       executionPlan: {
         goal: "Complete the website for launch",
@@ -539,10 +600,14 @@ export async function runAtlasBrain(
     return {
       ok: true,
       explanation: [
-        plan.narrative,
+        critiqueResult.explanation,
+        "",
+        supportPlan,
         "",
         "Say Apply All (or Complete my website again) when you want me to make these changes.",
-      ].join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
       operations: [],
       changes: [],
       project,
@@ -635,106 +700,70 @@ export async function runAtlasBrain(
     };
   }
 
-  // Questions / recommend — narrative only (never execute edits)
-  // Sprint 28.0A — LLM design critique for review / agency redesign asks.
+  // Sprint 28.1 — recommend / question always use the unified critique pipeline.
   if (decision.intent === "recommend" || decision.intent === "question") {
-    const isRecommend = decision.intent === "recommend";
-    const useCritique =
-      isRecommend ||
-      isDesignCritiqueRequest(request) ||
-      isDesignCritiqueExecuteRequest(request);
+    const critiqueResult = await runAtlasCritiquePipeline({
+      project: input.project,
+      request,
+      mode: "critique",
+      history,
+      atlasRequestId: input.atlasRequestId,
+    });
 
-    if (useCritique) {
-      const critiqueResult = await runDesignCritique({
-        project: input.project,
-        request,
-        mode: "critique",
-        history,
-        atlasRequestId: input.atlasRequestId,
-      });
-
-      if (!critiqueResult.ok) {
-        return {
-          ok: true,
-          explanation: `I couldn’t finish the design critique (${critiqueResult.message}). Try again in a moment, or ask for a specific change.`,
-          operations: [],
-          changes: [],
-          project: withMemory(input.project, request, decision.memoryPatch),
-          applyStatus: "no_changes",
-          decision,
-          followUpSuggestions: ["Improve SEO", "Add testimonials", "Apply All"],
-          executionPlan: decision.executionPlan,
-          atlasMemory: input.project.atlasMemory,
-        };
-      }
-
-      const creative = reviewCreativeDirector({
-        project: input.project,
-        limit: 1,
-      });
-      const actionMemory = storeRecommendations(getActionMemory(input.project), {
-        creative: critiqueResult.recommendations,
-        creativeReport: {
-          overallCompleteness: creative.overallCompleteness,
-          maturityLevel: creative.maturityLevel,
-          fingerprint: creative.fingerprint,
-          reviewedAt: creative.reviewedAt,
-        },
-        executionPlan: decision.executionPlan,
-      });
-      const project = withActionMemory(
-        withMemory(input.project, request, decision.memoryPatch),
-        actionMemory,
-      );
+    if (!critiqueResult.ok) {
       return {
         ok: true,
-        explanation: critiqueResult.explanation,
+        explanation: `I couldn’t finish the design critique (${critiqueResult.message}). Try again in a moment, or ask for a specific change.`,
         operations: [],
         changes: [],
-        project,
+        project: withMemory(input.project, request, decision.memoryPatch),
         applyStatus: "no_changes",
         decision,
-        followUpSuggestions: [
-          "Apply All",
-          ...decision.followUpSuggestions.filter(
-            (s) => s !== "Apply the top improvement" && s !== "Apply All",
-          ),
-          "Apply the top improvement",
-        ].slice(0, 4),
+        followUpSuggestions: ["Improve SEO", "Add testimonials", "Apply All"],
         executionPlan: decision.executionPlan,
-        atlasMemory: project.atlasMemory,
+        atlasMemory: input.project.atlasMemory,
       };
     }
 
-    // Non-critique questions — light heuristic context only
-    const creative = reviewCreativeDirector({ project: input.project, limit: 5 });
-    const advisor = reviewBusinessProject({ project: input.project, limit: 3 });
-    const bullets = [
-      ...creative.recommendedImprovements.slice(0, 3).map((r) => `• ${r.title}`),
-      ...advisor.recommendations.slice(0, 2).map((r) => `• ${r.title}`),
-    ];
-    const explanation = [
-      decision.explanation,
-      "",
-      `Right now the site is about ${creative.overallCompleteness}% complete (${creative.maturityLevel}).`,
-      creative.narrative.split("\n")[0] ?? "",
-      bullets.length
-        ? ["", "If I were improving it next, I’d look at:", ...bullets].join("\n")
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const project = withMemory(input.project, request, decision.memoryPatch);
+    // Creative Director is presentation/maturity only — not a second reasoning engine.
+    const creative = reviewCreativeDirector({
+      project: input.project,
+      limit: 1,
+    });
+    const supportPlan = formatRecommendationSupportPlan(
+      critiqueResult.recommendations,
+    );
+    const actionMemory = storeRecommendations(getActionMemory(input.project), {
+      creative: critiqueResult.recommendations,
+      creativeReport: {
+        overallCompleteness: creative.overallCompleteness,
+        maturityLevel: creative.maturityLevel,
+        fingerprint: creative.fingerprint,
+        reviewedAt: creative.reviewedAt,
+      },
+      executionPlan: decision.executionPlan,
+    });
+    const project = withActionMemory(
+      withMemory(input.project, request, decision.memoryPatch),
+      actionMemory,
+    );
     return {
       ok: true,
-      explanation,
+      explanation: [critiqueResult.explanation, "", supportPlan]
+        .filter(Boolean)
+        .join("\n"),
       operations: [],
       changes: [],
       project,
       applyStatus: "no_changes",
       decision,
-      followUpSuggestions: decision.followUpSuggestions,
+      followUpSuggestions: [
+        "Apply All",
+        ...decision.followUpSuggestions.filter(
+          (s) => s !== "Apply the top improvement" && s !== "Apply All",
+        ),
+        "Apply the top improvement",
+      ].slice(0, 4),
       executionPlan: decision.executionPlan,
       atlasMemory: project.atlasMemory,
     };
@@ -892,106 +921,70 @@ export async function runAtlasBrain(
     imageEditorState = imageResult.editorState ?? imageEditorState;
   }
 
-  // Creative Director / Design Critique — feel / redesign / multi-goal
+  // Sprint 28.1 — feel / redesign / multi-goal always use the unified critique pipeline.
   if (
     agents.has("creative_director") &&
     (decision.intent === "feel_direction" || decision.intent === "multi_goal")
   ) {
-    const wantsCritiqueExecute =
+    const wantsExecute =
       decision.intent === "feel_direction" &&
       (isDesignCritiqueExecuteRequest(request) ||
         /\b(premium|agency|redesign|luxurious|luxury)\b/i.test(request));
 
-    if (wantsCritiqueExecute) {
-      const critiqueResult = await runDesignCritique({
-        project,
-        request,
-        mode: "execute",
-        history,
-        atlasRequestId: input.atlasRequestId,
-      });
-      if (critiqueResult.ok) {
-        const applyable = critiqueResult.recommendations.filter((r) => r.applyable);
-        // Store plan for Apply All continuity even when we auto-apply
-        const actionMemory = storeRecommendations(getActionMemory(project), {
-          creative: critiqueResult.recommendations,
-          executionPlan: decision.executionPlan,
-        });
-        project = withActionMemory(project, actionMemory);
+    const critiqueResult = await runAtlasCritiquePipeline({
+      project,
+      request,
+      mode: wantsExecute ? "execute" : "critique",
+      history,
+      atlasRequestId: input.atlasRequestId,
+    });
 
-        if (applyable.length > 0) {
-          const batch = applyAllCreativeRecommendations({
-            project,
-            recommendations: applyable.slice(0, 6),
-          });
-          if (batch.ok && batch.status === "applied") {
-            project = withActionMemory(
-              batch.project,
-              clearRecommendations(getActionMemory(batch.project)),
-            );
-            changes.push(...batch.changes);
-            operations.push(
-              ...applyable.flatMap((r) => r.operations).slice(0, 24),
-            );
-            applyStatus = "applied";
-            explanation = appendExplanation(
-              critiqueResult.explanation.replace(
-                /I’m applying the coordinated plan next\.?/i,
-                "",
-              ).trim(),
-              batch.explanation ||
-                "I applied a coordinated redesign across typography, spacing, hierarchy, and conversion cues.",
-            );
-          } else {
-            explanation = appendExplanation(
-              explanation,
-              critiqueResult.explanation,
-            );
-          }
+    if (critiqueResult.ok) {
+      const applyable = critiqueResult.recommendations.filter((r) => r.applyable);
+      const supportPlan = formatRecommendationSupportPlan(
+        critiqueResult.recommendations,
+      );
+      const actionMemory = storeRecommendations(getActionMemory(project), {
+        creative: critiqueResult.recommendations,
+        executionPlan: decision.executionPlan,
+      });
+      project = withActionMemory(project, actionMemory);
+
+      if (wantsExecute && applyable.length > 0) {
+        const batch = applyAllCreativeRecommendations({
+          project,
+          recommendations: applyable.slice(0, 6),
+        });
+        if (batch.ok && batch.status === "applied") {
+          invalidateCritiquePipelineCache(
+            creativeDirectorFingerprint(batch.project),
+          );
+          project = withActionMemory(
+            batch.project,
+            clearRecommendations(getActionMemory(batch.project)),
+          );
+          changes.push(...batch.changes);
+          operations.push(
+            ...applyable.flatMap((r) => r.operations).slice(0, 24),
+          );
+          applyStatus = "applied";
+          explanation = appendExplanation(
+            critiqueResult.explanation
+              .replace(/I’m applying the coordinated plan next\.?/i, "")
+              .trim(),
+            [batch.explanation, supportPlan].filter(Boolean).join("\n"),
+          );
         } else {
           explanation = appendExplanation(
             explanation,
-            critiqueResult.explanation,
+            [critiqueResult.explanation, supportPlan].filter(Boolean).join("\n"),
           );
         }
-      }
-    } else {
-      const creative = reviewCreativeDirector({ project, limit: 6 });
-      const applyable = creative.recommendedImprovements.filter(
-        (r) => r.applyable,
-      );
-      if (applyable.length > 0) {
-        const batch = applyAllCreativeRecommendations({
-          project,
-          recommendations: applyable.slice(0, 4),
-        });
-        if (batch.ok && batch.status === "applied") {
-          project = batch.project;
-          changes.push(...batch.changes);
-          applyStatus = "applied";
-          explanation = appendExplanation(
-            explanation,
-            batch.explanation || "I applied the highest-impact polish upgrades.",
-          );
-        }
-      } else if (decision.intent === "feel_direction") {
-        const icons = creative.recommendedImprovements.find(
-          (r) =>
-            r.id === "visual.service_icons" ||
-            r.id === "motion.scroll_animations",
+      } else {
+        explanation = appendExplanation(
+          explanation,
+          [critiqueResult.explanation, supportPlan].filter(Boolean).join("\n"),
         );
-        if (icons) {
-          const one = applyCreativeRecommendation({
-            project,
-            recommendation: icons,
-          });
-          if (one.ok && one.status === "applied") {
-            project = one.project;
-            changes.push(...one.changes);
-            applyStatus = "applied";
-            explanation = appendExplanation(explanation, one.explanation);
-          }
-        }
       }
     }
   }

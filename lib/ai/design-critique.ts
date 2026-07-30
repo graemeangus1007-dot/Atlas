@@ -498,7 +498,7 @@ export function formatDesignCritiqueExplanation(input: {
     .map((s) => `• ${s.title} — ${s.evidence}`)
     .join("\n");
   const improvements = critique.prioritizedImprovements
-    .slice(0, 7)
+    .slice(0, 5)
     .map(
       (item, i) =>
         `${i + 1}. ${item.title}\n   Why it matters: ${item.expectedBusinessOutcome}`,

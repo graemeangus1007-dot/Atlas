@@ -22,7 +22,6 @@ import {
 import {
   appendConversationMessage,
   applyAdvisorRecommendation,
-  applyAllCreativeRecommendations,
   applyAiFieldValue,
   applyCreativeRecommendation,
   buildDesignAssistantMeta,
@@ -32,7 +31,6 @@ import {
   createEmptyEditorConversation,
   createEmptyRevisionStack,
   logDesignAssistantDiagnostic,
-  planCompleteWebsite,
   pushEditorRevision,
   redoEditorRevision,
   requestEditorAgentEdit,
@@ -666,13 +664,8 @@ export default function WebsiteEditor() {
   }
 
   function handleCompleteWebsite() {
-    const plan = planCompleteWebsite(project);
-    setCompleteWebsitePlan(plan);
-    const withAssistant = appendConversationMessage(conversation, {
-      role: "assistant",
-      content: plan.narrative,
-    });
-    setConversation(withAssistant);
+    // Sprint 28.1 — same Brain → critique pipeline as chat (no heuristic side path).
+    void handleDesignSend("Complete my website");
   }
 
   function handleApplyCreativeRecommendation(
@@ -794,75 +787,8 @@ export default function WebsiteEditor() {
   }
 
   function handleApplyAllCreative() {
-    if (inFlightRef.current || applyingRecommendationId) return;
-    const recommendations =
-      completeWebsitePlan?.recommendations ??
-      creativeDirectorReport?.recommendedImprovements ??
-      [];
-    if (recommendations.length === 0) return;
-
-    inFlightRef.current = true;
-    setApplyingRecommendationId("apply-all");
-    setUiStatus("sending");
-
-    try {
-      const result = applyAllCreativeRecommendations({
-        project,
-        recommendations,
-      });
-
-      if (!result.ok) {
-        setUiStatus("failed");
-        setStatusMessage(result.message);
-        return;
-      }
-
-      if (result.status === "no_visible_change") {
-        setUiStatus("no_changes");
-        setStatusMessage(result.explanation);
-        setConversation(
-          appendConversationMessage(conversation, {
-            role: "assistant",
-            content: result.explanation,
-          }),
-        );
-        return;
-      }
-
-      const nextStack = pushEditorRevision(revisionStack, {
-        before: project,
-        after: result.project,
-        operations: recommendations.flatMap((r) => r.operations),
-        changes: result.changes,
-        prompt: "Complete My Website — Apply All",
-      });
-      const withAssistant = appendConversationMessage(conversation, {
-        role: "assistant",
-        content: result.explanation,
-        changes: result.changes,
-      });
-
-      setRevisionStack(nextStack);
-      setConversation(withAssistant);
-      setLastChanges(result.changes);
-      setUiStatus("applied");
-      setStatusMessage(result.explanation);
-      setCompleteWebsitePlan(null);
-
-      persistAssistantState({
-        nextProject: result.project,
-        conversation: withAssistant,
-        revisionStack: nextStack,
-        lastChanges: result.changes,
-      });
-
-      const refreshed = reviewCreativeDirector({ project: result.project });
-      lastCreativeFingerprintRef.current = refreshed.fingerprint;
-      setCreativeDirectorReport(refreshed);
-    } finally {
-      inFlightRef.current = false;
-      setApplyingRecommendationId(null);
-    }
+    // Sprint 28.1 — Apply All always goes through Brain action memory (critique plan).
+    void handleDesignSend("Apply All");
   }
 
   const panel = (
