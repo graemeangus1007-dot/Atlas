@@ -62,6 +62,11 @@ import {
   createAiRequestId,
   logAtlasBrainRouting,
 } from "@/lib/ai/openai-logging";
+import {
+  isNaturalLanguageEditRequest,
+  planNaturalLanguageEdits,
+  shouldExecuteNlEditPlan,
+} from "@/lib/ai/nl-edit-planner";
 import type {
   EditorAgentHistoryItem,
   EditorAgentInput,
@@ -655,7 +660,7 @@ export async function runAtlasBrain(
     };
   }
 
-  const decision = decideAtlasBrain({
+  let decision = decideAtlasBrain({
     request,
     project: projectForTurn,
     history,
@@ -690,6 +695,36 @@ export async function runAtlasBrain(
 
   const preferenceNote = formatNaturalPreferenceNote(projectForTurn.atlasMemory);
   const planText = formatExecutionPlanForUser(decision.executionPlan);
+
+  // Sprint 28.2 — never clarify when the NL Edit Planner can execute confidently.
+  if (
+    decision.needsClarification &&
+    isNaturalLanguageEditRequest(request)
+  ) {
+    const nlPlan = await planNaturalLanguageEdits({
+      request,
+      project: projectForTurn,
+    });
+    if (shouldExecuteNlEditPlan(nlPlan)) {
+      decision = {
+        ...decision,
+        intent: "nl_edit",
+        confidence: nlPlan.confidence,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        explanation: nlPlan.explanation,
+        decisionStage: "nl_edit",
+        selectedPath: "nl_edit_planner",
+        shouldExecuteEdits: true,
+        matchedSignals: nlPlan.matchedSignals,
+        followUpSuggestions: [
+          "Improve SEO",
+          "Add subtle animations",
+          "Review my website",
+        ],
+      };
+    }
+  }
 
   if (decision.needsClarification) {
     const actionMemory = storePendingClarification(

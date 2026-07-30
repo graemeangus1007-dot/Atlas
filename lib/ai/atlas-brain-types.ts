@@ -36,6 +36,8 @@ export type AtlasBrainIntent =
   | "design_critique"
   /** Sprint 28.1A — critique + coordinated redesign execution */
   | "design_redesign"
+  /** Sprint 28.2 — natural-language multi-edit plan */
+  | "nl_edit"
   /** Sprint 26.2 — continue Action Memory plan */
   | "continue_plan"
   /** Sprint 26.2 — explicit command categories */

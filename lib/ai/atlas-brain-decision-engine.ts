@@ -27,12 +27,17 @@ import {
 import { detectPreferredLanguage } from "@/lib/ai/design-system-intelligence";
 import { isImageEditRequest } from "@/lib/ai/image-agent";
 import { routeIntent } from "@/lib/ai/intent-router";
+import {
+  extractNaturalLanguageEditPlan,
+  shouldExecuteNlEditPlan,
+} from "@/lib/ai/nl-edit-planner";
 import type { BusinessProject } from "@/types/business-project";
 
-/** Pipeline stages in priority order (highest first). Sprint 28.1A order. */
+/** Pipeline stages in priority order (highest first). Sprint 28.2 order. */
 export const DECISION_STAGES = [
   "continuation",
   "explicit_command",
+  "nl_edit",
   "critique",
   "explicit_design",
   "business_goal",
@@ -147,7 +152,7 @@ const COMMAND_RULES: CommandRule[] = [
   {
     kind: "readability",
     pattern:
-      /\b(easier\s+to\s+read|hard\s+to\s+read|readability|readable|make\s+the\s+words|simpler\s+copy|clearer\s+(copy|text|words)|too\s+dense|cluttered|crowded)\b/i,
+      /\b(easier\s+to\s+read|easy\s+to\s+read|hard\s+to\s+read|readability|readable|make\s+the\s+words|simpler\s+copy|clearer\s+(copy|text|words|buttons?)|increase\s+contrast|stand\s+out|too\s+dense|cluttered|crowded)\b/i,
     confidence: 0.95,
     agents: ["editor_agent"],
     intent: "command_readability",
@@ -165,7 +170,7 @@ const COMMAND_RULES: CommandRule[] = [
   {
     kind: "spacing",
     pattern:
-      /\b(more\s+whitespace|more\s+space|breathing\s+room|airy|less\s+cramped|increase\s+spacing)\b/i,
+      /\b(more\s+whitespace|more\s+space|breathing\s+room|airy|less\s+cramped|increase\s+spacing|spacing\s+between\s+sections)\b/i,
     confidence: 0.94,
     agents: ["editor_agent", "creative_director"],
     intent: "command_spacing",
@@ -229,7 +234,7 @@ const COMMAND_RULES: CommandRule[] = [
   {
     kind: "buttons",
     pattern:
-      /\b(buttons?\s+(round|rounded|pill|square)|make\s+the\s+buttons?\s+(round|rounded|pill|square)|button\s+style)\b/i,
+      /\b(round(?:ed)?\s+(all\s+)?(the\s+)?buttons?|buttons?\s+(round|rounded|pill|square)|make\s+the\s+buttons?\s+(round|rounded|pill|square)|button\s+style)\b/i,
     confidence: 0.96,
     agents: ["editor_agent"],
     intent: "command_buttons",
@@ -267,7 +272,7 @@ const COMMAND_RULES: CommandRule[] = [
   {
     kind: "branding",
     pattern:
-      /\b(branding|brand\s+colors?|brand\s+identity)\b|\b(change|update|set|make)\b[\s\S]{0,100}\b(theme|colors?|colours?|navy|gold|accents?|primary\s+color|accent\s+color)\b|\b(dark\s+navy|gold\s+accents?)\b/i,
+      /\b(branding|brand\s+colors?|brand\s+identity)\b|\b(change|update|set|make|turn|switch|use)\b[\s\S]{0,100}\b(theme|colors?|colours?|palette|navy|gold|green|accents?|primary\s+color|accent\s+color)\b|\b(dark\s+navy|gold\s+accents?|green\s+and\s+gold)\b/i,
     confidence: 0.95,
     agents: ["editor_agent"],
     intent: "explicit_design_edit",
@@ -517,7 +522,59 @@ export function stageExplicitCommand(
 }
 
 /**
- * Stage 3 — Explicit critique / review (before design transforms & business goals).
+ * Stage 3 — Natural Language Edit Planner (after explicit commands, before critique).
+ * High-confidence multi-edit plans execute without clarification.
+ */
+export function stageNaturalLanguageEdit(
+  input: AtlasDecisionEngineInput,
+): AtlasDecisionEngineResult | null {
+  const request = input.request.trim();
+  const editPlan = extractNaturalLanguageEditPlan({
+    request,
+    project: input.project,
+  });
+  if (!shouldExecuteNlEditPlan(editPlan)) return null;
+
+  return {
+    stage: "nl_edit",
+    decision: withConfidencePolicy({
+      intent: "nl_edit",
+      confidence: editPlan.confidence,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: plan(
+        editPlan.categories.join(", ") || "Apply natural-language edits",
+        [
+          {
+            id: "nl.plan",
+            agent: "editor_agent",
+            label: "Plan structured edits",
+          },
+          {
+            id: "nl.apply",
+            agent: "editor_agent",
+            label: "Apply validated edit operations",
+          },
+        ],
+        "high",
+      ),
+      explanation: editPlan.explanation,
+      followUpSuggestions: [
+        "Improve SEO",
+        "Add subtle animations",
+        "Review my website",
+      ],
+      memoryPatch: inferMemoryFromMessage(request),
+      decisionStage: "nl_edit",
+      selectedPath: "nl_edit_planner",
+      shouldExecuteEdits: true,
+      matchedSignals: editPlan.matchedSignals,
+    }),
+  };
+}
+
+/**
+ * Stage 4 — Explicit critique / review (before design transforms & business goals).
  */
 export function stageCritique(
   input: AtlasDecisionEngineInput,
@@ -923,8 +980,8 @@ export function stageClarification(
 }
 
 /**
- * Run the full decision pipeline in priority order (Sprint 28.1A).
- * continuation → explicit command → critique → design → business → question → clarify
+ * Run the full decision pipeline in priority order (Sprint 28.2).
+ * continuation → explicit command → nl edit → critique → design → business → question → clarify
  */
 export function decideWithAtlasBrainEngine(
   input: AtlasDecisionEngineInput,
@@ -937,6 +994,7 @@ export function decideWithAtlasBrainEngine(
   return (
     stageContinuation(input) ??
     stageExplicitCommand(input) ??
+    stageNaturalLanguageEdit(input) ??
     stageCritique(input) ??
     stageExplicitDesign(input) ??
     stageBusinessGoal(input) ??

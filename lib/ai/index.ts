@@ -437,6 +437,7 @@ export {
   formatNaturalPreferenceNote,
   stageContinuation,
   stageExplicitCommand,
+  stageNaturalLanguageEdit,
   stageCritique,
   stageExplicitDesign,
   stageBusinessGoal,
@@ -448,6 +449,20 @@ export {
   CONFIDENCE_EXECUTE_EXPLAIN,
   CONFIDENCE_CLARIFY,
 } from "@/lib/ai/atlas-brain-decision-engine";
+export {
+  extractNaturalLanguageEditPlan,
+  isNaturalLanguageEditRequest,
+  planNaturalLanguageEdits,
+  shouldExecuteNlEditPlan,
+  NL_EDIT_EXECUTE_CONFIDENCE,
+  NL_EDIT_PLANNER_VERSION,
+} from "@/lib/ai/nl-edit-planner";
+export type {
+  NlEditCategory,
+  NlEditPlan,
+  NlEditPlanStep,
+  NlEditPlannerInput,
+} from "@/lib/ai/nl-edit-planner";
 export {
   classifyCritiqueRequest,
   isCritiqueOrRedesignRequest,

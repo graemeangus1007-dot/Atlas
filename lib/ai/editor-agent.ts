@@ -30,6 +30,10 @@ import {
   parseThemeColorIntent,
   wantsPreserveWording,
 } from "@/lib/ai/named-colors";
+import {
+  extractNaturalLanguageEditPlan,
+  shouldExecuteNlEditPlan,
+} from "@/lib/ai/nl-edit-planner";
 import { AiError } from "@/lib/ai/errors";
 import type { BusinessProject } from "@/types/business-project";
 
@@ -113,6 +117,18 @@ export function planEditOperations(input: {
     project: input.project,
     history: input.history,
   });
+
+  // Sprint 28.2 — Natural Language Edit Planner (multi-edit, high confidence).
+  const nlPlan = extractNaturalLanguageEditPlan({
+    project: input.project,
+    request,
+  });
+  if (shouldExecuteNlEditPlan(nlPlan)) {
+    return {
+      operations: nlPlan.operations,
+      explanation: nlPlan.explanation,
+    };
+  }
 
   // 1) Explicit content edits — skip business reasoning entirely.
   if (intent.category === "explicit_content_edit") {
