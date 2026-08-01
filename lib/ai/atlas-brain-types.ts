@@ -3,6 +3,7 @@
  * Orchestration layer — one designer face, many specialists behind the scenes.
  */
 
+import { ATLAS_DESIGNER_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-designer-voice";
 import type { EditOperation } from "@/lib/ai/edit-operations";
 import type { ImageOperation } from "@/lib/ai/image-operations";
 import type { IntentCategory } from "@/lib/ai/intent-router";
@@ -102,9 +103,6 @@ export type AtlasBrainDecision = {
   matchedSignals?: string[];
 };
 
-export const ATLAS_BRAIN_CLARIFICATION_OPTIONS = [
-  "Better visuals",
-  "Better copy",
-  "Better conversions",
-  "Something else",
-] as const;
+/** Clarification chips — designer voice (see atlas-designer-voice). */
+export const ATLAS_BRAIN_CLARIFICATION_OPTIONS =
+  ATLAS_DESIGNER_CLARIFICATION_OPTIONS;

@@ -23,14 +23,16 @@ export function fileStem(fileName: string): string {
   return stem || fileName;
 }
 
-/** Inline SVG placeholder used when no custom image is assigned. */
+/**
+ * Decorative SVG placeholder when no custom image is assigned.
+ * Intentionally text-free so labels never collide with real hero/gallery copy.
+ */
 export function placeholderImageUrl(
-  label: string,
+  _label: string,
   width = 1200,
   height = 800,
 ): string {
-  const safeLabel = label.replace(/[<>&"']/g, "");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-hidden="true">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#151b24"/>
@@ -39,11 +41,16 @@ export function placeholderImageUrl(
   </defs>
   <rect width="100%" height="100%" fill="url(#g)"/>
   <circle cx="${width * 0.72}" cy="${height * 0.28}" r="${Math.min(width, height) * 0.18}" fill="#3db8a8" fill-opacity="0.12"/>
-  <text x="50%" y="48%" fill="#9aa3b2" font-family="system-ui,sans-serif" font-size="${Math.round(width * 0.035)}" text-anchor="middle">${safeLabel}</text>
-  <text x="50%" y="56%" fill="#667085" font-family="system-ui,sans-serif" font-size="${Math.round(width * 0.022)}" text-anchor="middle">Placeholder</text>
+  <circle cx="${width * 0.22}" cy="${height * 0.78}" r="${Math.min(width, height) * 0.12}" fill="#3db8a8" fill-opacity="0.06"/>
 </svg>`;
 
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/** True when a URL is our generated empty-slot placeholder (not uploaded media). */
+export function isPlaceholderImageUrl(url: string | null | undefined): boolean {
+  if (!url) return true;
+  return url.startsWith("data:image/svg+xml");
 }
 
 function createId(): string {

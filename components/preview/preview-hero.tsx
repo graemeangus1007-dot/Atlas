@@ -23,12 +23,22 @@ export default function PreviewHero({
         id="home"
         className={`relative isolate overflow-hidden border-b border-border ${sectionClass}`}
       >
-        <div className="site-shell grid items-center gap-10 lg:grid-cols-2">
+        <div
+          className="site-shell grid items-center gap-10 lg:grid-cols-2"
+          data-testid="preview-hero"
+          data-hero-placeholder={content.isPlaceholder ? "true" : "false"}
+        >
           <div className="relative z-10 text-left">
-            <p className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]">
-              {content.eyebrow}
-            </p>
-            <h1 className="site-heading atlas-display-text mt-4 text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+            {content.eyebrow?.trim() ? (
+              <p className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]">
+                {content.eyebrow}
+              </p>
+            ) : null}
+            <h1
+              className={`site-heading atlas-display-text text-4xl font-semibold tracking-tight text-foreground sm:text-5xl ${
+                content.eyebrow?.trim() ? "mt-4" : ""
+              }`}
+            >
               {content.headline}
             </h1>
             <p className="mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-lg">
@@ -98,12 +108,20 @@ export default function PreviewHero({
         ) : null}
       </div>
 
-      <div className={`site-shell relative z-10 px-0 ${alignClass}`}>
-        <p className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]">
-          {content.eyebrow}
-        </p>
+      <div
+        className={`site-shell relative z-10 px-0 ${alignClass}`}
+        data-testid="preview-hero"
+        data-hero-placeholder={content.isPlaceholder ? "true" : "false"}
+      >
+        {content.eyebrow?.trim() ? (
+          <p className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]">
+            {content.eyebrow}
+          </p>
+        ) : null}
         <h1
-          className={`site-heading atlas-display-text mt-4 font-semibold tracking-tight text-foreground ${titleSize}`}
+          className={`site-heading atlas-display-text font-semibold tracking-tight text-foreground ${titleSize} ${
+            content.eyebrow?.trim() ? "mt-4" : ""
+          }`}
         >
           {content.headline}
         </h1>

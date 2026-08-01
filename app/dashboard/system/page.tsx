@@ -1,11 +1,9 @@
-import type { Metadata } from "next";
-import SystemHealthDashboard from "@/components/system/system-health-dashboard";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "System health — Atlas",
-  description: "Environment and provider health for Atlas production readiness.",
-};
-
-export default function DashboardSystemPage() {
-  return <SystemHealthDashboard />;
+/**
+ * System health removed from product nav (Phase 1).
+ * Ops can still use /api/system/health.
+ */
+export default function SystemPage() {
+  redirect("/projects");
 }

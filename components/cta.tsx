@@ -1,4 +1,5 @@
 import Button from "@/components/ui/button";
+import { NEW_SITE_HREF, NEW_SITE_LABEL } from "@/lib/product/new-site";
 
 /**
  * Closing conversion band before the footer.
@@ -25,8 +26,8 @@ export default function Cta() {
             complicated tools required.
           </p>
           <div className="mt-10">
-            <Button href="/onboarding" className="px-8 py-3.5">
-              Create Your Website
+            <Button href={NEW_SITE_HREF} className="px-8 py-3.5">
+              {NEW_SITE_LABEL}
             </Button>
           </div>
         </div>

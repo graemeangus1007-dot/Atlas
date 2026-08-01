@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { DEFAULT_SIGNED_IN_HREF } from "@/lib/product/new-site";
 import {
   getSupabaseEnv,
   isSupabaseConfigured,
@@ -9,6 +10,7 @@ import {
 /**
  * Routes that require a signed-in session (Sprint 14.2C).
  * Unauthenticated visitors are sent to /login.
+ * /onboarding is protected so New Site always enters the signed-in Atlas flow.
  */
 export const PROTECTED_PREFIXES = [
   "/dashboard",
@@ -16,6 +18,7 @@ export const PROTECTED_PREFIXES = [
   "/projects",
   "/leads",
   "/profile",
+  "/onboarding",
 ] as const;
 
 /**
@@ -39,7 +42,7 @@ function isAuthRoute(pathname: string): boolean {
  * Next.js middleware auth gate.
  *
  * - Unauthenticated → protected routes redirect to /login
- * - Authenticated → /login and /signup redirect to /dashboard
+ * - Authenticated → /login and /signup redirect to `next` or Projects
  * Also refreshes the Supabase session cookie.
  */
 export async function updateAuthSession(request: NextRequest) {
@@ -84,7 +87,11 @@ export async function updateAuthSession(request: NextRequest) {
 
     if (user && isAuthRoute(pathname)) {
       const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = "/dashboard";
+      const next = request.nextUrl.searchParams.get("next");
+      redirectUrl.pathname =
+        next && next.startsWith("/") && !next.startsWith("//")
+          ? next
+          : DEFAULT_SIGNED_IN_HREF;
       redirectUrl.search = "";
       return NextResponse.redirect(redirectUrl);
     }

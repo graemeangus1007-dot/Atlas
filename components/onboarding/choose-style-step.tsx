@@ -27,7 +27,7 @@ export default function ChooseStyleStep({
     <div className="mx-auto w-full max-w-2xl">
       <StepHeader
         title="Choose Your Style"
-        description="Pick a layout template. You can refine colors and details later in Brand Studio."
+        description="Pick a layout template. You can refine colors and details later in Design."
       />
 
       <div className="grid gap-4 sm:grid-cols-2">

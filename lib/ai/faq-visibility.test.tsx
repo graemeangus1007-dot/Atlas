@@ -109,7 +109,6 @@ describe("editor renderer displays FAQ", () => {
         onServiceChange={() => {}}
         onContactChange={() => {}}
         onGalleryTitleChange={() => {}}
-        onImproveField={() => {}}
       />,
     );
 

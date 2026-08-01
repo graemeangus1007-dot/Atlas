@@ -15,6 +15,8 @@ import type {
   CritiqueSupportStatus,
   CreativeRecommendationKind,
 } from "@/lib/ai/creative-director-types";
+import { matchPrinciplesToText } from "@/lib/ai/design-knowledge";
+import { sanitizeDesignKnowledgeUserText } from "@/lib/ai/design-knowledge/explain";
 import {
   EDIT_TEXT_TARGETS,
   INSERTABLE_SECTION_TYPES,
@@ -469,6 +471,7 @@ function validateOps(
 export function critiqueToRecommendations(
   critique: DesignCritique,
   project: BusinessProject,
+  options: { principleIds?: string[] } = {},
 ): {
   recommendations: CreativeDirectorRecommendation[];
   operations: Array<EditOperation | ImageOperation>;
@@ -476,6 +479,7 @@ export function critiqueToRecommendations(
   const improvements = dedupeImprovements(critique.prioritizedImprovements);
   const recommendations: CreativeDirectorRecommendation[] = [];
   const allOps: Array<EditOperation | ImageOperation> = [];
+  const principleIds = options.principleIds ?? [];
 
   for (const improvement of improvements) {
     const rawOps = improvement.proposedChanges.flatMap((change) =>
@@ -486,17 +490,27 @@ export function critiqueToRecommendations(
 
     const support = resolveSupportStatus(improvement, project, ops);
     const applyable = support.supportStatus === "supported" && ops.length > 0;
+    const knowledgeEvidence =
+      principleIds.length > 0
+        ? matchPrinciplesToText(
+            `${improvement.title} ${improvement.observation} ${improvement.rationale}`,
+            principleIds,
+            3,
+          )
+        : undefined;
     recommendations.push({
       id: `critique.${improvement.id}`,
       kind: inferKind(improvement.affectedAreas),
       title: text(improvement.title, 120) || "Design improvement",
-      explanation: [
-        text(improvement.observation, 400),
-        text(improvement.rationale, 400),
-        text(improvement.expectedBusinessOutcome, 300),
-      ]
-        .filter(Boolean)
-        .join(" "),
+      explanation: sanitizeDesignKnowledgeUserText(
+        [
+          text(improvement.observation, 400),
+          text(improvement.rationale, 400),
+          text(improvement.expectedBusinessOutcome, 300),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      ),
       impact: improvement.impact,
       impactScore: mapImpactScore(improvement.impact),
       confidence: Math.min(1, Math.max(0, critique.confidence)),
@@ -510,6 +524,7 @@ export function critiqueToRecommendations(
             blockedReason: support.blockedReason ?? "Coming soon",
           }),
       estimatedTime: applyable ? "<15 seconds" : "—",
+      ...(knowledgeEvidence?.length ? { knowledgeEvidence } : {}),
     });
   }
 

@@ -4,6 +4,7 @@
  * Deterministic high-confidence path first; optional LLM hook for future use.
  */
 
+import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import type { EditOperation } from "@/lib/ai/edit-operations";
 import {
   parseThemeColorIntent,
@@ -230,7 +231,8 @@ export function isNaturalLanguageEditRequest(request: string): boolean {
     wantsStickyNav(text) ||
     wantsContactHigher(text) ||
     wantsDarker(text) ||
-    wantsLighter(text)
+    wantsLighter(text) ||
+    isSectionOrderRequest(text)
   );
 }
 
@@ -399,23 +401,23 @@ function buildExplanation(
 
   let lead = "I’ll update the site now.";
   if (hasColors && hasRead) {
-    lead = `I’ll update the site’s color palette to ${labels.join(" and ") || "your colors"} while improving text and button contrast for readability.`;
+    lead = `I’ll shift the palette to ${labels.join(" and ") || "your colors"} and increase contrast on text and buttons so the site stays easy to read.`;
   } else if (hasColors) {
-    lead = `I’ll update the site’s color palette${labels.length ? ` to ${labels.join(" and ")}` : ""}.`;
+    lead = `I’ll shift the color palette${labels.length ? ` to ${labels.join(" and ")}` : ""}.`;
   } else if (hasRead) {
-    lead = "I’ll improve text and button contrast so everything is easier to read.";
+    lead = "I’ll increase contrast on text and buttons so the page is easier to read.";
   } else if (steps.some((s) => s.type === "setButtonStyle")) {
-    lead = "I’ll update the button styling.";
+    lead = "I’ll refine the button styling so actions feel clearer.";
   } else if (steps.some((s) => s.type === "increaseSpacing")) {
-    lead = "I’ll increase spacing between sections.";
+    lead = "I’ll open up spacing between sections so the page breathes.";
   } else if (steps.some((s) => s.type === "setLuxuryTypography")) {
-    lead = "I’ll switch to a more luxurious type pairing.";
+    lead = "I’ll switch to a more refined type pairing for headings and body.";
   } else if (steps.some((s) => s.type === "updateNavigation")) {
-    lead = "I’ll update the navigation so it stays clear and easy to use.";
+    lead = "I’ll tighten the navigation so it’s easier to scan.";
   } else if (steps.some((s) => s.type === "moveSection")) {
-    lead = "I’ll reorder the page sections to match that layout.";
+    lead = "I’ll reorder the sections to match that layout.";
   } else if (steps.some((s) => s.type === "moveContactFormHigher")) {
-    lead = "I’ll make the contact form more prominent higher on the page.";
+    lead = "I’ll bring the contact form higher so reaching out feels immediate.";
   }
 
   if (notes.length === 0) return lead;
@@ -444,8 +446,7 @@ export function extractNaturalLanguageEditPlan(input: {
       confidence: 0.35,
       steps: [],
       operations: [],
-      explanation:
-        "I’m not sure what to change yet — tell me a bit more about the outcome you want.",
+      explanation: ATLAS_VOICE.lowConfidence,
       categories: [],
       matchedSignals: ["ambiguous"],
       plannerVersion: NL_EDIT_PLANNER_VERSION,
@@ -559,8 +560,7 @@ export function extractNaturalLanguageEditPlan(input: {
       confidence: isNaturalLanguageEditRequest(request) ? 0.55 : 0.3,
       steps: [],
       operations: [],
-      explanation:
-        "I can help with that — tell me which colors, buttons, spacing, or copy to change.",
+      explanation: ATLAS_VOICE.needConcreteEdit,
       categories: [],
       matchedSignals,
       plannerVersion: NL_EDIT_PLANNER_VERSION,

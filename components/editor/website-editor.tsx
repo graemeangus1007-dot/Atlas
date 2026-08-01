@@ -1,19 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import BrandStudioPanel from "@/components/design/brand-studio-panel";
-import AiAssistantPanel from "@/components/editor/ai-assistant-panel";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import AtlasAiPanel, {
   type AtlasAiUiStatus,
   type RecommendationApplyState,
 } from "@/components/editor/atlas-ai-panel";
 import EditorCanvas from "@/components/editor/editor-canvas";
+import EditorDesignPanel from "@/components/editor/editor-design-panel";
 import EditorSidebar from "@/components/editor/editor-sidebar";
+import EditorSiteSettingsPanel from "@/components/editor/editor-site-settings-panel";
 import EditorTopBar from "@/components/editor/editor-topbar";
-import MediaLibrary from "@/components/media/media-library";
-import EditorPublishPanel from "@/components/publishing/editor-publish-panel";
 import PublishModal from "@/components/publishing/publish-modal";
-import SeoPanel from "@/components/seo/seo-panel";
 import { useProject } from "@/context/project-context";
 import {
   EDITOR_PANEL_HINTS,
@@ -22,12 +20,10 @@ import {
 import {
   appendConversationMessage,
   applyAdvisorRecommendation,
-  applyAiFieldValue,
   applyCreativeRecommendation,
   buildDesignAssistantMeta,
   canRedoEditorRevision,
   canUndoEditorRevision,
-  createAiHistoryEntry,
   createEmptyEditorConversation,
   createEmptyRevisionStack,
   logDesignAssistantDiagnostic,
@@ -52,28 +48,28 @@ import {
   type EditorRevisionStack,
   type ImageEditorState,
 } from "@/lib/ai";
+import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import { buildSiteDesignStyle } from "@/lib/design-theme";
 import { updateMediaAssetMeta } from "@/lib/media";
 import { generateWebsiteContent } from "@/lib/website-generator";
-import type { AiContentField, AiFieldTarget, AiHistoryEntry } from "@/types/ai";
 import type { BusinessProject } from "@/types/business-project";
 
 /**
- * Website editor shell — Brand Studio, Media, canvas, and Atlas AI.
+ * Canonical Atlas v1 website editor shell.
+ * Tools rail (secondary) · canvas (primary) · Atlas conversation (primary).
  */
 export default function WebsiteEditor() {
   const { project, projectId, updateProject, setProject, saveNow } = useProject();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<EditorSidebarId>("content");
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishIntent, setPublishIntent] = useState<"preview" | "production">(
     "preview",
   );
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiTarget, setAiTarget] = useState<AiFieldTarget | null>(null);
-  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
-  const [previewValue, setPreviewValue] = useState<string | null>(null);
-  const [aiHistory, setAiHistory] = useState<AiHistoryEntry | null>(null);
+  const welcomeHandledRef = useRef(false);
 
   const [conversation, setConversation] = useState<EditorConversation>(
     createEmptyEditorConversation,
@@ -126,6 +122,28 @@ export default function WebsiteEditor() {
     lastCreativeFingerprintRef.current = null;
     setCompleteWebsitePlan(null);
   }, [projectId, project.designAssistant]);
+
+  // After New Site onboarding — Atlas greets the user once.
+  useEffect(() => {
+    if (welcomeHandledRef.current) return;
+    if (searchParams.get("welcome") !== "1") return;
+    if (hydratedProjectIdRef.current === null) return;
+
+    welcomeHandledRef.current = true;
+    const name = project.businessName?.trim() || "your business";
+    setConversation((prev) => {
+      if (prev.messages.some((m) => m.role === "assistant")) return prev;
+      return appendConversationMessage(prev, {
+        role: "assistant",
+        content: ATLAS_VOICE.welcome(name),
+      });
+    });
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("welcome");
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }, [pathname, project.businessName, router, searchParams]);
 
   // Continuous Business Advisor review — silently refresh when the site changes.
   useEffect(() => {
@@ -190,24 +208,14 @@ export default function WebsiteEditor() {
     setCompleteWebsitePlan(null);
   }, [project, conversation.messages]);
 
-  const displayProject = useMemo<BusinessProject>(() => {
-    if (!aiTarget || previewValue === null) return project;
-    return applyAiFieldValue(
-      project,
-      aiTarget.field,
-      previewValue,
-      aiTarget.serviceIndex,
-    );
-  }, [project, aiTarget, previewValue]);
-
   const content = useMemo(
-    () => generateWebsiteContent(displayProject),
-    [displayProject],
+    () => generateWebsiteContent(project),
+    [project],
   );
 
   const themeStyle = useMemo(
-    () => buildSiteDesignStyle(displayProject),
-    [displayProject],
+    () => buildSiteDesignStyle(project),
+    [project],
   );
 
   function persistAssistantState(input: {
@@ -236,71 +244,6 @@ export default function WebsiteEditor() {
 
   function handleSave() {
     void saveNow();
-  }
-
-  function openAiForField(
-    field: AiContentField,
-    label: string,
-    value: string,
-    serviceIndex?: number,
-  ) {
-    setAiTarget({ field, label, originalValue: value, serviceIndex });
-    setPreviewIndex(null);
-    setPreviewValue(null);
-    setAiOpen(true);
-  }
-
-  function handlePreview(index: number, value: string) {
-    setPreviewIndex(index);
-    setPreviewValue(value);
-  }
-
-  function handleApply(value: string) {
-    if (!aiTarget) return;
-
-    setAiHistory(
-      createAiHistoryEntry(project, aiTarget.field, aiTarget.serviceIndex),
-    );
-
-    setProject(
-      applyAiFieldValue(
-        project,
-        aiTarget.field,
-        value,
-        aiTarget.serviceIndex,
-      ),
-    );
-
-    setPreviewIndex(null);
-    setPreviewValue(null);
-    setAiTarget(null);
-    setAiOpen(false);
-  }
-
-  function handleKeepOriginal() {
-    setPreviewIndex(null);
-    setPreviewValue(null);
-    setAiTarget(null);
-    setAiOpen(false);
-  }
-
-  function handleCloseAi() {
-    setPreviewIndex(null);
-    setPreviewValue(null);
-    setAiOpen(false);
-  }
-
-  function handleUndoLastAiChange() {
-    if (!aiHistory) return;
-    setProject(
-      applyAiFieldValue(
-        project,
-        aiHistory.field,
-        aiHistory.previousValue,
-        aiHistory.serviceIndex,
-      ),
-    );
-    setAiHistory(null);
   }
 
   async function handleDesignSend(request: string) {
@@ -481,8 +424,8 @@ export default function WebsiteEditor() {
     } catch (error) {
       const message =
         error instanceof Error
-          ? "Atlas AI could not apply that design request. Please try again."
-          : "Atlas AI could not apply that design request. Please try again.";
+          ? ATLAS_VOICE.applyFailed
+          : ATLAS_VOICE.applyFailed;
       const failedConvo = appendConversationMessage(withUser, {
         role: "assistant",
         content: message,
@@ -645,7 +588,7 @@ export default function WebsiteEditor() {
       const message =
         error instanceof Error
           ? error.message
-          : "Could not apply that improvement. Please try again.";
+          : ATLAS_VOICE.applyFailed;
       const detail = `${message} (Request ID: ${requestId})`;
       setUiStatus("failed");
       setStatusMessage(detail);
@@ -773,7 +716,7 @@ export default function WebsiteEditor() {
       const message =
         error instanceof Error
           ? error.message
-          : "Could not apply that improvement. Please try again.";
+          : ATLAS_VOICE.applyFailed;
       setUiStatus("failed");
       setStatusMessage(`${message} (Request ID: ${requestId})`);
       setRecommendationStates((current) => ({
@@ -818,11 +761,29 @@ export default function WebsiteEditor() {
       onFollowUpSuggestion={(suggestion) => {
         void handleDesignSend(suggestion);
       }}
+      onClearConversation={() => {
+        setConversation(createEmptyEditorConversation());
+        setFollowUpSuggestions([]);
+        setLastChanges(null);
+        setUiStatus("idle");
+        setStatusMessage(null);
+      }}
+      onNewConversation={() => {
+        setConversation(createEmptyEditorConversation());
+        setFollowUpSuggestions([]);
+        setLastChanges(null);
+        setCompleteWebsitePlan(null);
+        setUiStatus("idle");
+        setStatusMessage(null);
+      }}
     />
   );
 
   return (
-    <div className="flex min-h-screen flex-1 bg-background">
+    <div
+      className="flex min-h-screen flex-1 bg-background"
+      data-testid="website-editor-shell"
+    >
       <EditorSidebar
         activeId={activePanel}
         onSelect={setActivePanel}
@@ -841,43 +802,33 @@ export default function WebsiteEditor() {
           }}
         />
 
-        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mx-auto mb-5 flex max-w-5xl items-center justify-between gap-3">
-            <p className="text-sm text-muted transition-opacity duration-200">
-              <span className="font-medium capitalize text-foreground">
-                {activePanel === "branding" ? "Brand Studio" : activePanel}
-              </span>
-              {" — "}
+        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 lg:px-6">
+          {activePanel === "content" ? (
+            <p
+              className="mx-auto mb-4 max-w-5xl text-sm text-muted"
+              data-testid="editor-panel-hint"
+            >
+              {EDITOR_PANEL_HINTS.content}
+            </p>
+          ) : (
+            <p
+              className="mx-auto mb-3 max-w-7xl text-xs text-muted"
+              data-testid="editor-panel-hint"
+            >
               {EDITOR_PANEL_HINTS[activePanel]}
             </p>
-            <button
-              type="button"
-              onClick={() => setAiOpen(true)}
-              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent/40 hover:text-foreground xl:hidden"
-            >
-              AI Copywriter
-            </button>
-          </div>
+          )}
 
           <div
-            className={`mx-auto flex w-full gap-0 ${
-              activePanel === "branding" ||
-              activePanel === "media" ||
-              activePanel === "seo" ||
-              activePanel === "publish"
+            className={`mx-auto flex w-full gap-4 ${
+              activePanel === "design" || activePanel === "settings"
                 ? "max-w-7xl"
                 : "max-w-5xl"
             }`}
           >
-            {activePanel === "branding" ? (
+            {activePanel === "design" ? (
               <div className="mb-4 w-full shrink-0 lg:mb-0 lg:w-80">
-                <BrandStudioPanel project={project} onChange={updateProject} />
-              </div>
-            ) : null}
-
-            {activePanel === "media" ? (
-              <div className="mb-4 w-full shrink-0 lg:mb-0 lg:w-80">
-                <MediaLibrary
+                <EditorDesignPanel
                   project={project}
                   projectId={projectId}
                   onChange={updateProject}
@@ -885,19 +836,11 @@ export default function WebsiteEditor() {
               </div>
             ) : null}
 
-            {activePanel === "seo" ? (
+            {activePanel === "settings" ? (
               <div className="mb-4 w-full shrink-0 lg:mb-0 lg:w-80">
-                <SeoPanel project={project} onChange={updateProject} />
-              </div>
-            ) : null}
-
-            {activePanel === "publish" ? (
-              <div className="mb-4 w-full shrink-0 lg:mb-0 lg:w-80">
-                <EditorPublishPanel
-                  onPublish={() => {
-                    setPublishIntent("preview");
-                    setPublishOpen(true);
-                  }}
+                <EditorSiteSettingsPanel
+                  project={project}
+                  onChange={updateProject}
                   onPublishToProduction={() => {
                     setPublishIntent("production");
                     setPublishOpen(true);
@@ -909,7 +852,7 @@ export default function WebsiteEditor() {
             <div className="min-w-0 flex-1" style={themeStyle}>
               <EditorCanvas
                 content={content}
-                contact={displayProject.contact}
+                contact={project.contact}
                 projectId={projectId}
                 onBusinessNameChange={(businessName) =>
                   updateProject({ businessName })
@@ -945,41 +888,30 @@ export default function WebsiteEditor() {
                     ),
                   })
                 }
-                onImproveField={openAiForField}
               />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="sticky top-0 hidden h-screen min-h-0 w-80 shrink-0 flex-col overflow-hidden xl:flex">
+      {/* Atlas: readable 360–440px; visible from lg for desktop parity */}
+      <div
+        className="sticky top-0 hidden h-screen min-h-0 w-[min(28vw,440px)] min-w-[360px] max-w-[440px] shrink-0 flex-col overflow-hidden border-l border-border/70 lg:flex"
+        data-testid="atlas-desktop-panel"
+      >
         {panel}
       </div>
 
-      <div className="fixed bottom-4 right-4 z-30 xl:hidden">
+      <div className="fixed bottom-4 right-4 z-30 lg:hidden">
         <details className="group">
           <summary className="cursor-pointer list-none rounded-full border border-border bg-surface/95 px-4 py-2 text-xs font-medium text-foreground shadow-lg backdrop-blur">
-            Atlas AI
+            Atlas
           </summary>
-          <div className="absolute bottom-12 right-0 flex h-[min(78vh,36rem)] w-[min(100vw-2rem,22rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+          <div className="absolute bottom-12 right-0 flex h-[min(78vh,36rem)] w-[min(100vw-2rem,24rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
             {panel}
           </div>
         </details>
       </div>
-
-      <AiAssistantPanel
-        open={aiOpen}
-        onClose={handleCloseAi}
-        target={aiTarget}
-        businessName={project.businessName}
-        businessType={project.businessType || "Other"}
-        previewIndex={previewIndex}
-        canUndo={aiHistory !== null}
-        onPreview={handlePreview}
-        onApply={handleApply}
-        onKeepOriginal={handleKeepOriginal}
-        onUndoLastAiChange={handleUndoLastAiChange}
-      />
 
       <PublishModal
         open={publishOpen}

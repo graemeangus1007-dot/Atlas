@@ -1,8 +1,8 @@
 import OnboardingWizard from "@/components/onboarding/onboarding-wizard";
 
 /**
- * /onboarding — first product experience.
- * Renders the client wizard that collects business details step by step.
+ * /onboarding — the only website creation experience (New Site).
+ * Collects business details, creates the project, opens the editor with Atlas.
  */
 export default function OnboardingPage() {
   return <OnboardingWizard />;

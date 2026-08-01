@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
+import { NEW_SITE_AFTER_SIGNUP_HREF } from "@/lib/product/new-site";
 import { createClient } from "@/lib/supabase/server";
 
 /**
  * Auth callback for email confirmation / password recovery links.
+ * Signup verification defaults into New Site onboarding.
  */
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
+  const rawNext = searchParams.get("next") ?? NEW_SITE_AFTER_SIGNUP_HREF;
+  const next =
+    rawNext.startsWith("/") && !rawNext.startsWith("//")
+      ? rawNext
+      : NEW_SITE_AFTER_SIGNUP_HREF;
 
   if (code) {
     const supabase = await createClient();

@@ -4,14 +4,10 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DashboardSidebar from "@/components/dashboard/sidebar";
-import {
-  AI_WEBSITE_NAV_HREF,
-  AI_WEBSITE_NAV_LABEL,
-  getDashboardNavLinks,
-} from "@/lib/dashboard/nav";
+import { getDashboardNavLinks } from "@/lib/dashboard/nav";
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/dashboard",
+  usePathname: () => "/projects",
 }));
 
 vi.mock("next/link", () => ({
@@ -38,25 +34,13 @@ afterEach(() => {
   cleanup();
 });
 
-describe("DashboardSidebar (real component)", () => {
-  it("renders AI Website link with href=/dashboard/ai and visible label", () => {
+describe("DashboardSidebar (Phase 1)", () => {
+  it("does not render AI Website or System", () => {
     render(<DashboardSidebar open onClose={() => undefined} />);
-
-    const sidebar = screen.getByTestId("dashboard-sidebar");
-    expect(sidebar).toBeTruthy();
-
-    const link = screen.getByTestId("sidebar-link-ai-website");
-    expect(link.getAttribute("href")).toBe(AI_WEBSITE_NAV_HREF);
-    expect(link.getAttribute("href")).toBe("/dashboard/ai");
-    expect(link.textContent).toContain(AI_WEBSITE_NAV_LABEL);
-    expect(link.textContent).toContain("AI Website");
-
-    // Visible in the nav list (not filtered out of the final render array).
     const nav = screen.getByTestId("dashboard-sidebar-nav");
-    expect(within(nav).getByRole("link", { name: /AI Website/i })).toBeTruthy();
-
-    const labels = getDashboardNavLinks().map((l) => l.label);
-    expect(labels).toContain("AI Website");
+    expect(within(nav).queryByRole("link", { name: /AI Website/i })).toBeNull();
+    expect(within(nav).queryByRole("link", { name: /System/i })).toBeNull();
+    expect(screen.queryByTestId("sidebar-link-ai-website")).toBeNull();
   });
 
   it("renders every nav link from getDashboardNavLinks into the DOM", () => {

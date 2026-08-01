@@ -55,9 +55,10 @@ const BY_ID: Record<string, ExplanationTemplate> = {
     estimatedTime: "<10 seconds",
   },
   "trust.testimonials": {
-    noticed: "There aren’t any customer stories or testimonials on the site yet.",
+    noticed:
+      "Visitors don’t yet see enough proof of your work — there are no customer testimonials on the page.",
     whyItMatters:
-      "New visitors look for social proof before they trust a business enough to call.",
+      "I’d add testimonials just below the hero so trust is established before people evaluate your services.",
     expectedOutcome: "Stronger confidence and more inquiries from undecided visitors.",
     estimatedTime: "~30 seconds",
   },
@@ -139,19 +140,19 @@ const BY_CATEGORY: Record<
   (finding: AdvisorFinding) => ExplanationTemplate
 > = {
   conversion: (f) => ({
-    noticed: `I noticed a conversion gap: ${sentenceCase(f.title)}.`,
+    noticed: `There’s a conversion gap: ${sentenceCase(f.title)}.`,
     whyItMatters:
       "Small friction in how people take the next step often costs ready leads.",
     expectedOutcome: "More visitors completing the action you care about most.",
   }),
   trust: (f) => ({
-    noticed: `I noticed a trust gap: ${sentenceCase(f.title)}.`,
+    noticed: `There’s a trust gap: ${sentenceCase(f.title)}.`,
     whyItMatters:
       "People hesitate when they can’t quickly see proof that you’re the right choice.",
     expectedOutcome: "Stronger confidence before visitors decide to reach out.",
   }),
   readability: (f) => ({
-    noticed: `I noticed a readability issue: ${sentenceCase(f.title)}.`,
+    noticed: `Readability needs work: ${sentenceCase(f.title)}.`,
     whyItMatters: "If the page is hard to scan, your offer never fully lands.",
     expectedOutcome: "Clearer messaging and more people reading far enough to act.",
   }),
@@ -162,19 +163,19 @@ const BY_CATEGORY: Record<
     expectedOutcome: "Smoother mobile visits and more completed actions.",
   }),
   accessibility: (f) => ({
-    noticed: `I noticed an accessibility issue: ${sentenceCase(f.title)}.`,
+    noticed: `Accessibility needs attention: ${sentenceCase(f.title)}.`,
     whyItMatters:
       "When key actions are hard to see or use, you lose both visitors and trust.",
     expectedOutcome: "A more inclusive experience and clearer primary actions.",
   }),
   seo: (f) => ({
-    noticed: `I noticed an SEO opportunity: ${sentenceCase(f.title)}.`,
+    noticed: `Search presentation can be stronger: ${sentenceCase(f.title)}.`,
     whyItMatters:
       "Search snippets are often the first impression of your business.",
     expectedOutcome: "More qualified visits from people already looking for you.",
   }),
   visual_hierarchy: (f) => ({
-    noticed: `I noticed a hierarchy issue: ${sentenceCase(f.title)}.`,
+    noticed: `Hierarchy is flat: ${sentenceCase(f.title)}.`,
     whyItMatters:
       "Without clear visual priority, visitors miss what matters most.",
     expectedOutcome: "Faster scanning and a more professional first impression.",
@@ -187,13 +188,13 @@ const BY_CATEGORY: Record<
       "Better visibility and potentially more contact requests.",
   }),
   branding_consistency: (f) => ({
-    noticed: `I noticed a branding inconsistency: ${sentenceCase(f.title)}.`,
+    noticed: `Brand cues are inconsistent: ${sentenceCase(f.title)}.`,
     whyItMatters:
       "Inconsistent brand cues make the site feel less intentional and less memorable.",
     expectedOutcome: "A sharper brand presence that supports trust and action.",
   }),
   missing_sections: (f) => ({
-    noticed: `I noticed something missing: ${sentenceCase(f.title)}.`,
+    noticed: `Something important is missing: ${sentenceCase(f.title)}.`,
     whyItMatters:
       "Key sections answer questions and objections before someone decides to contact you.",
     expectedOutcome: "A more complete story and fewer drop-offs from hesitation.",

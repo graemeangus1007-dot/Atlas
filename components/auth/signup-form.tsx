@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import {
   AuthField,
@@ -12,6 +12,7 @@ import {
 import Button from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { validateSignUpForm } from "@/lib/auth";
+import { NEW_SITE_AFTER_SIGNUP_HREF } from "@/lib/product/new-site";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 /**
@@ -19,6 +20,7 @@ import { isSupabaseConfigured } from "@/lib/supabase";
  */
 export default function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     signUpWithEmail,
     resendVerification,
@@ -75,8 +77,13 @@ export default function SignupForm() {
         return;
       }
 
-      // Confirmation disabled — session already created; user is signed in.
-      router.replace("/dashboard");
+      // New accounts enter the single New Site → onboarding flow.
+      const next = searchParams.get("next");
+      const destination =
+        next && next.startsWith("/") && !next.startsWith("//")
+          ? next
+          : NEW_SITE_AFTER_SIGNUP_HREF;
+      router.replace(destination);
       router.refresh();
     } catch {
       // error surfaced via Auth Context

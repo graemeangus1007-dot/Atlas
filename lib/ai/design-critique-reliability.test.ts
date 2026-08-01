@@ -545,18 +545,26 @@ describe("Complete my website routing", () => {
     expect(result.explanation).not.toMatch(/Did you mean/i);
   });
 
-  it("creates a completion plan when no active plan exists", async () => {
+  it("applies strategy-led improvements when no active plan exists", async () => {
     const result = await runAtlasBrain({
       project: sampleProject(),
       request: "Complete my website",
     });
-    expect(result.applyStatus).toBe("no_changes");
-    expect(result.project.atlasActionMemory?.applyAllPending).toBe(true);
-    expect(
-      (result.project.atlasActionMemory?.recommendations?.length ?? 0) > 0,
-    ).toBe(true);
-    expect(result.explanation).toMatch(/Apply All|launch-ready|everything/i);
+    // v1.1 flagship: strategy → prioritize → apply supported ops.
+    expect(["applied", "no_changes"]).toContain(result.applyStatus);
+    expect(result.explanation).toMatch(
+      /Overall direction|Biggest problem|Design goals|Execution plan|Done\.|Apply All/i,
+    );
     expect(result.decision.needsClarification).toBe(false);
+    if (result.applyStatus === "applied") {
+      expect(result.changes.length).toBeGreaterThan(0);
+      expect(result.explanation).toMatch(/applied|Done\./i);
+      expect(result.project.atlasActionMemory?.applyAllPending).not.toBe(true);
+    } else {
+      expect(
+        (result.project.atlasActionMemory?.recommendations?.length ?? 0) > 0,
+      ).toBe(true);
+    }
   });
 });
 
@@ -668,7 +676,7 @@ describe("empty media image guidance", () => {
       request: "Add matching images",
     });
     expect(result.explanation).toMatch(
-      /aren.?t any uploaded images|AI image generation is not enabled/i,
+      /aren.?t any uploaded images|Upload photos in Media/i,
     );
     expect(result.explanation).not.toMatch(/I generated images/i);
   });

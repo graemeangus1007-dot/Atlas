@@ -51,6 +51,7 @@ import type {
   AtlasProjectMemory,
 } from "@/lib/ai/atlas-brain-types";
 import { ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
+import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import { reviewBusinessProject } from "@/lib/ai/business-advisor";
 import {
   applyAllCreativeRecommendations,
@@ -596,7 +597,7 @@ function runEditorSpecialist(input: {
     changes: changed ? applied.changes : [],
     explanation: changed
       ? planned.explanation
-      : "No changes needed — the site already matched that request.",
+      : ATLAS_VOICE.alreadyMatched,
     applyStatus: changed ? "applied" : "no_changes",
     needsClarification: false,
     reasoning: planned.reasoning,
@@ -667,7 +668,7 @@ export async function runAtlasBrain(
     return continued;
   }
 
-  // Sprint 28.1 — Complete my website uses the same critique pipeline (cache-aware).
+  // v1.1 — Complete my website: strategy → prioritize → apply every supported improvement.
   if (
     isCompleteWebsiteRequest(request) &&
     !hasActiveRecommendations(getActionMemory(projectForTurn))
@@ -675,8 +676,8 @@ export async function runAtlasBrain(
     const critiqueResult = await runAtlasCritiquePipeline({
       project: projectForTurn,
       request:
-        "Complete my website for launch — prioritize the highest-impact coordinated improvements.",
-      mode: "critique",
+        "Complete my website for launch — form a design strategy, then prioritize and apply the highest-impact coordinated improvements.",
+      mode: "execute",
       history,
       atlasRequestId: input.atlasRequestId,
       allowFingerprintReuse: true,
@@ -710,6 +711,7 @@ export async function runAtlasBrain(
     const supportPlan = formatRecommendationSupportPlan(
       critiqueResult.recommendations,
     );
+    const applyable = critiqueResult.recommendations.filter((r) => r.applyable);
     const actionMemory = storeRecommendations(getActionMemory(projectForTurn), {
       creative: critiqueResult.recommendations,
       creativeReport: {
@@ -722,18 +724,81 @@ export async function runAtlasBrain(
         goal: "Complete the website for launch",
         steps: [
           {
+            id: "complete.strategy",
+            agent: "creative_director",
+            label: "Form the design strategy",
+          },
+          {
             id: "complete.apply",
             agent: "creative_director",
-            label: "Apply the launch-ready plan",
+            label: "Apply every supported improvement",
           },
         ],
         estimatedImpact: "high",
       },
     });
-    const project = withActionMemory(
+    let project = withActionMemory(
       withMemory(projectForTurn, request),
       actionMemory,
     );
+
+    if (applyable.length > 0) {
+      const batch = applyAllCreativeRecommendations({
+        project,
+        recommendations: applyable.slice(0, 8),
+      });
+      if (batch.ok && batch.status === "applied") {
+        invalidateCritiquePipelineCache(
+          creativeDirectorFingerprint(batch.project),
+        );
+        project = withActionMemory(
+          batch.project,
+          clearRecommendations(getActionMemory(batch.project)),
+        );
+        const strategyName =
+          critiqueResult.strategy?.overallDirection ?? "the launch plan";
+        return {
+          ok: true,
+          explanation: [
+            critiqueResult.explanation
+              .replace(/I’m applying the coordinated plan next\.?/i, "")
+              .trim(),
+            "",
+            `Done. I applied the supported improvements from ${strategyName}.`,
+            batch.explanation,
+            supportPlan,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          operations: applyable.flatMap((r) => r.operations).slice(0, 32),
+          changes: batch.changes,
+          project,
+          applyStatus: "applied",
+          decision: {
+            intent: "design_redesign",
+            confidence: 0.95,
+            selectedAgents: ["creative_director", "editor_agent"],
+            needsClarification: false,
+            shouldExecuteEdits: true,
+            executionPlan: actionMemory.executionPlan!,
+            explanation: "I completed the website using a design strategy.",
+            followUpSuggestions: followUpsForProject(project, [
+              "Add matching images",
+              "Improve SEO",
+              "Review my website",
+            ]),
+          },
+          followUpSuggestions: followUpsForProject(project, [
+            "Add matching images",
+            "Improve SEO",
+            "Review my website",
+          ]),
+          executionPlan: actionMemory.executionPlan,
+          atlasMemory: project.atlasMemory,
+        };
+      }
+    }
+
     return {
       ok: true,
       explanation: [
@@ -741,7 +806,9 @@ export async function runAtlasBrain(
         "",
         supportPlan,
         "",
-        "Say Apply All (or Complete my website again) when you want me to make these changes.",
+        applyable.length === 0
+          ? "I’ve prepared the strategy — some items need uploads or aren’t available to apply yet."
+          : "Say Apply All when you want me to make these changes.",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -755,7 +822,7 @@ export async function runAtlasBrain(
         selectedAgents: ["creative_director"],
         needsClarification: false,
         executionPlan: actionMemory.executionPlan!,
-        explanation: "I prepared a launch-ready completion plan.",
+        explanation: "I prepared a strategy-led completion plan.",
         followUpSuggestions: followUpsForProject(project, [
           "Apply All",
           "Improve SEO",
@@ -845,7 +912,7 @@ export async function runAtlasBrain(
         question:
           decision.clarificationQuestion ||
           decision.explanation ||
-          "Did you mean one of these?",
+          ATLAS_VOICE.clarificationFallback,
         allowedAnswers: [...ATLAS_BRAIN_CLARIFICATION_OPTIONS],
       },
     );

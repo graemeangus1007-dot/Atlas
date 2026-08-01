@@ -149,12 +149,18 @@ describe("public API data isolation contracts", () => {
     expect(() => readFileSync(route, "utf8")).toThrow();
   });
 
-  it("protects leads and profile behind auth middleware", () => {
+  it("protects leads, profile, and onboarding behind auth middleware", () => {
     expect(PROTECTED_PREFIXES).toEqual(
-      expect.arrayContaining(["/leads", "/profile", "/dashboard"]),
+      expect.arrayContaining([
+        "/leads",
+        "/profile",
+        "/dashboard",
+        "/onboarding",
+      ]),
     );
   });
 });
+
 
 describe("monitoring redaction", () => {
   it("redacts bearer tokens and JWT-like strings", () => {

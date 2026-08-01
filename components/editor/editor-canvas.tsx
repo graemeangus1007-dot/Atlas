@@ -8,7 +8,6 @@ import PreviewFeatures from "@/components/preview/preview-features";
 import PreviewGallery from "@/components/preview/preview-gallery";
 import { useTemplate } from "@/context/template-context";
 import type { TemplateSectionId } from "@/lib/templates/types";
-import type { AiContentField } from "@/types/ai";
 import type { ProjectContact } from "@/types/business-project";
 import type { GeneratedWebsiteContent, WebsiteService } from "@/types/website-content";
 
@@ -24,16 +23,10 @@ type EditorCanvasProps = {
   onServiceChange: (index: number, patch: Partial<WebsiteService>) => void;
   onContactChange: (patch: Partial<ProjectContact>) => void;
   onGalleryTitleChange: (assetId: string, title: string) => void;
-  onImproveField: (
-    field: AiContentField,
-    label: string,
-    value: string,
-    serviceIndex?: number,
-  ) => void;
 };
 
 /**
- * Live website canvas with inline-editable fields + AI improve hooks.
+ * Live website canvas with inline-editable fields.
  * Branding CSS variables are applied by the parent via `.site-canvas`.
  * Honors Visual Designer sectionOrder, logo, and section images.
  */
@@ -49,7 +42,6 @@ export default function EditorCanvas({
   onServiceChange,
   onContactChange,
   onGalleryTitleChange,
-  onImproveField,
 }: EditorCanvasProps) {
   const { template } = useTemplate();
   const order =
@@ -61,11 +53,17 @@ export default function EditorCanvas({
 
   function renderCore(sectionId: string) {
     switch (sectionId as TemplateSectionId) {
-      case "hero":
+      case "hero": {
+        const eyebrow = content.hero.eyebrow?.trim() || "";
+        const showEyebrow =
+          Boolean(eyebrow) &&
+          eyebrow.toLowerCase() !== content.businessName.trim().toLowerCase();
         return (
           <section
             key="hero"
             className="relative isolate overflow-hidden border-b border-border px-5 py-20 text-center sm:px-8 sm:py-28"
+            data-testid="editor-hero"
+            data-hero-placeholder={content.hero.isPlaceholder ? "true" : "false"}
           >
             <div className="pointer-events-none absolute inset-0" aria-hidden="true">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -73,34 +71,40 @@ export default function EditorCanvas({
                 src={content.hero.imageUrl}
                 alt=""
                 className="h-full w-full object-cover"
+                data-testid="editor-hero-image"
               />
               <div className="site-hero-overlay absolute inset-0" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,var(--site-accent-soft),transparent_55%)]" />
             </div>
             <div className="site-shell relative z-10">
-              <p className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]">
-                {content.businessName}
-              </p>
-              <EditableText
-                as="h1"
-                value={content.hero.headline}
-                onChange={onHeadlineChange}
-                aria-label="Hero headline"
-                className="site-heading atlas-display-text mx-auto mt-4 max-w-4xl text-3xl font-semibold tracking-tight text-foreground sm:text-5xl"
-                onImproveWithAi={(value) =>
-                  onImproveField("heroHeadline", "Hero Headline", value)
-                }
-              />
-              <EditableText
-                as="p"
-                value={content.hero.subheadline}
-                onChange={onSubheadlineChange}
-                aria-label="Hero subheadline"
-                className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg"
-                onImproveWithAi={(value) =>
-                  onImproveField("heroSubheadline", "Hero Subheadline", value)
-                }
-              />
+              {showEyebrow ? (
+                <p
+                  className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]"
+                  data-testid="editor-hero-eyebrow"
+                >
+                  {eyebrow}
+                </p>
+              ) : null}
+              <div data-testid="editor-hero-headline">
+                <EditableText
+                  as="h1"
+                  value={content.hero.headline}
+                  onChange={onHeadlineChange}
+                  aria-label="Hero headline"
+                  className={`site-heading atlas-display-text mx-auto max-w-4xl text-3xl font-semibold tracking-tight text-foreground sm:text-5xl ${
+                    showEyebrow ? "mt-4" : ""
+                  }`}
+                />
+              </div>
+              <div data-testid="editor-hero-subheadline">
+                <EditableText
+                  as="p"
+                  value={content.hero.subheadline}
+                  onChange={onSubheadlineChange}
+                  aria-label="Hero subheadline"
+                  className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg"
+                />
+              </div>
               <div className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                 <div className="site-button inline-flex min-w-[10rem] flex-col items-center justify-center bg-[color:var(--site-accent)] px-6 py-3.5 text-sm font-medium text-[color:var(--site-bg)] transition-all duration-200 hover:brightness-110">
                   <EditableText
@@ -110,9 +114,6 @@ export default function EditorCanvas({
                     aria-label="Call-to-action button text"
                     className="text-center"
                     inputClassName="text-center text-foreground"
-                    onImproveWithAi={(value) =>
-                      onImproveField("primaryCta", "Call-to-Action", value)
-                    }
                   />
                 </div>
                 <span className="site-button inline-flex items-center justify-center border border-border px-8 py-3.5 text-sm font-medium text-foreground">
@@ -122,6 +123,7 @@ export default function EditorCanvas({
             </div>
           </section>
         );
+      }
       case "about":
         return (
           <section
@@ -162,9 +164,6 @@ export default function EditorCanvas({
                     onChange={onAboutChange}
                     aria-label="About section"
                     className="text-base leading-relaxed text-muted sm:text-lg"
-                    onImproveWithAi={(value) =>
-                      onImproveField("description", "About Section", value)
-                    }
                   />
                   <p className="mt-6 text-sm text-foreground/80">
                     — The team at {content.businessName}
@@ -180,7 +179,6 @@ export default function EditorCanvas({
             key="services"
             services={content.services}
             onServiceChange={onServiceChange}
-            onImproveField={onImproveField}
             cardStyle={template.cardStyle}
             showIcons={Boolean(content.creativePolish?.serviceIcons)}
           />

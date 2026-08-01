@@ -4,6 +4,7 @@
  */
 
 import type { CreativeDirectorRecommendation } from "@/lib/ai/creative-director-types";
+import type { DesignStrategy } from "@/lib/ai/design-strategy-types";
 import type { EditOperation } from "@/lib/ai/edit-operations";
 import type { ImageOperation } from "@/lib/ai/image-operations";
 import type { BusinessProject } from "@/types/business-project";
@@ -269,6 +270,8 @@ export type DesignCritiqueInput = {
 export type DesignCritiqueResult = {
   ok: true;
   critique: DesignCritique;
+  /** v1.1 — holistic strategy decided before edit planning. */
+  strategy: DesignStrategy;
   recommendations: CreativeDirectorRecommendation[];
   operations: Array<EditOperation | ImageOperation>;
   explanation: string;

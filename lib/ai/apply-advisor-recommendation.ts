@@ -5,6 +5,7 @@
  */
 
 import { applyEditOperations } from "@/lib/ai/apply-edit-operations";
+import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import { advisorProjectFingerprint } from "@/lib/ai/business-advisor";
 import type { BusinessRecommendation } from "@/lib/ai/business-advisor-types";
 import { assertInsertedSectionsVisible, isDesignSectionVisibleInContent } from "@/lib/ai/design-sections-canonical";
@@ -117,7 +118,7 @@ export function applyAdvisorRecommendation(input: {
         project: applied.project,
         changes: [],
         explanation:
-          "No visible change — that improvement didn’t alter the live page.",
+          "Already in place — that improvement didn’t alter the live page.",
       };
     }
 
@@ -132,7 +133,7 @@ export function applyAdvisorRecommendation(input: {
         requestId,
         project: applied.project,
         changes: [],
-        explanation: `No visible change — ${visibility.missing.join(", ")} did not appear on the page.`,
+        explanation: `Already in place — ${visibility.missing.join(", ")} did not appear on the page.`,
       };
     }
 
@@ -144,7 +145,7 @@ export function applyAdvisorRecommendation(input: {
         project: applied.project,
         changes: [],
         explanation:
-          "No visible change — the inserted section is not present in the rendered site.",
+          "Already in place — the inserted section is not present in the rendered site.",
       };
     }
 
@@ -171,7 +172,7 @@ export function applyAdvisorRecommendation(input: {
       status: "failed",
       requestId,
       code: "provider_error",
-      message: "Could not apply that improvement. Please try again.",
+      message: ATLAS_VOICE.applyFailed,
     };
   }
 }

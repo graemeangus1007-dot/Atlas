@@ -433,6 +433,46 @@ export type {
   ProposedChange,
 } from "@/lib/ai/design-critique-types";
 export {
+  STRATEGY_VERSION,
+  applyDesignStrategyToCritique,
+  buildDesignStrategy,
+  designStrategyInputFromContext,
+  formatDesignStrategySection,
+  prioritizeImprovementsByStrategy,
+  runDesignStrategyPass,
+  scoreImprovementAgainstStrategy,
+  strategizeImprovementCopy,
+} from "@/lib/ai/design-strategy";
+export type {
+  DesignAgencyTone,
+  DesignFocusArea,
+  DesignStrategy,
+  DesignStrategyInput,
+} from "@/lib/ai/design-strategy-types";
+export {
+  DESIGN_AGENCIES_TONES,
+  DESIGN_FOCUS_AREAS,
+} from "@/lib/ai/design-strategy-types";
+export {
+  DESIGN_KNOWLEDGE_REGISTRY,
+  MAX_PROMPT_DESIGN_PRINCIPLES,
+  countDesignPrinciplesByCategory,
+  formatDesignPrinciplesForPrompt,
+  getDesignPrincipleById,
+  getDesignPrinciplesByCategory,
+  listAllDesignPrinciples,
+  rankDesignPrinciples,
+  selectRelevantDesignPrinciples,
+  textExposesDesignPrincipleIds,
+} from "@/lib/ai/design-knowledge";
+export type {
+  DesignKnowledgeCategory,
+  DesignKnowledgeEvidence,
+  DesignKnowledgeSelectionContext,
+  DesignPrinciple,
+} from "@/lib/ai/design-knowledge";
+export { selectPrinciplesForCritiquePrompt } from "@/lib/ai/design-critique-prompts";
+export {
   decideWithAtlasBrainEngine,
   formatNaturalPreferenceNote,
   stageContinuation,
@@ -505,6 +545,15 @@ export type {
   AtlasProjectMemory,
 } from "@/lib/ai/atlas-brain-types";
 export { ATLAS_AGENT_IDS, ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
+export {
+  ATLAS_VOICE,
+  ATLAS_DESIGNER_CLARIFICATION_OPTIONS,
+  ATLAS_BANNED_PHRASES,
+  atlasProgressLabel,
+  atlasAppliedSummary,
+  buildClarificationQuestion,
+  findBannedPhrase,
+} from "@/lib/ai/atlas-designer-voice";
 export type { AtlasBrainResult } from "@/lib/ai/atlas-brain";
 export {
   detectActionConfirmation,

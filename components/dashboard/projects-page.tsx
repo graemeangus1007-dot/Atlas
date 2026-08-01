@@ -14,7 +14,7 @@ export default function ProjectsPage() {
             Projects
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted sm:text-base">
-            Create, open, rename, or delete your Atlas website projects.
+            Open a site to edit it, or start a new one with Atlas.
           </p>
         </div>
         <ProjectList />

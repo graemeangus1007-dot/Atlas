@@ -29,7 +29,7 @@ function ReviewRow({ label, value }: ReviewRowProps) {
 }
 
 /**
- * Final review — create a real Supabase project, then open the dashboard.
+ * Final review — create the site, then open the editor with Atlas.
  */
 export default function ReviewStep({
   data,
@@ -46,7 +46,7 @@ export default function ReviewStep({
     <div className="mx-auto w-full max-w-xl" aria-busy={isSubmitting}>
       <StepHeader
         title="Review your details"
-        description="Make sure everything looks right. We will save your project and take you to the dashboard."
+        description="Make sure everything looks right. We’ll open your site in the editor with Atlas ready."
       />
 
       <dl className="rounded-2xl border border-border bg-surface/60 px-5 sm:px-6">
@@ -69,7 +69,7 @@ export default function ReviewStep({
             className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent"
             aria-hidden="true"
           />
-          Creating your project…
+          Creating your site…
         </div>
       ) : null}
 
@@ -83,7 +83,7 @@ export default function ReviewStep({
         onBack={isSubmitting ? undefined : onBack}
         showBack={!isSubmitting}
         onNext={onGenerate}
-        nextLabel={isSubmitting ? "Creating project…" : "Create My Website"}
+        nextLabel={isSubmitting ? "Creating your site…" : "Open in Editor"}
         nextDisabled={isSubmitting}
       />
     </div>

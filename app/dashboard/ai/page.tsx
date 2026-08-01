@@ -1,12 +1,8 @@
-import type { Metadata } from "next";
-import AiQuestionnairePage from "@/components/ai/ai-questionnaire-page";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "AI Website — Atlas",
-  description:
-    "Answer a short questionnaire and generate a website draft with Atlas AI.",
-};
-
-export default function DashboardAiPage() {
-  return <AiQuestionnairePage />;
+/**
+ * Legacy AI Website route — Phase 1 consolidates creation into /onboarding.
+ */
+export default function AiWebsitePage() {
+  redirect("/onboarding");
 }

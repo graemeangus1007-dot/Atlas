@@ -48,6 +48,12 @@ import type {
   ProposedChange,
 } from "@/lib/ai/design-critique-types";
 import { reviewCreativeDirector } from "@/lib/ai/creative-director";
+import { sanitizeDesignKnowledgeUserText } from "@/lib/ai/design-knowledge";
+import {
+  formatDesignStrategySection,
+  runDesignStrategyPass,
+} from "@/lib/ai/design-strategy";
+import type { DesignStrategy } from "@/lib/ai/design-strategy-types";
 import { scoreBusinessProject } from "@/lib/ai/critique-scoring";
 import {
   designSystemInputFromProject,
@@ -381,13 +387,13 @@ export function buildMockDesignCritique(
   if (missingProof) {
     improvements.push({
       id: "imp-testimonials",
-      title: "Add social proof near the estimate CTA",
+      title: "Move proof below the hero before the ask",
       observation: `There is no testimonials section before “${cta}”.`,
       rationale:
-        "Proof next to the ask reduces hesitation for first-time visitors.",
+        "Visitors haven’t seen enough proof of the work before evaluating services — I’d place testimonials directly below the hero so trust is established early.",
       expectedBusinessOutcome: "More visitors complete the contact action.",
       impact: "high",
-      affectedAreas: ["testimonials", "conversion"],
+      affectedAreas: ["testimonials", "conversion", "trust"],
       proposedChanges: [
         proposed({ kind: "insertSection", sectionType: "testimonials" }),
       ],
@@ -487,6 +493,7 @@ export function buildMockDesignCritique(
 export function formatDesignCritiqueExplanation(input: {
   critique: DesignCritique;
   mode: DesignCritiqueMode;
+  strategy?: DesignStrategy | null;
   usedFallback?: boolean;
   requestId?: string;
   fallbackReason?: CritiqueFallbackReason | null;
@@ -502,20 +509,26 @@ export function formatDesignCritiqueExplanation(input: {
     .slice(0, 5)
     .map(
       (item, i) =>
-        `${i + 1}. ${item.title}\n   Why it matters: ${item.expectedBusinessOutcome}`,
+        `${i + 1}. ${item.title}\n   Why it matters: ${item.rationale || item.expectedBusinessOutcome}`,
     )
     .join("\n");
 
   const close =
     mode === "critique"
-      ? "Say Apply All when you’re ready, or apply any single improvement."
+      ? "Say Apply all when you’re ready, or pick any single improvement."
       : "I’m applying the coordinated plan next.";
+
+  const strategyBlock = input.strategy
+    ? formatDesignStrategySection(input.strategy)
+    : [
+        "Design direction",
+        `${critique.designDirection.name} — ${critique.designDirection.rationale}`,
+      ].join("\n");
 
   const body = [
     critique.summary,
     "",
-    "Design direction",
-    `${critique.designDirection.name} — ${critique.designDirection.rationale}`,
+    strategyBlock,
     "",
     "Strengths",
     strengths,
@@ -532,14 +545,16 @@ export function formatDesignCritiqueExplanation(input: {
     .join("\n")
     .trim();
 
-  return composeCritiqueAssistantContent({
-    body,
-    usedFallback: input.usedFallback,
-    fallbackReason: input.fallbackReason,
-    requestId: input.requestId,
-    audience: input.audience,
-    failingStage: input.failingStage,
-  });
+  return sanitizeDesignKnowledgeUserText(
+    composeCritiqueAssistantContent({
+      body,
+      usedFallback: input.usedFallback,
+      fallbackReason: input.fallbackReason,
+      requestId: input.requestId,
+      audience: input.audience,
+      failingStage: input.failingStage,
+    }),
+  );
 }
 
 async function callOpenAiCritique(input: {
@@ -944,12 +959,41 @@ export async function runDesignCritique(
     };
   }
 
+  // v1.1 — Design Strategy before edit planning.
+  let strategy: DesignStrategy;
+  try {
+    const pass = runDesignStrategyPass({
+      context,
+      critique,
+      request: input.request,
+    });
+    strategy = pass.strategy;
+    critique = pass.critique;
+    recordCritiqueStage(trace, "design_strategy", true, strategy.overallDirection);
+  } catch (error) {
+    markCritiqueFailure(trace, {
+      stage: "design_strategy",
+      fn: "runDesignStrategyPass",
+      error,
+      category: "unknown",
+    });
+    const pass = runDesignStrategyPass({
+      context,
+      critique: buildMockDesignCritique(context, input.request),
+      request: input.request,
+    });
+    strategy = pass.strategy;
+    critique = pass.critique;
+    recordCritiqueStage(trace, "design_strategy", true, "recovered");
+  }
+
   let recommendations: DesignCritiqueResult["recommendations"];
   let operations: DesignCritiqueResult["operations"];
   try {
     ({ recommendations, operations } = critiqueToRecommendations(
       critique,
       input.project,
+      { principleIds: strategy.principleIds },
     ));
     trace.critiqueToOperationsOk = true;
     recordCritiqueStage(trace, "critique_to_operations", true);
@@ -968,10 +1012,18 @@ export async function runDesignCritique(
       fallbackReason = "unknown";
       trace.usedFallback = true;
       critique = buildMockDesignCritique(context, input.request);
+      const pass = runDesignStrategyPass({
+        context,
+        critique,
+        request: input.request,
+      });
+      strategy = pass.strategy;
+      critique = pass.critique;
       try {
         ({ recommendations, operations } = critiqueToRecommendations(
           critique,
           input.project,
+          { principleIds: strategy.principleIds },
         ));
         recordCritiqueStage(trace, "fallback", true, "critique_to_operations");
       } catch {
@@ -989,6 +1041,7 @@ export async function runDesignCritique(
   const explanation = formatDesignCritiqueExplanation({
     critique,
     mode: input.mode,
+    strategy,
     usedFallback,
     requestId: diagRequestId,
     fallbackReason,
@@ -999,6 +1052,7 @@ export async function runDesignCritique(
   return {
     ok: true,
     critique,
+    strategy,
     recommendations,
     operations,
     explanation,

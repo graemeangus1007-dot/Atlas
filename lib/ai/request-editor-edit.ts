@@ -3,6 +3,7 @@
  * Prefers POST /api/ai/edit when authenticated; falls back to local agent.
  */
 
+import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import {
   tryRunEditorAgent,
   type EditorAgentFailure,
@@ -107,7 +108,7 @@ export async function requestEditorAgentEdit(input: {
       return {
         ok: false,
         code: "invalid_response",
-        message: "Atlas AI returned an incomplete response. Please try again.",
+        message: ATLAS_VOICE.incompleteResponse,
         requestId: headerId,
       };
     }
@@ -124,10 +125,10 @@ export async function requestEditorAgentEdit(input: {
         typeof data.explanation === "string"
           ? data.explanation
           : applyStatus === "needs_clarification"
-            ? "Could you tell me a bit more?"
+            ? ATLAS_VOICE.askMore
             : applyStatus === "no_changes"
-              ? "No changes needed."
-              : "Design updates applied.",
+              ? ATLAS_VOICE.noChangesNeeded
+              : ATLAS_VOICE.designUpdatesApplied,
       operations,
       changes,
       project: data.project,

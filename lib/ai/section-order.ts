@@ -198,17 +198,7 @@ export function parseSectionMoveRequest(request: string): ParseSectionMoveResult
     return { ok: true, intent: { section, position: "first" } };
   }
 
-  const toEnd = text.match(
-    /\b(?:move|put|place)\s+(?:the\s+)?([a-z][\w\s-]{1,24}?)\s+(?:section\s+)?(?:to\s+)?(?:the\s+)?(bottom|end|last)\b/i,
-  );
-  if (toEnd?.[1]) {
-    const section = resolveSectionAlias(toEnd[1]);
-    if (!section) {
-      return {
-        ok: false,
-        reason: `I don’t recognize the “${toEnd[1].trim()}” section. Which section should move?`,
-      };
-    }
+  const rejectHeroLast = (section: string): ParseSectionMoveResult | null => {
     if (section === "hero") {
       return {
         ok: false,
@@ -222,6 +212,40 @@ export function parseSectionMoveRequest(request: string): ParseSectionMoveResult
         reason: "The footer stays outside the main section order.",
       };
     }
+    return null;
+  };
+
+  // “below everything else”, “at the bottom of the site”, “to the end”
+  const toEnd = text.match(
+    /\b(?:move|put|place)\s+(?:the\s+)?([a-z][\w\s-]{1,24}?)\s+(?:section\s+)?(?:(?:to\s+)?(?:the\s+)?(bottom|end|last)|below\s+everything(?:\s+else)?|(?:to\s+)?the\s+bottom\s+of\s+the\s+(?:site|page)|under\s+everything(?:\s+else)?)\b/i,
+  );
+  if (toEnd?.[1]) {
+    const section = resolveSectionAlias(toEnd[1]);
+    if (!section) {
+      return {
+        ok: false,
+        reason: `I don’t recognize the “${toEnd[1].trim()}” section. Which section should move?`,
+      };
+    }
+    const rejected = rejectHeroLast(section);
+    if (rejected) return rejected;
+    return { ok: true, intent: { section, position: "last" } };
+  }
+
+  // Soft form: “move the contact section … at the bottom …” with intervening words
+  const bottomSoft = text.match(
+    /\b(?:move|put|place)\s+(?:the\s+)?([a-z][\w\s-]{1,24}?)\s+section\b[\s\S]{0,80}?\b(?:at\s+the\s+bottom|to\s+the\s+bottom|below\s+everything)\b/i,
+  );
+  if (bottomSoft?.[1]) {
+    const section = resolveSectionAlias(bottomSoft[1]);
+    if (!section) {
+      return {
+        ok: false,
+        reason: `I don’t recognize the “${bottomSoft[1].trim()}” section. Which section should move?`,
+      };
+    }
+    const rejected = rejectHeroLast(section);
+    if (rejected) return rejected;
     return { ok: true, intent: { section, position: "last" } };
   }
 
@@ -230,6 +254,19 @@ export function parseSectionMoveRequest(request: string): ParseSectionMoveResult
   );
   if (relative?.[1] && relative[2] && relative[3]) {
     const section = resolveSectionAlias(relative[1]);
+    const anchorRaw = relative[3].trim().toLowerCase();
+    // “below everything” is end-of-page, not a section name
+    if (/^everything\b/.test(anchorRaw)) {
+      if (!section) {
+        return {
+          ok: false,
+          reason: `I don’t recognize the “${relative[1].trim()}” section. Which section should move?`,
+        };
+      }
+      const rejected = rejectHeroLast(section);
+      if (rejected) return rejected;
+      return { ok: true, intent: { section, position: "last" } };
+    }
     const relativeTo = resolveSectionAlias(relative[3]);
     if (!section) {
       return {
@@ -270,14 +307,21 @@ export function parseSectionMoveRequest(request: string): ParseSectionMoveResult
         reason: `I don’t recognize the “${bottomOfSite[1].trim()}” section. Which section should move?`,
       };
     }
-    if (section === "hero") {
-      return {
-        ok: false,
-        reason:
-          "The hero stays at the top of the page. Which other section should I move?",
-      };
-    }
+    const rejected = rejectHeroLast(section);
+    if (rejected) return rejected;
     return { ok: true, intent: { section, position: "last" } };
+  }
+
+  // Ambiguous hero lift — ask rather than guessing.
+  if (
+    /\b(?:move|put|place|bring)\s+(?:the\s+)?hero\b/i.test(text) &&
+    /\b(higher|up|top|first)\b/i.test(text)
+  ) {
+    return {
+      ok: false,
+      reason:
+        "The hero is already at the top of the page. Which other section should I move instead?",
+    };
   }
 
   return { ok: false };
@@ -286,11 +330,16 @@ export function parseSectionMoveRequest(request: string): ParseSectionMoveResult
 export function isSectionOrderRequest(request: string): boolean {
   const parsed = parseSectionMoveRequest(request);
   if (parsed.ok) return true;
+  // Ambiguous hero moves still count as section-order intents (clarify, don’t Apply All).
+  if (parsed.reason && /\bhero\b/i.test(request)) return true;
   return (
-    /\b(move|put|place)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?(above|below|before|after|to\s+the\s+bottom|to\s+the\s+top|first|last)\b/i.test(
+    /\b(move|put|place)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?(above|below|before|after|to\s+the\s+bottom|to\s+the\s+top|first|last|below\s+everything)\b/i.test(
       request,
     ) ||
     /\b(?:make|put|move)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?first\b/i.test(
+      request,
+    ) ||
+    /\b(?:move|put|place)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+section\b[\s\S]{0,80}?\b(?:at\s+the\s+bottom|below\s+everything)\b/i.test(
       request,
     )
   );

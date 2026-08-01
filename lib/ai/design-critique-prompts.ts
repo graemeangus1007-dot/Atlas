@@ -1,8 +1,15 @@
 /**
- * Prompt builders for LLM design critique (Sprint 28.0A).
+ * Prompt builders for LLM design critique (Sprint 28.0A / v1.2 knowledge).
  * Never include secrets, owner IDs, billing, or private lead data.
  */
 
+import {
+  designKnowledgeContextFromParts,
+  formatDesignPrinciplesForPrompt,
+  MAX_PROMPT_DESIGN_PRINCIPLES,
+  selectRelevantDesignPrinciples,
+} from "@/lib/ai/design-knowledge";
+import type { DesignPrinciple } from "@/lib/ai/design-knowledge/types";
 import type {
   DesignCritiqueContext,
   DesignCritiqueMode,
@@ -11,11 +18,28 @@ import type {
 /** Senior designer / strategist persona — system role. */
 export function buildDesignCritiqueSystemPrompt(): string {
   return [
-    "You are Atlas: a senior web designer, brand strategist, conversion-focused marketer,",
-    "and accessibility-aware UX professional reviewing a real small-business website.",
+    "You are Atlas: a senior web designer at a world-class design agency,",
+    "brand strategist, conversion-focused marketer, and accessibility-aware UX professional.",
+    "Speak like an experienced creative professional: confident, concise, calm, and decisive.",
+    "Never sound like a chatbot. Avoid phrases such as “I can help with that”, “Did you mean”,",
+    "“Before I make changes”, or vague cheerleading. Prefer “I’ll…” when committing to work,",
+    "and explain recommendations with clear visitor/business reasoning in plain language.",
+    "Think holistically before listing edits. First decide: biggest weakness, current impression,",
+    "desired emotion, who the customer is, what blocks conversions, which section deserves focus,",
+    "what visual hierarchy should exist, which trust signals are missing, and whether the page",
+    "is trying to communicate too many things. Encode that judgment in designDirection",
+    "(name = overall direction, rationale = biggest problem, emotionalGoal, visualPrinciples).",
+    "Then propose at most 5 coordinated improvements that execute that strategy — not isolated",
+    "tweaks like “update colors” without saying why they serve the strategy.",
+    "Agency tones that may shape composition: luxury, playful, timeless, editorial, minimalist,",
+    "premium, trustworthy, approachable, modern, handcrafted — influence layout and hierarchy,",
+    "not only fonts and colors.",
     "Exercise judgment over checklists. Prefer coordinated design systems over isolated tweaks.",
-    "Ground every finding in the supplied website state — actual copy, structure, colors, typography,",
-    "imagery, SEO, and maturity signals. Avoid generic filler such as “improve the design”.",
+    "Ground every finding in: (1) the supplied website state, (2) current business goals,",
+    "and (3) any applicable design judgment provided in the user message.",
+    "Do not paste principle text verbatim, do not invent or cite internal principle IDs,",
+    "and do not recommend changes unused by the actual page. Avoid generic filler such as “improve the design”.",
+    "Prioritize foundational clarity, contrast, proof, and CTA hierarchy before decorative polish.",
     "Prioritize business outcomes for the stated audience and industry.",
     "Preserve factual customer information (name, phone, email, location, true services).",
     "Do not invent unsupported claims, awards, or results.",
@@ -45,6 +69,11 @@ export function buildDesignCritiqueDeveloperPrompt(
     "Return ONLY a single JSON object matching the atlas_design_critique schema.",
     "Do not wrap in markdown fences. Do not include commentary outside JSON.",
     modeLine,
+    "Order of thought: strategy first (designDirection), then prioritizedImprovements that execute it.",
+    "designDirection.name must be a short overall direction (e.g. Premium coastal craftsmanship).",
+    "designDirection.rationale must state the biggest problem in visitor language.",
+    "designDirection.emotionalGoal must state the emotion visitors should feel.",
+    "Improvement titles and rationales must reference that strategy — never bare checklist items.",
     "Critique and operations are separate: critique explains judgment; proposedChanges are machine-executable hints.",
     "Every finding and improvement MUST cite specific evidence from the supplied website state",
     "(quote or paraphrase actual headlines, CTAs, colors, fonts, section presence, imagery gaps, SEO text).",
@@ -64,15 +93,64 @@ export function buildDesignCritiqueDeveloperPrompt(
  * User message: request + sanitized context JSON.
  * Callers must never log this payload in production logs.
  */
+/** Select a concise principle set for critique prompts (never the full registry). */
+export function selectPrinciplesForCritiquePrompt(
+  context: DesignCritiqueContext,
+  request?: string,
+): DesignPrinciple[] {
+  const knowledgeContext = designKnowledgeContextFromParts({
+    industry: context.industry,
+    businessType: context.industry,
+    audience: context.targetAudience,
+    primaryGoal: context.primaryGoal,
+    designLanguage: context.designSystem.language || context.designSystem.label,
+    businessTone: context.atlasMemory.businessTone,
+    enabledSections: context.enabledSections,
+    sectionOrder: context.sectionOrder,
+    hasHeroImage: context.imagery.hasHeroImage,
+    hasTestimonials: context.enabledSections.includes("testimonials"),
+    hasFaq: context.enabledSections.includes("faq"),
+    galleryFilledSlots: context.imagery.galleryFilledSlots,
+    libraryCount: context.imagery.libraryCount,
+    spacing: context.creativePolish.spacing || context.spacing,
+    visualHierarchy: context.creativePolish.visualHierarchy,
+    maturityLevel: context.maturity.maturityLevel,
+    overallCompleteness: context.maturity.overallCompleteness,
+    request,
+    viewportHint: context.viewportHint,
+    secondaryCta: context.homepageCopy.secondaryCta,
+    heroTitle: context.homepageCopy.heroTitle,
+    heroDescription: context.homepageCopy.heroDescription,
+  });
+  return selectRelevantDesignPrinciples(knowledgeContext, {
+    limit: MAX_PROMPT_DESIGN_PRINCIPLES,
+  });
+}
+
 export function buildDesignCritiqueUserPrompt(input: {
   request: string;
   mode: DesignCritiqueMode;
   context: DesignCritiqueContext;
+  /** Optional preselected principles; otherwise selected deterministically. */
+  principles?: DesignPrinciple[];
 }): string {
+  const principles =
+    input.principles ??
+    selectPrinciplesForCritiquePrompt(input.context, input.request);
+  const principleBlock = formatDesignPrinciplesForPrompt(principles, {
+    limit: MAX_PROMPT_DESIGN_PRINCIPLES,
+  });
+
   return [
     `User request: ${input.request.trim()}`,
     `Critique mode: ${input.mode}`,
+    "Before proposing edits, form a design strategy: biggest weakness, impression, emotion,",
+    "customer, conversion blocker, focus section, hierarchy, missing trust, message overload.",
+    "Then propose coordinated improvements that execute that strategy.",
+    principleBlock,
     "Sanitized website context (JSON):",
     JSON.stringify(input.context),
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

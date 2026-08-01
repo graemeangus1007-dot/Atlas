@@ -64,7 +64,8 @@ export default function OnboardingWizard() {
         ...nextProject,
         status: "draft",
       });
-      router.push("/dashboard");
+      // One create path ends in the editor with Atlas ready to help.
+      router.push("/editor?welcome=1");
     } catch (err) {
       setSubmitError(
         err instanceof Error

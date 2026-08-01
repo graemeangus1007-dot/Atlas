@@ -1,8 +1,8 @@
-import GenerationExperience from "@/components/generating/generation-experience";
+import { redirect } from "next/navigation";
 
 /**
- * /generating — simulated AI website build before entering the dashboard.
+ * Legacy simulated generation route — Phase 1 redirects to New Site.
  */
 export default function GeneratingPage() {
-  return <GenerationExperience />;
+  redirect("/onboarding");
 }

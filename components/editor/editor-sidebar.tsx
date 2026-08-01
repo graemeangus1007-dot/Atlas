@@ -13,7 +13,8 @@ type EditorSidebarProps = {
 };
 
 /**
- * Left editor tools rail — Pages, Content, Brand Studio, Media, Publish.
+ * Compact left tools rail — Content, Design, Site settings.
+ * Atlas is the primary editing interface; this rail is secondary.
  */
 export default function EditorSidebar({
   activeId,
@@ -24,7 +25,7 @@ export default function EditorSidebar({
   return (
     <>
       <div
-        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-200 lg:hidden ${
+        className={`fixed inset-0 z-40 bg-black/40 transition-opacity duration-200 lg:hidden ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={onClose}
@@ -32,46 +33,44 @@ export default function EditorSidebar({
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-border bg-surface/95 backdrop-blur-xl transition-transform duration-300 lg:static lg:z-auto lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-52 flex-col border-r border-border/70 bg-surface/90 backdrop-blur-xl transition-transform duration-300 lg:static lg:z-auto lg:w-44 lg:translate-x-0 xl:w-48 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
         aria-label="Editor tools"
+        data-testid="editor-tools-rail"
       >
-        <div className="flex h-14 items-center border-b border-border px-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+        <div className="flex h-12 items-center px-3">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted">
             Tools
           </p>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
           {EDITOR_SIDEBAR_ITEMS.map((item) => {
             const isActive = item.id === activeId;
             return (
               <button
                 key={item.id}
                 type="button"
+                data-testid={`editor-rail-${item.id}`}
                 onClick={() => {
                   onSelect(item.id);
                   onClose();
                 }}
-                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-all duration-200 ${
+                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm font-medium transition-colors duration-150 ${
                   isActive
-                    ? "bg-accent-soft text-foreground shadow-[inset_0_0_0_1px_rgba(61,184,168,0.25)]"
+                    ? "bg-accent-soft text-foreground"
                     : "text-muted hover:bg-white/[0.03] hover:text-foreground"
                 }`}
               >
-                <span aria-hidden="true">{item.icon}</span>
+                <span className="text-sm opacity-80" aria-hidden="true">
+                  {item.icon}
+                </span>
                 {item.label}
               </button>
             );
           })}
         </nav>
-
-        <div className="border-t border-border px-4 py-3">
-          <p className="text-xs leading-relaxed text-muted">
-            Click text on the live preview to edit. Changes update instantly.
-          </p>
-        </div>
       </aside>
     </>
   );

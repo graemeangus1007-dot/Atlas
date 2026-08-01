@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Button from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { ACCOUNT_MENU_LINKS } from "@/lib/dashboard/nav";
 import { getBusinessInitials } from "@/lib/project";
 
 type DashboardTopNavProps = {
@@ -11,16 +13,28 @@ type DashboardTopNavProps = {
 };
 
 /**
- * Top bar — shows the logged-in user's email and account menu.
+ * Top bar — account menu holds Billing / Profile (not primary nav).
  */
 export default function DashboardTopNav({ onMenuClick }: DashboardTopNavProps) {
   const router = useRouter();
   const { user, signOutUser, isLoading } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const email = user?.email ?? "";
   const initials = getBusinessInitials(email || "AT");
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDoc(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -49,7 +63,7 @@ export default function DashboardTopNav({ onMenuClick }: DashboardTopNavProps) {
         </span>
       </button>
 
-      <div className="min-w-0 flex-1 lg:flex-none">
+      <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-muted">Signed in as</p>
         <p
           className="truncate font-medium text-foreground"
@@ -59,41 +73,35 @@ export default function DashboardTopNav({ onMenuClick }: DashboardTopNavProps) {
         </p>
       </div>
 
-      <div className="hidden flex-1 justify-center md:flex">
-        <label className="relative w-full max-w-md">
-          <span className="sr-only">Search</span>
-          <span
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-            aria-hidden="true"
-          >
-            ⌕
-          </span>
-          <input
-            type="search"
-            placeholder="Search pages, media, settings..."
-            className="w-full rounded-xl border border-border bg-surface/80 py-2.5 pl-9 pr-4 text-sm text-foreground outline-none transition-all placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20"
-          />
-        </label>
-      </div>
-
-      <div className="relative ml-auto flex items-center gap-2 sm:gap-3">
-        <p className="hidden max-w-[14rem] truncate text-sm text-muted sm:block">
-          {email}
-        </p>
-
+      <div className="relative ml-auto" ref={menuRef}>
         <button
           type="button"
           onClick={() => setMenuOpen((open) => !open)}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-accent-soft text-sm font-semibold text-accent transition-colors hover:border-accent/50"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-accent-soft text-sm font-semibold text-accent transition-colors hover:border-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           aria-label={`Account menu for ${email || "user"}`}
           aria-expanded={menuOpen}
+          data-testid="account-menu-button"
         >
           {initials}
         </button>
 
         {menuOpen ? (
-          <div className="absolute right-0 top-12 z-40 w-64 rounded-xl border border-border bg-surface p-2 shadow-lg">
+          <div
+            className="absolute right-0 top-12 z-40 w-56 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+            data-testid="account-menu"
+          >
             <p className="truncate px-3 py-2 text-xs text-muted">{email}</p>
+            {ACCOUNT_MENU_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setMenuOpen(false)}
+                className="block rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-background/60"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <div className="my-1 border-t border-border" />
             <Button
               type="button"
               variant="ghost"
@@ -101,7 +109,7 @@ export default function DashboardTopNav({ onMenuClick }: DashboardTopNavProps) {
               disabled={signingOut}
               onClick={() => void handleSignOut()}
             >
-              {signingOut ? "Logging out…" : "Logout"}
+              {signingOut ? "Logging out…" : "Sign out"}
             </Button>
           </div>
         ) : null}

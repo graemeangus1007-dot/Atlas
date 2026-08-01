@@ -3,6 +3,7 @@
  * Orchestrates Visual / Motion / Content / Conversion / Brand recommendations.
  */
 
+import type { DesignKnowledgeEvidence } from "@/lib/ai/design-knowledge/types";
 import type { EditOperation } from "@/lib/ai/edit-operations";
 import type { ImageOperation } from "@/lib/ai/image-operations";
 import type { BusinessProject } from "@/types/business-project";
@@ -87,6 +88,8 @@ export type CreativeDirectorRecommendation = {
   /** Explicit support label for planning / Apply All reporting. */
   supportStatus?: CritiqueSupportStatus;
   estimatedTime: string;
+  /** v1.2 — internal knowledge evidence (never shown raw in UI). */
+  knowledgeEvidence?: DesignKnowledgeEvidence[];
 };
 
 export type CreativeDirectorReport = {

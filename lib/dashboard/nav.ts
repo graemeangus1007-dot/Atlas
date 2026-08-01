@@ -1,6 +1,7 @@
 /**
- * Dashboard product navigation — single source for sidebar (desktop + mobile).
- * No plan/role filters: any authenticated user who can open the shell sees these links.
+ * Dashboard product navigation — Phase 1 simplification.
+ * Primary rail: Projects · Leads · Analytics
+ * Account (Billing / Profile) lives in the top-bar account menu.
  */
 
 export type DashboardNavLink = {
@@ -9,29 +10,18 @@ export type DashboardNavLink = {
   icon: string;
 };
 
+/** @deprecated AI Website removed from product nav (Phase 1). */
 export const AI_WEBSITE_NAV_HREF = "/dashboard/ai" as const;
+/** @deprecated */
 export const AI_WEBSITE_NAV_LABEL = "AI Website" as const;
 
-const AI_WEBSITE_LINK: DashboardNavLink = {
-  href: AI_WEBSITE_NAV_HREF,
-  label: AI_WEBSITE_NAV_LABEL,
-  icon: "✨",
-};
-
 /**
- * Main dashboard sidebar links.
- * AI Website is intentionally early (after Dashboard) so it stays above the fold.
+ * Main dashboard sidebar links — keep short and task-focused.
  */
 const BASE_DASHBOARD_NAV_LINKS: readonly DashboardNavLink[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "🏠" },
-  AI_WEBSITE_LINK,
   { href: "/projects", label: "Projects", icon: "📁" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: "📊" },
   { href: "/leads", label: "Leads", icon: "📬" },
-  { href: "/editor", label: "Editor", icon: "✏️" },
-  { href: "/dashboard/billing", label: "Billing", icon: "💳" },
-  { href: "/dashboard/system", label: "System", icon: "🩺" },
-  { href: "/profile", label: "Profile", icon: "👤" },
+  { href: "/dashboard/analytics", label: "Analytics", icon: "📊" },
 ];
 
 export const DASHBOARD_NAV_LINKS: readonly DashboardNavLink[] =
@@ -40,20 +30,17 @@ export const DASHBOARD_NAV_LINKS: readonly DashboardNavLink[] =
 /** @deprecated Prefer DASHBOARD_NAV_LINKS — kept for existing imports. */
 export const SIDEBAR_LINKS = DASHBOARD_NAV_LINKS;
 
+/** Account menu destinations (not primary sidebar). */
+export const ACCOUNT_MENU_LINKS: readonly DashboardNavLink[] = [
+  { href: "/dashboard/billing", label: "Billing", icon: "💳" },
+  { href: "/profile", label: "Profile", icon: "👤" },
+];
+
 /**
  * Final links passed to the sidebar renderer.
- * Guarantees AI Website is present even if the base list is ever edited incorrectly.
  */
 export function getDashboardNavLinks(): DashboardNavLink[] {
-  const links = BASE_DASHBOARD_NAV_LINKS.map((link) => ({ ...link }));
-  const aiIndex = links.findIndex((link) => link.href === AI_WEBSITE_NAV_HREF);
-  if (aiIndex === -1) {
-    links.splice(1, 0, { ...AI_WEBSITE_LINK });
-  } else {
-    // Normalize label/href so callers cannot drift.
-    links[aiIndex] = { ...AI_WEBSITE_LINK };
-  }
-  return links;
+  return BASE_DASHBOARD_NAV_LINKS.map((link) => ({ ...link }));
 }
 
 /** Labels in render order — used by sidebar diagnostics + tests. */
@@ -63,11 +50,15 @@ export function getDashboardNavLabels(): string[] {
 
 /**
  * Active state for sidebar links.
- * `/dashboard` is exact-only so nested routes do not keep highlighting Dashboard.
  */
 export function isDashboardNavActive(pathname: string, href: string): boolean {
-  if (href === "/dashboard") {
-    return pathname === "/dashboard" || pathname === "/dashboard/";
+  if (href === "/projects") {
+    return (
+      pathname === "/projects" ||
+      pathname.startsWith("/projects/") ||
+      pathname === "/dashboard" ||
+      pathname === "/dashboard/"
+    );
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -75,7 +66,7 @@ export function isDashboardNavActive(pathname: string, href: string): boolean {
 /**
  * HTML snapshot of the sidebar link list (unit regression without a DOM lib).
  */
-export function renderDashboardNavHtml(pathname = "/dashboard"): string {
+export function renderDashboardNavHtml(pathname = "/projects"): string {
   return getDashboardNavLinks()
     .map((link) => {
       const active = isDashboardNavActive(pathname, link.href);

@@ -17,7 +17,6 @@ import {
 import { getLatestPublishVersion } from "@/lib/supabase/publish-versions";
 
 type EditorPublishPanelProps = {
-  onPublish: () => void;
   onPublishToProduction?: () => void;
 };
 
@@ -27,20 +26,11 @@ type LinkedDomainSummary = {
   status: string;
 };
 
-function hostnameOrDash(url: string | null | undefined): string {
-  if (!url) return "—";
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return "invalid";
-  }
-}
-
 /**
- * Editor sidebar panel for publish — opens the shared PublishModal / Version History.
+ * Editor Site panel — domain, versions, visit links.
+ * Primary Publish lives in the top bar (one Publish action).
  */
 export default function EditorPublishPanel({
-  onPublish,
   onPublishToProduction,
 }: EditorPublishPanelProps) {
   const { project, projectId, updateProject, saveNow } = useProject();
@@ -274,40 +264,29 @@ export default function EditorPublishPanel({
         </div>
       ) : null}
 
-      {/* Temporary safe diagnostics for preview URL healing */}
-      <div
-        className="mt-3 rounded-lg border border-border/60 bg-background/40 px-3 py-2 font-mono text-[10px] leading-relaxed text-muted"
-        data-testid="preview-url-diagnostics"
-      >
-        <p>provider: {activeProviderId ?? activeProvider?.provider ?? "unknown"}</p>
-        <p>
-          returned/host: {hostnameOrDash(atlasPreviewUrl)}
-        </p>
-        <p>persisted/host: {hostnameOrDash(rawPersistedPreview)}</p>
-      </div>
-
-      <Button type="button" className="mt-4 w-full" onClick={onPublish}>
-        {record ? "Publish Again" : "Publish Website"}
-      </Button>
+      <p className="mt-4 text-xs text-muted">
+        Use <span className="font-medium text-foreground">Publish</span> in the
+        top bar to go live.
+      </p>
 
       {linked && onPublishToProduction ? (
         <Button
           type="button"
           variant="secondary"
-          className="mt-2 w-full"
+          className="mt-3 w-full"
           onClick={onPublishToProduction}
         >
-          Publish to Production
+          Publish to custom domain
         </Button>
       ) : null}
 
       <Button
         type="button"
-        variant="secondary"
+        variant="ghost"
         className="mt-2 w-full"
         onClick={() => setHistoryOpen(true)}
       >
-        Version History
+        Version history
       </Button>
 
       <CustomDomainSection />

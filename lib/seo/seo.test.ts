@@ -267,12 +267,18 @@ describe("publish output", () => {
     expect(sitemap).toContain("https://www.northforge.example/");
   });
 
-  it("editor registers SEO panel", () => {
+  it("editor registers SEO under Site settings", () => {
     const editor = readFileSync(
       resolve(__dirname, "../../data/editor.ts"),
       "utf8",
     );
-    expect(editor).toContain('id: "seo"');
+    expect(editor).toContain('id: "settings"');
+    expect(editor).toContain("seo: \"settings\"");
+    const settingsShell = readFileSync(
+      resolve(__dirname, "../../components/editor/editor-site-settings-panel.tsx"),
+      "utf8",
+    );
+    expect(settingsShell).toContain("SeoPanel");
     const panel = readFileSync(
       resolve(__dirname, "../../components/seo/seo-panel.tsx"),
       "utf8",

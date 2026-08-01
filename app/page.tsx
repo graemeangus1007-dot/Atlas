@@ -36,7 +36,7 @@ export default function Home() {
         <PlaceholderSection
           id="demo"
           title="Watch Demo"
-          description="A product walkthrough will live here. For now, start building to explore the Atlas flow."
+          description="A product walkthrough will live here. For now, choose New Site to begin with Atlas."
         />
 
         {/* Closing conversion section */}

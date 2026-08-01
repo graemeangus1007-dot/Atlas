@@ -8,6 +8,7 @@
  */
 
 import { applyImageOperations } from "@/lib/ai/apply-image-operations";
+import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
 import type {
   ImageChangeSummary,
@@ -286,8 +287,7 @@ function requireAssetOrClarify(
     }
     if (!project.mediaLibrary.length) {
       return {
-        clarify:
-          "There aren’t any uploaded images available yet. I can help place uploaded photos now; AI image generation is not enabled yet.",
+        clarify: ATLAS_VOICE.noImagesYet,
       };
     }
     return {
@@ -298,8 +298,7 @@ function requireAssetOrClarify(
   const fallback = styled ?? firstLibraryAsset(project);
   if (!fallback) {
     return {
-      clarify:
-        "There aren’t any uploaded images available yet. I can help place uploaded photos now; AI image generation is not enabled yet.",
+      clarify: ATLAS_VOICE.noImagesYet,
     };
   }
   return { asset: fallback };
@@ -616,16 +615,14 @@ export function planImageOperations(input: ImageAgentInput): ImagePlanResult {
     // Ambiguous replace
     return {
       operations: [],
-      explanation:
-        "Which image did you mean? The hero image or the first gallery image?",
+      explanation: ATLAS_VOICE.imageAmbiguous,
       needsClarification: true,
     };
   }
 
   return {
     operations: [],
-    explanation:
-      "Tell me what to do with an image — for example, “Replace the hero image” or “Move the gallery above Testimonials.”",
+    explanation: ATLAS_VOICE.imageHint,
     needsClarification: true,
   };
 }
@@ -668,7 +665,7 @@ export function runImageAgent(input: ImageAgentInput): ImageAgentResult {
     ok: true,
     explanation: changed
       ? planned.explanation
-      : "No changes needed — the images already matched that request.",
+      : ATLAS_VOICE.imagesAlreadyMatched,
     operations: changed ? operations : [],
     changes: changed ? applied.changes : [],
     project: changed ? applied.project : input.project,
@@ -689,7 +686,7 @@ export function tryRunImageAgent(
     return {
       ok: false,
       code: "provider_error",
-      message: "Atlas AI could not apply that image request. Please try again.",
+      message: ATLAS_VOICE.imageApplyFailed,
     };
   }
 }

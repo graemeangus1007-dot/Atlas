@@ -5,6 +5,7 @@
 
 import { applyEditOperations } from "@/lib/ai/apply-edit-operations";
 import { applyImageOperations } from "@/lib/ai/apply-image-operations";
+import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import {
   creativeDirectorFingerprint,
   reviewCreativeDirector,
@@ -143,7 +144,7 @@ export function applyCreativeRecommendation(input: {
         project: input.project,
         changes: [],
         explanation:
-          "No visible change — that improvement was already in place.",
+          "Already in place — that improvement was already reflected on the page.",
       };
     }
 
@@ -170,7 +171,7 @@ export function applyCreativeRecommendation(input: {
       status: "failed",
       requestId,
       code: "provider_error",
-      message: "Atlas could not apply that creative improvement. Please try again.",
+      message: ATLAS_VOICE.applyFailed,
     };
   }
 }

@@ -1,14 +1,8 @@
-import type { Metadata } from "next";
-import SupabaseHealthCheck from "@/components/health/supabase-health-check";
-
-export const metadata: Metadata = {
-  title: "Supabase Health — Atlas",
-  description: "Verify Atlas can connect to Supabase.",
-};
+import { redirect } from "next/navigation";
 
 /**
- * /health — connectivity check only (no auth, no database writes).
+ * Public health page removed from product surface (Phase 1).
  */
 export default function HealthPage() {
-  return <SupabaseHealthCheck />;
+  redirect("/");
 }

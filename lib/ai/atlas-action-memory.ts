@@ -256,9 +256,20 @@ export function looksLikePlanReference(request: string): boolean {
   );
 }
 
-/** Phrases that mean “execute the pending recommendations”. */
+/**
+ * Phrases that mean “execute the pending recommendations”.
+ * Never match bare “everything” — layout copy like “below everything else”
+ * must not short-circuit into Apply All.
+ */
 export const APPLY_ALL_PHRASES =
-  /\b(apply\s+all|apply\s+everything|apply\s+the\s+full\s+plan|do\s+(it|all)|do\s+all\s+of\s+it|go\s+ahead|yes+|yep|yeah|sure|ok(ay)?|everything|all\s+of\s+(them|it)|all\s+of\s+'?em|proceed|sounds\s+good|let'?s\s+do\s+(it|that)|make\s+it\s+so|complete\s+my\s+website|finish\s+my\s+website|make\s+it\s+launch[- ]ready)\b/i;
+  /\b(apply\s+all|apply\s+everything|apply\s+the\s+full\s+plan|do\s+all\s+of\s+it|do\s+all\s+of\s+(them|'?em)|all\s+of\s+(them|it)|all\s+of\s+'?em|let'?s\s+do\s+(it|that)|make\s+it\s+so|complete\s+my\s+website|finish\s+my\s+website|make\s+it\s+launch[- ]ready)\b/i;
+
+/**
+ * Bare affirmations that only count as Apply All when the whole message is short.
+ * Kept separate so “do it” / “everything” / “sure” inside longer edit requests never match.
+ */
+const APPLY_ALL_SHORT_AFFIRMATIONS =
+  /^(yes+|yep|yeah|sure|ok(ay)?|do\s+it|go\s+ahead|everything|all\s+of\s+(them|it)|proceed|sounds\s+good)[.!]?$/i;
 
 /** First-class completion / launch-ready phrases (Sprint 28.0B). */
 export const COMPLETE_WEBSITE_PHRASES =
@@ -308,9 +319,49 @@ export function hasPendingClarification(
 /**
  * Detect confirmation / selection intent against prior context.
  */
+/** Layout/edit commands must never be read as plan ordinals (“…to the last”). */
+function looksLikeStandaloneLayoutOrEdit(request: string): boolean {
+  const text = request.trim();
+  if (!text) return false;
+  const moveVerb = new RegExp(
+    String.raw`\b(?:move|put|place|reorder)\s+(?:the\s+)?[a-z]`,
+    "i",
+  );
+  const layoutCue = new RegExp(
+    String.raw`\b(?:section|above|below|before|after|bottom|top|higher|lower|end|last|first)\b`,
+    "i",
+  );
+  if (moveVerb.test(text) && layoutCue.test(text)) {
+    return true;
+  }
+  const editVerb = new RegExp(
+    String.raw`\b(?:change|update|set|make|rewrite|replace|add|remove|increase|decrease)\b`,
+    "i",
+  );
+  if (editVerb.test(text) && text.split(/\s+/).length >= 4) {
+    return true;
+  }
+  return false;
+}
+
 export function detectActionConfirmation(request: string): ActionConfirmation {
   const text = request.trim();
   if (!text) return { kind: "none" };
+
+  // Explicit layout/edit instructions are never plan confirmations.
+  if (looksLikeStandaloneLayoutOrEdit(text) && !/\brecommendation\b/i.test(text)) {
+    // Still allow clear “apply the first one” style plan refs.
+    if (
+      !/\bapply\s+(?:the\s+)?(?:first|second|third|fourth|fifth|last|\d+)\b/i.test(
+        text,
+      ) &&
+      !/\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)\s+one\b/i.test(
+        text,
+      )
+    ) {
+      return { kind: "none" };
+    }
+  }
 
   // Ordinals: "the first one", "second", "#2", "number 2"
   // Never match bare trailing "one" in "second one" as first.
@@ -334,22 +385,38 @@ export function detectActionConfirmation(request: string): ActionConfirmation {
 
   if (wordMatch?.[1]) {
     const token = wordMatch[1].toLowerCase();
-    if (token === "last") {
+    // “last/first” as layout positions (“to the last”, “put X first”) are not ordinals
+    // unless they clearly refer to a plan item (“the last one”, “apply last”).
+    const isPlanOrdinal =
+      /\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)\s+one\b/i.test(
+        text,
+      ) ||
+      /\bapply\s+(?:the\s+)?(?:first|second|third|fourth|fifth|last)\b/i.test(
+        text,
+      ) ||
+      (token !== "last" &&
+        token !== "first" &&
+        text.split(/\s+/).length <= 6);
+    if (!isPlanOrdinal && (token === "last" || token === "first")) {
+      // fall through — may still match apply_all / etc.
+    } else if (token === "last") {
       return { kind: "ordinal", ordinalIndex: -1, matchedPhrase: wordMatch[0] };
-    }
-    const oneBased = ORDINAL_WORD_TO_1_BASED[token];
-    if (oneBased != null) {
-      return {
-        kind: "ordinal",
-        ordinalIndex: oneBased - 1,
-        matchedPhrase: wordMatch[0],
-      };
+    } else {
+      const oneBased = ORDINAL_WORD_TO_1_BASED[token];
+      if (oneBased != null) {
+        return {
+          kind: "ordinal",
+          ordinalIndex: oneBased - 1,
+          matchedPhrase: wordMatch[0],
+        };
+      }
     }
   }
 
   if (
     /\b(?:the|just|that)\s+one\b/i.test(text) &&
-    !/\b(second|third|fourth|fifth)\b/i.test(text)
+    !/\b(second|third|fourth|fifth)\b/i.test(text) &&
+    !looksLikeStandaloneLayoutOrEdit(text)
   ) {
     return { kind: "ordinal", ordinalIndex: 0, matchedPhrase: "one" };
   }
@@ -387,7 +454,8 @@ export function detectActionConfirmation(request: string): ActionConfirmation {
   if (
     APPLY_ALL_PHRASES.test(text) ||
     COMPLETE_WEBSITE_PHRASES.test(text) ||
-    /\bapply\s+all\b/i.test(text)
+    /\bapply\s+all\b/i.test(text) ||
+    APPLY_ALL_SHORT_AFFIRMATIONS.test(text)
   ) {
     return { kind: "apply_all", matchedPhrase: text };
   }
@@ -396,7 +464,7 @@ export function detectActionConfirmation(request: string): ActionConfirmation {
     return { kind: "apply_one", matchedPhrase: text };
   }
 
-  // Bare affirmations
+  // Bare affirmations (non–apply-all)
   if (/^(yes+|yep|yeah|sure|ok(ay)?|do\s+it|go\s+ahead)[.!]?$/i.test(text)) {
     return { kind: "affirm", matchedPhrase: text };
   }
@@ -430,15 +498,19 @@ export function matchClarificationAnswer(
     }
   }
 
-  // Soft match against known clarification chips
-  if (/visual/i.test(normalized)) {
-    return { answer: "Better visuals", destination: "visuals" };
+  // Soft match against known clarification chips (designer + legacy labels)
+  if (/visual|photo|imagery|richer\s+photos/i.test(normalized)) {
+    return { answer: "Richer photos", destination: "visuals" };
   }
-  if (/copy|text|content/i.test(normalized)) {
-    return { answer: "Better copy", destination: "copy" };
+  if (/copy|text|content|writing|sharper\s+writing/i.test(normalized)) {
+    return { answer: "Sharper writing", destination: "copy" };
   }
-  if (/conversion|lead|call|book/i.test(normalized)) {
-    return { answer: "Better conversions", destination: "conversions" };
+  if (
+    /conversion|lead|call|book|cta|calls?\s+to\s+action|stronger\s+calls/i.test(
+      normalized,
+    )
+  ) {
+    return { answer: "Stronger calls to action", destination: "conversions" };
   }
   if (/something\s+else|other/i.test(normalized)) {
     return { answer: "Something else", destination: "other" };
@@ -514,10 +586,13 @@ export function storePendingClarification(
   const allowedAnswers =
     clarification.allowedAnswers ?? [...ATLAS_BRAIN_CLARIFICATION_OPTIONS];
   const answerDestinations = clarification.answerDestinations ?? {
+    "Richer photos": "visuals",
+    "Sharper writing": "copy",
+    "Stronger calls to action": "conversions",
+    "Something else": "other",
     "Better visuals": "visuals",
     "Better copy": "copy",
     "Better conversions": "conversions",
-    "Something else": "other",
   };
 
   return {
@@ -731,6 +806,14 @@ export function shouldExecuteActionMemory(
   // Ordinal / named plan references beat sticky clarification chips.
   if (hasActiveRecommendations(memory) && looksLikePlanReference(request)) {
     return true;
+  }
+
+  // Explicit layout / edit commands never depend on an active plan.
+  if (
+    looksLikeStandaloneLayoutOrEdit(request) &&
+    !looksLikePlanReference(request)
+  ) {
+    return false;
   }
 
   if (hasPendingClarification(memory)) {

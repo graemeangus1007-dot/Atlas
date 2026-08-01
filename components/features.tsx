@@ -1,9 +1,9 @@
 const FEATURES = [
   {
     icon: "⚡",
-    title: "AI Website Builder",
+    title: "Talk to Atlas",
     description:
-      "Generate a complete website from a few simple questions.",
+      "Describe your business. Atlas builds and improves your website.",
   },
   {
     icon: "🎨",

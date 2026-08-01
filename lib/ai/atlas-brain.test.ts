@@ -110,15 +110,18 @@ describe("clarification", () => {
       request: "Not sure",
     });
     expect(decision.needsClarification).toBe(true);
-    expect(decision.clarificationQuestion).toMatch(/Did you mean/i);
+    expect(decision.clarificationQuestion).toMatch(/precise|focus/i);
+    expect(decision.clarificationQuestion).not.toMatch(/Did you mean/i);
     expect(decision.followUpSuggestions.length).toBeGreaterThan(1);
+    expect(decision.followUpSuggestions.join(" ")).toMatch(/Richer photos/i);
 
     const result = await runAtlasBrain({
       project: sampleProject(),
       request: "Not sure",
     });
     expect(result.applyStatus).toBe("needs_clarification");
-    expect(result.explanation).toMatch(/Better visuals/i);
+    expect(result.explanation).toMatch(/Richer photos|precise|focus/i);
+    expect(result.explanation).not.toMatch(/Better visuals/i);
   });
 });
 

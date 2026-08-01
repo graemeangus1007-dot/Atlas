@@ -1,4 +1,5 @@
 import Button from "@/components/ui/button";
+import { NEW_SITE_HREF, NEW_SITE_LABEL } from "@/lib/product/new-site";
 
 /**
  * Hero — primary conversion surface with CSS-only geometric atmosphere.
@@ -39,8 +40,8 @@ export default function Hero() {
 
       {/* Primary actions */}
       <div className="animate-fade-up-delay-3 mt-10 flex w-full max-w-md flex-col items-stretch justify-center gap-3 sm:mx-auto sm:max-w-none sm:flex-row sm:items-center sm:gap-4">
-        <Button href="/onboarding" className="px-8 py-3.5">
-          Start Building
+        <Button href={NEW_SITE_HREF} className="px-8 py-3.5">
+          {NEW_SITE_LABEL}
         </Button>
         <Button href="#demo" variant="secondary" className="px-8 py-3.5">
           Watch Demo

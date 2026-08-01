@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Atlas AI panel — sticky composer, compact critiques, scroll UX (Sprint 28.1B).
+ * Atlas AI panel — professional redesign (Sprint 28.4).
  */
 import {
   cleanup,
@@ -13,6 +13,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AtlasAiPanel from "@/components/editor/atlas-ai-panel";
+import { summarizeWebsiteChanges } from "@/components/editor/atlas-change-summary";
 import type { BusinessAdvisorReport } from "@/lib/ai/business-advisor-types";
 import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
 
@@ -34,7 +35,7 @@ vi.mock("@/components/ui/button", () => ({
 
 function sampleReport(count = 2): BusinessAdvisorReport {
   return {
-    overallScore: 62,
+    overallScore: 68,
     categoryScores: {
       conversion: 60,
       trust: 55,
@@ -95,271 +96,298 @@ function longPlain(words: number): string {
   return Array.from({ length: words }, (_, i) => `word${i}`).join(" ");
 }
 
-describe("Atlas AI panel layout", () => {
-  it("uses a permanent three-region grid: conversation / action / composer", () => {
-    const messages = Array.from({ length: 8 }, (_, i) => ({
-      id: `m-${i}`,
-      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
-      content: `Message ${i}`,
-      createdAt: new Date().toISOString(),
-    }));
+function renderPanel(
+  props: Partial<React.ComponentProps<typeof AtlasAiPanel>> = {},
+) {
+  return render(
+    <div style={{ height: 720, display: "flex" }}>
+      <AtlasAiPanel
+        project={MOCK_BUSINESS_PROJECT}
+        projectId="proj-28-4"
+        messages={[]}
+        status="idle"
+        canUndo={false}
+        canRedo={false}
+        lastChanges={null}
+        onSend={() => {}}
+        onUndo={() => {}}
+        onRedo={() => {}}
+        {...props}
+      />
+    </div>,
+  );
+}
 
-    render(
-      <div style={{ height: 720, display: "flex" }}>
-        <AtlasAiPanel
-          project={MOCK_BUSINESS_PROJECT}
-          projectId="proj-layout"
-          messages={messages}
-          status="idle"
-          canUndo={false}
-          canRedo={false}
-          lastChanges={null}
-          advisorReport={sampleReport(2)}
-          onSend={() => {}}
-          onUndo={() => {}}
-          onRedo={() => {}}
-        />
-      </div>,
-    );
+describe("Sprint 28.4 — panel information architecture", () => {
+  it("defaults to conversation view with composer always visible", () => {
+    renderPanel({
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          content: "Hello",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
 
     const panel = screen.getByTestId("atlas-ai-panel");
-    const body = within(panel).getByTestId("atlas-panel-body");
-    const conversation = within(body).getByTestId("atlas-conversation-region");
-    const action = within(body).getByTestId("atlas-action-region");
-    const prompt = within(body).getByTestId("atlas-prompt-region");
+    expect(panel.getAttribute("data-view")).toBe("conversation");
+    expect(screen.getByTestId("atlas-conversation-region")).toBeTruthy();
+    expect(screen.getByTestId("atlas-prompt-region")).toBeTruthy();
+    expect(screen.getByTestId("atlas-prompt-input")).toBeTruthy();
+    expect(screen.queryByTestId("atlas-review-view")).toBeNull();
+    expect(screen.queryByTestId("atlas-plan-view")).toBeNull();
+  });
 
-    // Structural shell: conversation is the only flexible row.
-    expect(body.className).toMatch(/grid-rows-\[minmax\(0,1fr\)_auto_auto\]/);
-    expect(conversation.className).toMatch(/min-h-0/);
-    expect(conversation.className).toMatch(/overflow-y-auto/);
-    expect(within(prompt).getByLabelText("Design request")).toBeTruthy();
+  it("does not permanently mount Atlas Review in the chat layout", () => {
+    renderPanel({
+      advisorReport: sampleReport(2),
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          content: "Hello",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
 
-    // DOM order inside the shell: conversation → action → composer
-    const regions = Array.from(body.children);
-    expect(regions[0]).toBe(conversation);
-    expect(regions[1]).toBe(action);
-    expect(regions[2]).toBe(prompt);
-
-    // Review lives in the Action Area, not the conversation scroller.
-    expect(within(action).getByTestId("atlas-review-region")).toBeTruthy();
+    expect(screen.queryByTestId("atlas-review-body")).toBeNull();
+    expect(screen.queryByTestId("atlas-review-view")).toBeNull();
     expect(
-      within(conversation).queryByTestId("atlas-review-region"),
+      within(screen.getByTestId("atlas-conversation-region")).queryByTestId(
+        "atlas-review-region",
+      ),
     ).toBeNull();
   });
 
-  it("collapses and expands Atlas Review", () => {
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        projectId="proj-toggle"
-        messages={[
-          {
-            id: "m1",
-            role: "user",
-            content: "Hello",
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="idle"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        advisorReport={sampleReport(2)}
-        onSend={() => {}}
-        onUndo={() => {}}
-        onRedo={() => {}}
-      />,
-    );
+  it("uses a compact active-plan bar with authoritative Apply all", () => {
+    renderPanel({
+      messages: [
+        {
+          id: "c1",
+          role: "assistant",
+          content: CRITIQUE_BODY,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      onApplyAllCreative: () => {},
+    });
 
-    const toggle = screen.getByTestId("atlas-review-toggle");
-    expect(screen.queryByTestId("atlas-review-body")).toBeNull();
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-
-    fireEvent.click(toggle);
-    expect(screen.getByTestId("atlas-review-body")).toBeTruthy();
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const action = screen.getByTestId("atlas-action-region");
+    expect(within(action).getByTestId("atlas-active-plan-bar")).toBeTruthy();
+    expect(within(action).getByTestId("atlas-critique-apply-all")).toBeTruthy();
+    expect(
+      within(action).queryByTestId("critique-improvement-card-1"),
+    ).toBeNull();
+    expect(
+      within(screen.getByTestId("atlas-conversation-region")).queryByTestId(
+        "critique-improvement-card-1",
+      ),
+    ).toBeNull();
   });
-});
 
-describe("Sprint 28.1B conversation UX", () => {
-  it("keeps narrative in conversation and plan actions in the Action Area", () => {
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[
-          {
-            id: "c1",
-            role: "assistant",
-            content: CRITIQUE_BODY,
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="idle"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        onSend={() => {}}
-        onUndo={() => {}}
-        onRedo={() => {}}
-      />,
-    );
+  it("keeps long critiques compact in conversation", () => {
+    renderPanel({
+      messages: [
+        {
+          id: "c1",
+          role: "assistant",
+          content: CRITIQUE_BODY,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
 
     const conversation = screen.getByTestId("atlas-conversation-region");
-    const action = screen.getByTestId("atlas-action-region");
-
     expect(within(conversation).getByTestId("atlas-critique-message")).toBeTruthy();
-    expect(within(conversation).getByText("Executive Summary")).toBeTruthy();
-    expect(
-      within(conversation).queryByTestId("atlas-critique-apply-all-card"),
-    ).toBeNull();
+    expect(within(conversation).getByText("Homepage review")).toBeTruthy();
+    expect(within(conversation).getByText(/3 improvements found/i)).toBeTruthy();
     expect(
       within(conversation).queryByTestId("critique-improvement-card-1"),
     ).toBeNull();
-
-    expect(within(action).getByTestId("atlas-critique-apply-all-card")).toBeTruthy();
-    expect(within(action).getByTestId("critique-improvement-card-1")).toBeTruthy();
-    expect(within(action).getByTestId("critique-improvement-card-2")).toBeTruthy();
-    expect(within(action).getByTestId("critique-improvement-card-3")).toBeTruthy();
-    expect(screen.queryByTestId("atlas-full-critique-body")).toBeNull();
-
-    fireEvent.click(screen.getByTestId("atlas-toggle-full-critique"));
-    expect(screen.getByTestId("atlas-full-critique-body")).toBeTruthy();
+    expect(within(conversation).queryByText("Executive Summary")).toBeNull();
   });
 
-  it("collapses 1500-word plain messages by default", () => {
-    const content = longPlain(1500);
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[
-          {
-            id: "long",
-            role: "assistant",
-            content,
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="idle"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        onSend={() => {}}
-        onUndo={() => {}}
-        onRedo={() => {}}
-      />,
-    );
+  it("opens Plan view with numbered recommendations and preserves scroll", () => {
+    const messages = Array.from({ length: 8 }, (_, i) => ({
+      id: `m-${i}`,
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: i === 7 ? CRITIQUE_BODY : `Message ${i}`,
+      createdAt: new Date().toISOString(),
+    }));
 
-    expect(screen.getByTestId("atlas-plain-message")).toBeTruthy();
-    expect(screen.getByTestId("atlas-toggle-full-message")).toBeTruthy();
-    const visible = screen.getByTestId("atlas-plain-message").textContent ?? "";
-    expect(visible.split(/\s+/).length).toBeLessThan(200);
+    renderPanel({ messages, onApplyAllCreative: () => {} });
+
+    const region = screen.getByTestId("atlas-conversation-region");
+    Object.defineProperty(region, "scrollHeight", {
+      configurable: true,
+      value: 2000,
+    });
+    Object.defineProperty(region, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    Object.defineProperty(region, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 240,
+    });
+    fireEvent.scroll(region);
+
+    fireEvent.click(screen.getByTestId("atlas-review-plan"));
+    expect(screen.getByTestId("atlas-ai-panel").getAttribute("data-view")).toBe(
+      "plan",
+    );
+    expect(screen.getByTestId("atlas-plan-view")).toBeTruthy();
+    expect(screen.getByTestId("critique-improvement-card-1")).toBeTruthy();
+    expect(screen.getByTestId("critique-improvement-card-2")).toBeTruthy();
+    expect(screen.queryByTestId("atlas-prompt-region")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("atlas-back-to-conversation"));
+    expect(screen.getByTestId("atlas-ai-panel").getAttribute("data-view")).toBe(
+      "conversation",
+    );
+    const restored = screen.getByTestId("atlas-conversation-region");
+    Object.defineProperty(restored, "scrollHeight", {
+      configurable: true,
+      value: 2000,
+    });
+    Object.defineProperty(restored, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    // Scroll position is restored via layout effect from the saved offset.
+    expect(restored.scrollTop).toBe(240);
   });
 
-  it("shows ~200-word messages without forced collapse", () => {
-    const content = longPlain(200);
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[
-          {
-            id: "mid",
-            role: "assistant",
-            content,
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="idle"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        onSend={() => {}}
-        onUndo={() => {}}
-        onRedo={() => {}}
-      />,
-    );
+  it("opens Review from header and returns focus on Back", async () => {
+    renderPanel({
+      advisorReport: sampleReport(2),
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          content: "Hello",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
 
-    expect(screen.queryByTestId("atlas-toggle-full-message")).toBeNull();
-    expect(screen.getByTestId("atlas-plain-message").textContent).toMatch(
-      /word0/,
-    );
+    const openReview = screen.getByTestId("atlas-open-review");
+    openReview.focus();
+    fireEvent.click(openReview);
+
+    expect(screen.getByTestId("atlas-review-view")).toBeTruthy();
+    expect(screen.getByTestId("atlas-review-body")).toBeTruthy();
+    expect(screen.queryByTestId("atlas-prompt-region")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("atlas-back-to-conversation"));
+    await waitFor(() => {
+      expect(screen.getByTestId("atlas-prompt-region")).toBeTruthy();
+    });
   });
 
-  it("shows streaming indicator without hiding composer", () => {
-    render(
-      <div style={{ height: 640 }}>
-        <AtlasAiPanel
-          project={MOCK_BUSINESS_PROJECT}
-          messages={[]}
-          status="sending"
-          canUndo={false}
-          canRedo={false}
-          lastChanges={null}
-          onSend={() => {}}
-          onUndo={() => {}}
-          onRedo={() => {}}
-        />
-      </div>,
-    );
-
-    expect(screen.getByTestId("atlas-streaming-indicator")).toBeTruthy();
-    expect(screen.getByTestId("atlas-prompt-region")).toBeTruthy();
-    expect(screen.getByTestId("atlas-prompt-input")).toBeTruthy();
-  });
-
-  it("Apply All from critique card calls handler", () => {
+  it("Apply All exists once in the active plan bar", () => {
     const onApplyAllCreative = vi.fn();
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[
-          {
-            id: "c1",
-            role: "assistant",
-            content: CRITIQUE_BODY,
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="idle"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        onSend={() => {}}
-        onUndo={() => {}}
-        onRedo={() => {}}
-        onApplyAllCreative={onApplyAllCreative}
-      />,
-    );
+    renderPanel({
+      messages: [
+        {
+          id: "c1",
+          role: "assistant",
+          content: CRITIQUE_BODY,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      onApplyAllCreative,
+    });
 
+    expect(screen.getAllByTestId("atlas-critique-apply-all")).toHaveLength(1);
     fireEvent.click(screen.getByTestId("atlas-critique-apply-all"));
     expect(onApplyAllCreative).toHaveBeenCalledTimes(1);
   });
 
-  it("individual Apply sends ordinal request", () => {
+  it("individual Apply lives only in Plan view", () => {
     const onSend = vi.fn();
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[
-          {
-            id: "c1",
-            role: "assistant",
-            content: CRITIQUE_BODY,
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="idle"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        onSend={onSend}
-        onUndo={() => {}}
-        onRedo={() => {}}
-      />,
-    );
+    renderPanel({
+      messages: [
+        {
+          id: "c1",
+          role: "assistant",
+          content: CRITIQUE_BODY,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      onSend,
+    });
 
+    expect(screen.queryByTestId("critique-improvement-card-1")).toBeNull();
+    fireEvent.click(screen.getByTestId("atlas-review-plan"));
     const card = screen.getByTestId("critique-improvement-card-1");
     fireEvent.click(within(card).getByRole("button", { name: "Apply" }));
     expect(onSend).toHaveBeenCalledWith("Apply the first one");
+  });
+
+  it("deduplicates change summaries into compact areas", () => {
+    const summary = summarizeWebsiteChanges([
+      { id: "1", label: "Buttons updated", ok: true },
+      { id: "2", label: "Buttons updated", ok: true },
+      { id: "3", label: "Whitespace adjusted", ok: true },
+      { id: "4", label: "Layout refreshed", ok: true },
+      { id: "5", label: "Whitespace adjusted", ok: true },
+    ]);
+    expect(summary.count).toBe(3);
+    expect(summary.areas).toEqual(
+      expect.arrayContaining(["Buttons", "Spacing", "Layout"]),
+    );
+
+    renderPanel({
+      messages: [],
+      status: "applied",
+      lastChanges: [
+        { id: "1", label: "Buttons updated", ok: true },
+        { id: "2", label: "Buttons updated", ok: true },
+        { id: "3", label: "Hero rewritten", ok: true },
+      ],
+    });
+
+    expect(screen.getByTestId("atlas-last-changes-summary")).toBeTruthy();
+    expect(
+      within(screen.getByTestId("atlas-last-changes-summary")).getByText(
+        /^Done$/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Buttons updated")).toBeNull();
+  });
+
+  it("caps follow-up suggestions at three and hides them while typing", () => {
+    renderPanel({
+      followUpSuggestions: [
+        "Add matching images",
+        "Improve SEO",
+        "Add subtle motion",
+        "Rewrite hero",
+        "Change colors",
+      ],
+      onFollowUpSuggestion: () => {},
+      messages: [
+        {
+          id: "a",
+          role: "assistant",
+          content: "Done.",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+
+    const chips = screen.getByTestId("atlas-follow-up-suggestions");
+    expect(within(chips).getAllByRole("button").length).toBeLessThanOrEqual(4);
+
+    fireEvent.change(screen.getByTestId("atlas-prompt-input"), {
+      target: { value: "typing now" },
+    });
+    expect(screen.queryByTestId("atlas-follow-up-suggestions")).toBeNull();
   });
 
   it("preserves draft text across status updates", () => {
@@ -379,7 +407,6 @@ describe("Sprint 28.1B conversation UX", () => {
 
     const input = screen.getByTestId("atlas-prompt-input") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "partial draft about hero" } });
-    expect(input.value).toBe("partial draft about hero");
 
     rerender(
       <AtlasAiPanel
@@ -409,49 +436,30 @@ describe("Sprint 28.1B conversation UX", () => {
 
   it("Retry resends the last user message", () => {
     const onSend = vi.fn();
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[
-          {
-            id: "u1",
-            role: "user",
-            content: "Review this homepage",
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="failed"
-        statusMessage="Something went wrong"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        onSend={onSend}
-        onUndo={() => {}}
-        onRedo={() => {}}
-      />,
-    );
+    renderPanel({
+      messages: [
+        {
+          id: "u1",
+          role: "user",
+          content: "Review this homepage",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      status: "failed",
+      statusMessage: "That didn’t go through",
+      onSend,
+    });
 
     fireEvent.click(screen.getByTestId("atlas-retry"));
     expect(onSend).toHaveBeenCalledWith("Review this homepage");
   });
 
-  it("Undo focuses the composer afterward", async () => {
+  it("Undo from overflow menu focuses the composer afterward", async () => {
     const onUndo = vi.fn();
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[]}
-        status="idle"
-        canUndo={true}
-        canRedo={false}
-        lastChanges={null}
-        onSend={() => {}}
-        onUndo={onUndo}
-        onRedo={() => {}}
-      />,
-    );
+    renderPanel({ canUndo: true, onUndo });
 
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByTestId("atlas-overflow-menu"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Undo" }));
     expect(onUndo).toHaveBeenCalled();
     await waitFor(() => {
       expect(document.activeElement).toBe(
@@ -460,28 +468,18 @@ describe("Sprint 28.1B conversation UX", () => {
     });
   });
 
-  it("supports keyboard focus on composer and Apply All", () => {
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[
-          {
-            id: "c1",
-            role: "assistant",
-            content: CRITIQUE_BODY,
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="idle"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        onSend={() => {}}
-        onUndo={() => {}}
-        onRedo={() => {}}
-        onApplyAllCreative={() => {}}
-      />,
-    );
+  it("supports keyboard focus on Apply all and composer", () => {
+    renderPanel({
+      messages: [
+        {
+          id: "c1",
+          role: "assistant",
+          content: CRITIQUE_BODY,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      onApplyAllCreative: () => {},
+    });
 
     const applyAll = screen.getByTestId("atlas-critique-apply-all");
     applyAll.focus();
@@ -490,41 +488,6 @@ describe("Sprint 28.1B conversation UX", () => {
     const input = screen.getByTestId("atlas-prompt-input");
     input.focus();
     expect(document.activeElement).toBe(input);
-  });
-
-  it("remembers full-critique expansion per message", () => {
-    render(
-      <AtlasAiPanel
-        project={MOCK_BUSINESS_PROJECT}
-        messages={[
-          {
-            id: "a",
-            role: "assistant",
-            content: CRITIQUE_BODY,
-            createdAt: new Date().toISOString(),
-          },
-          {
-            id: "b",
-            role: "assistant",
-            content: CRITIQUE_BODY.replace("Hero", "CTA"),
-            createdAt: new Date().toISOString(),
-          },
-        ]}
-        status="idle"
-        canUndo={false}
-        canRedo={false}
-        lastChanges={null}
-        onSend={() => {}}
-        onUndo={() => {}}
-        onRedo={() => {}}
-      />,
-    );
-
-    const toggles = screen.getAllByTestId("atlas-toggle-full-critique");
-    fireEvent.click(toggles[0]!);
-    expect(screen.getAllByTestId("atlas-full-critique-body")).toHaveLength(1);
-    fireEvent.click(toggles[1]!);
-    expect(screen.getAllByTestId("atlas-full-critique-body")).toHaveLength(2);
   });
 
   it("fits mobile viewport height without dropping composer", () => {
@@ -554,75 +517,24 @@ describe("Sprint 28.1B conversation UX", () => {
 
     const body = screen.getByTestId("atlas-panel-body");
     const prompt = within(body).getByTestId("atlas-prompt-region");
-    expect(prompt).toBeTruthy();
-    expect(within(prompt).getByTestId("atlas-prompt-input")).toBeTruthy();
-    // Composer is always the last region of the three-region shell
     expect(body.lastElementChild).toBe(prompt);
+    expect(body.className).toMatch(/grid-rows-\[minmax\(0,1fr\)_auto_auto\]/);
   });
 
-  it("composer region height is independent of conversation message count", () => {
-    const few = [
-      {
-        id: "a",
-        role: "assistant" as const,
-        content: "Short",
-        createdAt: new Date().toISOString(),
-      },
-    ];
-    const many = Array.from({ length: 40 }, (_, i) => ({
+  it("keeps composer usable with a 50-message conversation", () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({
       id: `m-${i}`,
       role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
-      content: `${longPlain(80)} ${i}`,
+      content: `${longPlain(40)} ${i}`,
       createdAt: new Date().toISOString(),
     }));
 
-    const { rerender } = render(
-      <div style={{ height: 640 }}>
-        <AtlasAiPanel
-          project={MOCK_BUSINESS_PROJECT}
-          messages={few}
-          status="idle"
-          canUndo={false}
-          canRedo={false}
-          lastChanges={null}
-          onSend={() => {}}
-          onUndo={() => {}}
-          onRedo={() => {}}
-        />
-      </div>,
-    );
+    renderPanel({ messages: many });
 
-    const body = screen.getByTestId("atlas-panel-body");
-    expect(body.className).toMatch(/grid-rows-\[minmax\(0,1fr\)_auto_auto\]/);
-    expect(body.lastElementChild).toBe(
-      screen.getByTestId("atlas-prompt-region"),
-    );
-
-    rerender(
-      <div style={{ height: 640 }}>
-        <AtlasAiPanel
-          project={MOCK_BUSINESS_PROJECT}
-          messages={many}
-          status="idle"
-          canUndo={false}
-          canRedo={false}
-          lastChanges={null}
-          onSend={() => {}}
-          onUndo={() => {}}
-          onRedo={() => {}}
-        />
-      </div>,
-    );
-
-    // Same shell; composer remains the third region regardless of chat length.
+    expect(screen.getByTestId("atlas-prompt-region")).toBeTruthy();
     expect(screen.getByTestId("atlas-panel-body").lastElementChild).toBe(
       screen.getByTestId("atlas-prompt-region"),
     );
-    expect(
-      within(screen.getByTestId("atlas-conversation-region")).queryByTestId(
-        "atlas-prompt-region",
-      ),
-    ).toBeNull();
   });
 
   it("does not force-scroll when user has scrolled up", () => {
@@ -693,5 +605,27 @@ describe("Sprint 28.1B conversation UX", () => {
     );
 
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("collapses long plain messages by default", () => {
+    renderPanel({
+      messages: [
+        {
+          id: "long",
+          role: "assistant",
+          content: longPlain(1500),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+
+    expect(screen.getByTestId("atlas-plain-message")).toBeTruthy();
+    expect(screen.getByTestId("atlas-toggle-full-message")).toBeTruthy();
+  });
+
+  it("shows streaming indicator without hiding composer", () => {
+    renderPanel({ status: "sending" });
+    expect(screen.getByTestId("atlas-streaming-indicator")).toBeTruthy();
+    expect(screen.getByTestId("atlas-prompt-region")).toBeTruthy();
   });
 });

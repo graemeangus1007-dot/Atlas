@@ -11,6 +11,7 @@ import {
 } from "@/components/auth/auth-form";
 import { useAuth } from "@/hooks/use-auth";
 import { validateAuthCredentials } from "@/lib/auth";
+import { DEFAULT_SIGNED_IN_HREF } from "@/lib/product/new-site";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 /**
@@ -46,7 +47,11 @@ export default function LoginForm() {
     setLoading(true);
     try {
       await signInWithEmail(email.trim(), password);
-      const next = searchParams.get("next") || "/dashboard";
+      const nextParam = searchParams.get("next");
+      const next =
+        nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")
+          ? nextParam
+          : DEFAULT_SIGNED_IN_HREF;
       router.replace(next);
       router.refresh();
     } catch {

@@ -28,9 +28,10 @@ export type ParsedCritiqueMessage = {
 };
 
 const SECTION_HEADINGS =
-  /^(Design direction|Strengths|Top improvements|Expected outcome|Plan:)$/i;
+  /^(Overall direction|Biggest problem|Current impression|Customer|Desired emotion|Design goals|Missing trust signals|Execution plan|Design direction|Strengths|Top improvements|Expected outcome|Plan:)$/i;
 
-const LONG_MESSAGE_WORDS = 220;
+/** Collapse plain messages well below a “wall of text” threshold. */
+const LONG_MESSAGE_WORDS = 80;
 
 function wordCount(text: string): number {
   const trimmed = text.trim();
@@ -163,9 +164,24 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
   const hasCritiqueShape =
     /\bTop improvements\b/i.test(fullText) ||
     /\bExpected outcome\b/i.test(fullText) ||
-    /\bDesign direction\b/i.test(fullText);
+    /\bDesign direction\b/i.test(fullText) ||
+    /\bOverall direction\b/i.test(fullText) ||
+    /\bBiggest problem\b/i.test(fullText) ||
+    /\bExecution plan\b/i.test(fullText) ||
+    /\bDesign goals\b/i.test(fullText) ||
+    /\bWhy it matters\b/i.test(fullText) ||
+    (/^\d+\.\s+/m.test(fullText) && /\bPlan:\b/i.test(fullText));
 
-  if (!hasCritiqueShape) {
+  // Multi-heading structured bodies should never render as a raw wall.
+  const headingHits = fullText
+    .split("\n")
+    .filter((line) => SECTION_HEADINGS.test(line.trim())).length;
+  const looksStructured = hasCritiqueShape || headingHits >= 2;
+
+  if (!looksStructured) {
+    const dense =
+      words >= LONG_MESSAGE_WORDS ||
+      (fullText.split("\n").filter((l) => l.trim()).length >= 6 && words >= 40);
     return {
       kind: "plain",
       executiveSummary: toExecutiveSummary(fullText),
@@ -174,7 +190,7 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
       improvements: [],
       expectedOutcome: null,
       fullText,
-      shouldCollapseFull: words >= LONG_MESSAGE_WORDS,
+      shouldCollapseFull: dense,
       wordCount: words,
       applyAllReady,
     };
@@ -206,13 +222,26 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
   }
   flushSection();
 
-  const improvements = parseImprovementBlock(
+  let improvements = parseImprovementBlock(
     sections["top improvements"] ?? "",
   );
+  // Strategy-only bodies: surface execution plan steps as compact cards.
+  if (improvements.length === 0 && sections["execution plan"]) {
+    improvements = parseImprovementBlock(sections["execution plan"]);
+  }
+  if (improvements.length === 0 && sections.plan) {
+    improvements = parseImprovementBlock(sections.plan);
+  }
   const strengths = parseStrengths(sections.strengths ?? "");
-  const designDirection = sections["design direction"] || null;
+  const designDirection =
+    sections["overall direction"] || sections["design direction"] || null;
   const expectedOutcome = sections["expected outcome"] || null;
-  const summarySource = preamble || fullText.split("\n")[0] || "";
+  const summarySource =
+    preamble ||
+    sections["biggest problem"] ||
+    designDirection ||
+    fullText.split("\n")[0] ||
+    "";
 
   return {
     kind: "critique",

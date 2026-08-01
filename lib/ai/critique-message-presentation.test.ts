@@ -33,6 +33,36 @@ const SAMPLE_CRITIQUE = [
   "Say Apply All when you’re ready, or apply any single improvement.",
 ].join("\n");
 
+const SAMPLE_STRATEGY_CRITIQUE = [
+  "Harbor Craft feels capable but unproven before the quote ask.",
+  "",
+  "Overall direction",
+  "Premium coastal craftsmanship (luxury · premium · handcrafted)",
+  "",
+  "Biggest problem",
+  "Visitors don’t see enough proof of the work before being asked to take action.",
+  "",
+  "Design goals",
+  "• Increase trust before the ask.",
+  "• Reduce cognitive load in the first viewport.",
+  "",
+  "Execution plan",
+  "1. Rebuild the hero for one clear promise.",
+  "2. Place testimonials directly below the hero.",
+  "",
+  "Strengths",
+  "• Clear service promise — headline states the offer",
+  "",
+  "Top improvements",
+  "1. Place testimonials below the hero",
+  "   Why it matters: Visitors haven’t seen enough proof before evaluating services.",
+  "",
+  "Expected outcome",
+  "A premium coastal homepage that earns trust before the quote request.",
+  "",
+  "Say Apply all when you’re ready, or pick any single improvement.",
+].join("\n");
+
 describe("parseCritiqueMessage", () => {
   it("parses structured critique into summary + improvement cards", () => {
     const parsed = parseCritiqueMessage(SAMPLE_CRITIQUE);
@@ -46,6 +76,15 @@ describe("parseCritiqueMessage", () => {
     expect(parsed.applyAllReady).toBe(true);
   });
 
+  it("parses v1.1 design strategy headings", () => {
+    const parsed = parseCritiqueMessage(SAMPLE_STRATEGY_CRITIQUE);
+    expect(parsed.kind).toBe("critique");
+    expect(parsed.designDirection).toMatch(/Premium coastal craftsmanship/i);
+    expect(parsed.improvements[0]?.title).toMatch(/testimonials/i);
+    expect(parsed.improvements[0]?.why).toMatch(/proof|trust/i);
+    expect(parsed.expectedOutcome).toMatch(/premium coastal/i);
+  });
+
   it("collapses long plain messages (~1500 words)", () => {
     const body = `${words(40)}. ${words(1460)}`;
     const parsed = parseCritiqueMessage(body);
@@ -55,12 +94,18 @@ describe("parseCritiqueMessage", () => {
     expect(parsed.executiveSummary.split(/\s+/).length).toBeLessThan(80);
   });
 
-  it("keeps shorter ~200-word plain messages expandable only when long", () => {
+  it("collapses plain messages at the compact threshold (~80+ words)", () => {
     const body = words(200);
     const parsed = parseCritiqueMessage(body);
     expect(parsed.kind).toBe("plain");
     expect(parsed.wordCount).toBe(200);
-    // 200 words is under the collapse threshold
+    expect(parsed.shouldCollapseFull).toBe(true);
+  });
+
+  it("keeps very short plain messages fully visible", () => {
+    const body = words(40);
+    const parsed = parseCritiqueMessage(body);
+    expect(parsed.kind).toBe("plain");
     expect(parsed.shouldCollapseFull).toBe(false);
   });
 });

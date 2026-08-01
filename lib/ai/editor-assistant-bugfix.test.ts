@@ -181,7 +181,9 @@ describe("zero-operation response", () => {
     expect(result.explanation.toLowerCase()).not.toMatch(/no changes needed/);
     expect(
       result.explanation.endsWith("?") ||
-        /did you mean|better visuals|better copy/i.test(result.explanation),
+        /precise|richer photos|sharper writing|focus|concrete/i.test(
+          result.explanation,
+        ),
     ).toBe(true);
   });
 });

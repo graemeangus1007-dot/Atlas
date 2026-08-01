@@ -5,6 +5,7 @@
  */
 
 import { registerEditorPlanner, runAtlasBrain } from "@/lib/ai/atlas-brain";
+import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import { planExplicitContentEdits } from "@/lib/ai/content-edit-planner";
 import {
   operationsFromDesignReasoning,
@@ -769,8 +770,7 @@ export function planDirectEditOperations(input: {
   if (operations.length === 0) {
     return {
       operations: [],
-      explanation:
-        "No changes needed — I could not map that request to a safe design edit. Try something more specific like “Make the hero more modern”, “Add an FAQ”, or “Change blue colors to green”.",
+      explanation: ATLAS_VOICE.noSafeEdit,
     };
   }
 
@@ -792,15 +792,15 @@ export function planDirectEditOperations(input: {
     return {
       operations: [],
       explanation: preserveWording
-        ? "No design changes were needed while keeping your wording unchanged."
-        : "No changes needed — I could not map that request to a safe design edit. Try something more specific like “Make the hero more modern”, “Add an FAQ”, or “Change blue colors to green”.",
+        ? ATLAS_VOICE.preserveWordingNoOp
+        : ATLAS_VOICE.noSafeEdit,
     };
   }
 
   const explanation =
     notes.length > 0
-      ? `I updated the website: ${notes.join("; ")}.`
-      : "I applied structured design edits to the current website.";
+      ? `Done. ${notes.join("; ")}.`
+      : ATLAS_VOICE.designUpdatesApplied;
 
   return { operations: filtered, explanation };
 }

@@ -10,7 +10,7 @@ import { useProjectListQuery } from "@/hooks/use-project-list-query";
 import { useProjects } from "@/hooks/use-projects";
 import { formatProjectStatus } from "@/lib/project";
 import type { ProjectMetadataFields } from "@/lib/project-metadata";
-import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
+import { NEW_SITE_HREF, NEW_SITE_LABEL } from "@/lib/product/new-site";
 import type { ProjectListItem } from "@/lib/supabase/types";
 
 type BusyAction = "open" | "duplicate" | "delete";
@@ -56,7 +56,6 @@ export default function ProjectList() {
     error,
     retry,
     refreshProjects,
-    createProject,
     openProject,
     updateProjectDetails,
     duplicateProject,
@@ -77,7 +76,6 @@ export default function ProjectList() {
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
-  const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectListItem | null>(
@@ -103,23 +101,9 @@ export default function ProjectList() {
     }, 4000);
   }
 
-  async function handleCreate() {
-    setActionError(null);
-    setCreating(true);
-    try {
-      await createProject("Untitled project", {
-        ...MOCK_BUSINESS_PROJECT,
-        businessName: "Untitled project",
-        status: "draft",
-      });
-      router.push("/onboarding");
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not create project.",
-      );
-    } finally {
-      setCreating(false);
-    }
+  function handleCreate() {
+    // One create path: New Site → onboarding → Editor.
+    router.push(NEW_SITE_HREF);
   }
 
   async function handleOpen(id: string) {
@@ -188,7 +172,7 @@ export default function ProjectList() {
   }
 
   const displayError = actionError || error;
-  const anyBusy = busyId !== null || creating;
+  const anyBusy = busyId !== null;
 
   return (
     <section
@@ -201,19 +185,20 @@ export default function ProjectList() {
             id="projects-heading"
             className="font-[family-name:var(--font-atlas-display)] text-lg font-semibold tracking-tight text-foreground"
           >
-            Your Projects
+            Projects
           </h2>
           <p className="mt-1 text-sm text-muted">
-            Create and manage multiple websites under your account.
+            Open a site to edit it, or start a new one with Atlas.
           </p>
         </div>
         <Button
           type="button"
           className="px-4 py-2 text-sm"
-          onClick={() => void handleCreate()}
-          disabled={creating || isLoading}
+          onClick={handleCreate}
+          disabled={isLoading}
+          data-testid="new-site-button"
         >
-          {creating ? "Creating…" : "Create Project"}
+          {NEW_SITE_LABEL}
         </Button>
       </div>
 
@@ -254,17 +239,17 @@ export default function ProjectList() {
         </div>
       ) : projects.length === 0 ? (
         <div className="mt-6 rounded-xl border border-dashed border-border px-4 py-10 text-center">
-          <p className="text-sm font-medium text-foreground">No projects yet</p>
+          <p className="text-sm font-medium text-foreground">No sites yet</p>
           <p className="mt-1 text-sm text-muted">
-            Create a project to start building your website.
+            Tell Atlas about your business and it will build your first website.
           </p>
           <Button
             type="button"
             className="mt-4 px-4 py-2 text-sm"
-            onClick={() => void handleCreate()}
-            disabled={creating}
+            onClick={handleCreate}
+            data-testid="new-site-empty-button"
           >
-            {creating ? "Creating…" : "Create your first project"}
+            {NEW_SITE_LABEL}
           </Button>
         </div>
       ) : (

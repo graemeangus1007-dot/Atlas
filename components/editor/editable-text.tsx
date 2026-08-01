@@ -17,8 +17,6 @@ type EditableTextProps = {
   inputClassName?: string;
   placeholder?: string;
   "aria-label"?: string;
-  /** When set, shows “Improve with AI” while the field is active. */
-  onImproveWithAi?: (currentValue: string) => void;
 };
 
 /**
@@ -35,17 +33,11 @@ export default function EditableText({
   inputClassName = "",
   placeholder = "Click to edit",
   "aria-label": ariaLabel,
-  onImproveWithAi,
 }: EditableTextProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const skipBlurCommit = useRef(false);
-
-  useEffect(() => {
-    if (!isEditing) setDraft(value);
-  }, [value, isEditing]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -53,6 +45,11 @@ export default function EditableText({
     field?.focus();
     field?.select();
   }, [isEditing, multiline]);
+
+  function beginEditing() {
+    setDraft(value);
+    setIsEditing(true);
+  }
 
   function commit() {
     const next = draft.trim();
@@ -67,10 +64,6 @@ export default function EditableText({
   }
 
   function handleBlur() {
-    if (skipBlurCommit.current) {
-      skipBlurCommit.current = false;
-      return;
-    }
     commit();
   }
 
@@ -90,62 +83,35 @@ export default function EditableText({
     }
   }
 
-  const improveButton =
-    onImproveWithAi && isEditing ? (
-      <button
-        type="button"
-        className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface/90 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent/40 hover:bg-accent-soft"
-        onMouseDown={(event) => {
-          // Prevent input blur from committing before the click lands.
-          event.preventDefault();
-          skipBlurCommit.current = true;
-        }}
-        onClick={() => {
-          const next = draft.trim();
-          onChange(next);
-          setIsEditing(false);
-          onImproveWithAi(next);
-        }}
-      >
-        ✨ Improve with AI
-      </button>
-    ) : null;
-
   if (isEditing) {
     const sharedClass = `w-full rounded-xl border border-[color:var(--site-accent)] bg-surface/90 px-3 py-2 text-inherit outline-none ring-2 ring-[color:var(--site-accent)]/30 ${inputClassName}`;
 
     if (multiline) {
       return (
-        <div className="w-full">
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            rows={5}
-            aria-label={ariaLabel}
-            className={`${sharedClass} resize-y leading-relaxed`}
-          />
-          {improveButton}
-        </div>
-      );
-    }
-
-    return (
-      <div className="w-full">
-        <input
-          ref={inputRef}
-          type="text"
+        <textarea
+          ref={textareaRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
+          rows={5}
           aria-label={ariaLabel}
-          className={sharedClass}
+          className={`${sharedClass} resize-y leading-relaxed`}
         />
-        {improveButton}
-      </div>
+      );
+    }
+
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        aria-label={ariaLabel}
+        className={sharedClass}
+      />
     );
   }
 
@@ -156,13 +122,13 @@ export default function EditableText({
       aria-label={ariaLabel ?? `Edit ${placeholder}`}
       title="Click to edit"
       className={`cursor-text rounded-lg outline-none transition-shadow hover:ring-2 hover:ring-[color:var(--site-accent)]/35 focus-visible:ring-2 focus-visible:ring-[color:var(--site-accent)]/50 ${className}`}
-      onClick={() => setIsEditing(true)}
+      onClick={beginEditing}
       onKeyDown={(event) => {
         // Never steal Space/Enter from nested or focused text fields.
         if (!shouldRunEditorShortcut(event)) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          setIsEditing(true);
+          beginEditing();
         }
       }}
     >

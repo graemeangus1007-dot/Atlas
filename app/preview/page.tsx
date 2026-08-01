@@ -1,7 +1,8 @@
 import { WebsitePreview } from "@/components/preview";
 
 /**
- * /preview — first look at the generated small-business website.
+ * /preview — view the active site outside the editor chrome.
+ * Not a creation path — New Site always starts at /onboarding.
  */
 export default function PreviewPage() {
   return <WebsitePreview />;

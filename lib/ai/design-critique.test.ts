@@ -19,6 +19,7 @@ import {
   runDesignCritique,
   validateDesignCritique,
 } from "@/lib/ai/design-critique";
+import { runDesignStrategyPass } from "@/lib/ai/design-strategy";
 import { validateDesignCritiqueWithIssues } from "@/lib/ai/design-critique-validation";
 import {
   critiqueToRecommendations,
@@ -475,6 +476,26 @@ describe("mock provider + openai invocation wiring", () => {
     expect(text).toMatch(/Strengths/);
     expect(text).toMatch(/Top improvements/);
     expect(text).toMatch(/Apply All/i);
+  });
+
+  it("includes design strategy before improvements when strategy is provided", () => {
+    const context = buildDesignCritiqueContext(sampleProject());
+    const critique = buildMockDesignCritique(context, "Review this homepage");
+    const { strategy, critique: strategized } = runDesignStrategyPass({
+      context,
+      critique,
+      request: "Complete my website",
+    });
+    const text = formatDesignCritiqueExplanation({
+      critique: strategized,
+      mode: "critique",
+      strategy,
+    });
+    expect(text).toMatch(/Overall direction/);
+    expect(text).toMatch(/Biggest problem/);
+    expect(text).toMatch(/Design goals/);
+    expect(text).toMatch(/Execution plan/);
+    expect(text).toMatch(/Top improvements/);
   });
 });
 

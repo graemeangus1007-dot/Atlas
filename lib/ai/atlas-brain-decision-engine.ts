@@ -21,6 +21,10 @@ import type {
 } from "@/lib/ai/atlas-brain-types";
 import { ATLAS_BRAIN_CLARIFICATION_OPTIONS } from "@/lib/ai/atlas-brain-types";
 import {
+  ATLAS_VOICE,
+  buildClarificationQuestion,
+} from "@/lib/ai/atlas-designer-voice";
+import {
   classifyCritiqueRequest,
   shouldOverridePendingClarification,
 } from "@/lib/ai/critique-request";
@@ -31,6 +35,7 @@ import {
   extractNaturalLanguageEditPlan,
   shouldExecuteNlEditPlan,
 } from "@/lib/ai/nl-edit-planner";
+import { isSectionOrderRequest } from "@/lib/ai/section-order";
 import type { BusinessProject } from "@/types/business-project";
 
 /** Pipeline stages in priority order (highest first). Sprint 28.2 order. */
@@ -155,7 +160,7 @@ const COMMAND_RULES: CommandRule[] = [
   {
     kind: "section_order",
     pattern:
-      /\b(move|put|place)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?(above|below|before|after|to\s+the\s+bottom|to\s+the\s+top|first|last|to\s+the\s+end)\b|\b(?:make|put|move)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?first\b/i,
+      /\b(move|put|place)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?(above|below|before|after|to\s+the\s+bottom|to\s+the\s+top|first|last|to\s+the\s+end|below\s+everything|higher|up)\b|\b(?:make|put|move)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+(?:section\s+)?first\b|\b(?:move|put|place)\s+(?:the\s+)?[a-z][\w\s-]{1,24}?\s+section\b[\s\S]{0,80}?\b(?:at\s+the\s+bottom|below\s+everything)\b|\b(?:move|put|place|bring)\s+(?:the\s+)?hero\b.*\b(higher|up|top|first)\b/i,
     confidence: 0.97,
     agents: ["editor_agent"],
     intent: "explicit_design_edit",
@@ -340,14 +345,7 @@ const COMMAND_RULES: CommandRule[] = [
 ];
 
 function clarificationQuestion(): string {
-  return [
-    "I can help with that.",
-    "",
-    "Before I make changes…",
-    "",
-    "Did you mean:",
-    ...ATLAS_BRAIN_CLARIFICATION_OPTIONS.map((option) => `• ${option}`),
-  ].join("\n");
+  return buildClarificationQuestion(ATLAS_BRAIN_CLARIFICATION_OPTIONS);
 }
 
 function plan(
@@ -380,11 +378,8 @@ function withConfidencePolicy(
     ...decision,
     needsClarification: true,
     clarificationQuestion:
-      decision.clarificationQuestion ||
-      "I’m not sure what to change yet — tell me a bit more about the outcome you want.",
-    explanation:
-      decision.explanation ||
-      "I’m not fully sure what you need yet. Share a bit more detail and I’ll take it from there.",
+      decision.clarificationQuestion || ATLAS_VOICE.lowConfidence,
+    explanation: decision.explanation || ATLAS_VOICE.lowConfidence,
     selectedAgents: ["intent_router"],
     followUpSuggestions: [...ATLAS_BRAIN_CLARIFICATION_OPTIONS],
   };
@@ -498,6 +493,33 @@ export function stageExplicitCommand(
         commandKind: "images",
       }),
     };
+  }
+
+  // Section-order intents (including ambiguous hero moves) before generic matching.
+  if (isSectionOrderRequest(request)) {
+    const sectionRule = COMMAND_RULES.find((r) => r.kind === "section_order");
+    if (sectionRule) {
+      return {
+        stage: "explicit_command",
+        commandKind: "section_order",
+        decision: withConfidencePolicy({
+          intent: sectionRule.intent,
+          confidence: sectionRule.confidence,
+          selectedAgents: sectionRule.agents,
+          needsClarification: false,
+          executionPlan: plan(sectionRule.goal, sectionRule.steps, "high"),
+          explanation: sectionRule.explanation,
+          followUpSuggestions: [
+            "Move Contact to the bottom",
+            "Put Testimonials above Services",
+            "Make the hero first",
+          ],
+          memoryPatch: inferMemoryFromMessage(request),
+          decisionStage: "explicit_command",
+          commandKind: "section_order",
+        }),
+      };
+    }
   }
 
   const rule = matchCommand(request);

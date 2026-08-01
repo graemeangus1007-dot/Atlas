@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Button from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { NEW_SITE_HREF, NEW_SITE_LABEL } from "@/lib/product/new-site";
 
 const MARKETING_LINKS = [
   { href: "#features", label: "Features" },
@@ -54,11 +55,6 @@ export default function Navbar() {
           {user ? (
             <>
               <li>
-                <Link href="/dashboard" className={NAV_LINK_CLASS}>
-                  Dashboard
-                </Link>
-              </li>
-              <li>
                 <Link href="/projects" className={NAV_LINK_CLASS}>
                   Projects
                 </Link>
@@ -82,22 +78,27 @@ export default function Navbar() {
 
         <div className="hidden items-center gap-3 md:flex">
           {isLoading ? null : user ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="px-4 py-2.5"
-              disabled={signingOut}
-              onClick={() => void handleLogout()}
-            >
-              {signingOut ? "Logging out…" : "Logout"}
-            </Button>
+            <>
+              <Button href={NEW_SITE_HREF} className="px-5 py-2.5">
+                {NEW_SITE_LABEL}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="px-4 py-2.5"
+                disabled={signingOut}
+                onClick={() => void handleLogout()}
+              >
+                {signingOut ? "Logging out…" : "Logout"}
+              </Button>
+            </>
           ) : (
             <>
               <Button href="/login" variant="ghost" className="px-4 py-2.5">
                 Login
               </Button>
-              <Button href="/signup" className="px-5 py-2.5">
-                Create Account
+              <Button href={NEW_SITE_HREF} className="px-5 py-2.5">
+                {NEW_SITE_LABEL}
               </Button>
             </>
           )}
@@ -141,7 +142,6 @@ export default function Navbar() {
           {user ? (
             <>
               {[
-                { href: "/dashboard", label: "Dashboard" },
                 { href: "/projects", label: "Projects" },
                 { href: "/profile", label: "Profile" },
               ].map((link) => (
@@ -155,6 +155,15 @@ export default function Navbar() {
                   </Link>
                 </li>
               ))}
+              <li className="pt-2">
+                <Button
+                  href={NEW_SITE_HREF}
+                  className="w-full"
+                  onClick={() => setIsOpen(false)}
+                >
+                  {NEW_SITE_LABEL}
+                </Button>
+              </li>
               <li className="pt-2">
                 <Button
                   type="button"
@@ -191,11 +200,11 @@ export default function Navbar() {
               </li>
               <li className="pt-2">
                 <Button
-                  href="/signup"
+                  href={NEW_SITE_HREF}
                   className="w-full"
                   onClick={() => setIsOpen(false)}
                 >
-                  Create Account
+                  {NEW_SITE_LABEL}
                 </Button>
               </li>
             </>

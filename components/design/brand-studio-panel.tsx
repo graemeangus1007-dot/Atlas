@@ -22,7 +22,7 @@ type BrandStudioPanelProps = {
 };
 
 /**
- * Brand Studio — appearance controls that write into BusinessProject Context.
+ * Design appearance controls that write into BusinessProject Context.
  */
 export default function BrandStudioPanel({
   project,
@@ -30,15 +30,16 @@ export default function BrandStudioPanel({
 }: BrandStudioPanelProps) {
   return (
     <aside
-      className="flex h-full max-h-[calc(100vh-8rem)] w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface/80 backdrop-blur-xl lg:sticky lg:top-4 lg:rounded-2xl lg:rounded-r-none lg:border-r-0"
-      aria-label="Brand Studio"
+      className="flex h-full max-h-[calc(100vh-8rem)] w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface/70 backdrop-blur-xl lg:sticky lg:top-4 lg:rounded-2xl lg:rounded-r-none lg:border-r-0"
+      aria-label="Design"
+      data-testid="editor-brand-studio"
     >
-      <div className="border-b border-border px-4 py-4">
+      <div className="border-b border-border/70 px-4 py-3">
         <h2 className="font-[family-name:var(--font-atlas-display)] text-sm font-semibold text-foreground">
-          Brand Studio
+          Design
         </h2>
         <p className="mt-1 text-xs text-muted">
-          Colors, type, buttons, hero overlay, and width. Preview updates live.
+          Colors, type, buttons, overlay, and width.
         </p>
       </div>
 

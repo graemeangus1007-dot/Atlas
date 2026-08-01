@@ -1,6 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { getAuthErrorMessage } from "@/lib/auth/errors";
 import type { AuthCredentials, SignUpInput, SignUpResult } from "@/lib/auth/types";
+import { NEW_SITE_AFTER_SIGNUP_HREF } from "@/lib/product/new-site";
 import { createClient } from "@/lib/supabase/client";
 
 function appOrigin(): string | undefined {
@@ -28,7 +29,7 @@ export async function signUp({
         name: name.trim(),
       },
       emailRedirectTo: origin
-        ? `${origin}/auth/callback?next=/dashboard`
+        ? `${origin}/auth/callback?next=${encodeURIComponent(NEW_SITE_AFTER_SIGNUP_HREF)}`
         : undefined,
     },
   });
@@ -80,7 +81,7 @@ export async function resendEmailVerification(email: string) {
     email,
     options: {
       emailRedirectTo: origin
-        ? `${origin}/auth/callback?next=/dashboard`
+        ? `${origin}/auth/callback?next=${encodeURIComponent(NEW_SITE_AFTER_SIGNUP_HREF)}`
         : undefined,
     },
   });

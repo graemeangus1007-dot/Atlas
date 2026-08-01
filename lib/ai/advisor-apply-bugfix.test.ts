@@ -201,7 +201,7 @@ describe("no-op apply reports No visible change", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.status).toBe("no_visible_change");
-    expect(result.explanation).toMatch(/No visible change/i);
+    expect(result.explanation).toMatch(/Already in place|No visible change/i);
     expect(result.requestId).toBe("test-noop-1");
     expect(result.changes).toHaveLength(0);
     expect(faqRec).toBeUndefined();

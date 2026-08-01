@@ -15,6 +15,7 @@ export const CRITIQUE_PIPELINE_STAGES = [
   "structured_parse",
   "schema_validate",
   "secondary_validate",
+  "design_strategy",
   "critique_to_operations",
   "fallback",
   "complete",

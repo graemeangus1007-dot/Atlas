@@ -12,6 +12,7 @@ import {
   type AnalyticsSourceRow,
   type AnalyticsSummary,
 } from "@/lib/analytics";
+import { NEW_SITE_HREF, NEW_SITE_LABEL } from "@/lib/product/new-site";
 
 function formatPct(value: number): string {
   return `${value.toFixed(1)}%`;
@@ -195,9 +196,14 @@ export default function AnalyticsDashboard() {
       ) : null}
 
       {!activeProjectId ? (
-        <p className="mt-8 text-sm text-muted">
-          Open or create a project to view analytics.
-        </p>
+        <div className="mt-8 space-y-3">
+          <p className="text-sm text-muted">
+            Open a site to view analytics, or start a new one with Atlas.
+          </p>
+          <Button href={NEW_SITE_HREF} className="px-4 py-2 text-sm">
+            {NEW_SITE_LABEL}
+          </Button>
+        </div>
       ) : null}
 
       {loading && !summary ? (

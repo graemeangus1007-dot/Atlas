@@ -5,7 +5,6 @@ import SectionHeading from "@/components/preview/section-heading";
 import PreviewSection from "@/components/preview/section";
 import { cardStyleClass } from "@/lib/templates";
 import type { CardStyle } from "@/lib/templates";
-import type { AiContentField } from "@/types/ai";
 import type { WebsiteService } from "@/types/website-content";
 
 type EditorServicesProps = {
@@ -15,12 +14,6 @@ type EditorServicesProps = {
   onServiceChange: (
     index: number,
     patch: Partial<WebsiteService>,
-  ) => void;
-  onImproveField: (
-    field: AiContentField,
-    label: string,
-    value: string,
-    serviceIndex?: number,
   ) => void;
 };
 
@@ -34,14 +27,13 @@ const SERVICE_ICON_PATHS = [
 ];
 
 /**
- * Editable services grid with Improve with AI on title + description.
+ * Editable services grid — improvements go through Atlas conversation.
  */
 export default function EditorServices({
   services,
   cardStyle = "elevated",
   showIcons = false,
   onServiceChange,
-  onImproveField,
 }: EditorServicesProps) {
   return (
     <PreviewSection id="services">
@@ -79,14 +71,6 @@ export default function EditorServices({
               onChange={(title) => onServiceChange(index, { title })}
               aria-label={`Service ${index + 1} title`}
               className="site-heading atlas-display-text text-xl font-semibold text-foreground"
-              onImproveWithAi={(value) =>
-                onImproveField(
-                  "serviceTitle",
-                  `Service ${index + 1} Title`,
-                  value,
-                  index,
-                )
-              }
             />
             <EditableText
               as="p"
@@ -97,14 +81,6 @@ export default function EditorServices({
               }
               aria-label={`Service ${index + 1} description`}
               className="mt-3 text-sm leading-relaxed text-muted"
-              onImproveWithAi={(value) =>
-                onImproveField(
-                  "serviceDescription",
-                  `Service ${index + 1} Description`,
-                  value,
-                  index,
-                )
-              }
             />
           </li>
         ))}
