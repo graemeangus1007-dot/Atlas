@@ -607,15 +607,22 @@ export { tryRepairDisputedExecution } from "@/lib/ai/execution-repair";
 export {
   analyzeHeroReadability,
   buildHeroReadabilityExplanation,
+  captureBrandPalette,
+  defaultHeroPreservationContext,
+  filterOperationsForBrandPreservation,
   heroTreatmentsToOperations,
+  isBrandRegressionComplaint,
   isHeroReadabilityRequest,
   planHeroReadabilityOperations,
+  restoreBrandPalette,
   verifyHeroReadabilityImprovement,
 } from "@/lib/ai/hero-readability";
 export type {
+  EditPreservationContext,
   HeroReadabilityAssessment,
   HeroReadabilityIssue,
   HeroReadabilityTreatment,
+  ProtectedBrandPalette,
 } from "@/lib/ai/hero-readability";
 export {
   storeLastExecution,

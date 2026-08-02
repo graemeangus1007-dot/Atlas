@@ -53,10 +53,17 @@ import {
 } from "@/lib/ai/verify-edit-execution";
 import {
   analyzeHeroReadability,
+  buildHeroReadabilityDiagnostics,
   buildHeroReadabilityExplanation,
+  defaultHeroPreservationContext,
+  filterOperationsForBrandPreservation,
+  isBrandRegressionComplaint,
   isHeroReadabilityRequest,
+  logHeroReadabilityDiagnostics,
   planHeroReadabilityOperations,
+  restoreBrandPalette,
   verifyHeroReadabilityImprovement,
+  type ProtectedBrandPalette,
 } from "@/lib/ai/hero-readability";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
@@ -578,6 +585,10 @@ function toLastExecutionRecord(
   request: string,
   result: EditExecutionResult,
   operations: EditOperation[],
+  extras?: {
+    paletteBefore?: ProtectedBrandPalette | null;
+    scope?: AtlasLastExecution["scope"];
+  },
 ): AtlasLastExecution {
   return {
     request,
@@ -591,6 +602,8 @@ function toLastExecutionRecord(
     modifiedEntities: result.modifiedEntities,
     explanation: result.explanation,
     followUpRecommendation: result.followUpRecommendation,
+    paletteBefore: extras?.paletteBefore ?? null,
+    scope: extras?.scope,
   };
 }
 
@@ -599,14 +612,139 @@ function rememberExecution(
   request: string,
   result: EditExecutionResult,
   operations: EditOperation[],
+  extras?: {
+    paletteBefore?: ProtectedBrandPalette | null;
+    scope?: AtlasLastExecution["scope"];
+  },
 ): BusinessProject {
   return withActionMemory(
     project,
     storeLastExecution(
       getActionMemory(project),
-      toLastExecutionRecord(request, result, operations),
+      toLastExecutionRecord(request, result, operations, extras),
     ),
   );
+}
+
+function tryRestoreBrandPalette(input: {
+  project: BusinessProject;
+  request: string;
+}): AtlasBrainResult | null {
+  if (!isBrandRegressionComplaint(input.request)) return null;
+
+  const memory = getActionMemory(input.project);
+  const last = memory.lastExecution;
+  const palette = last?.paletteBefore;
+  if (!palette) {
+    return {
+      ok: true,
+      explanation:
+        "You’re right to flag the colors — a readability fix shouldn’t change your brand palette. I don’t have the prior palette saved on this session, so tell me the accent you’d like restored (for example, gold).",
+      operations: [],
+      changes: [],
+      project: input.project,
+      applyStatus: "needs_clarification",
+      decision: {
+        intent: "continue_plan",
+        confidence: 0.99,
+        selectedAgents: ["editor_agent"],
+        needsClarification: true,
+        executionPlan: {
+          goal: "Restore brand colors",
+          steps: [
+            {
+              id: "brand.restore",
+              agent: "editor_agent",
+              label: "Restore the previous brand palette",
+            },
+          ],
+          estimatedImpact: "medium",
+        },
+        explanation: "Restore protected brand colors.",
+        followUpSuggestions: ["Use green and gold", "Strengthen the hero overlay"],
+        decisionStage: "continuation",
+        commandKind: "brand_restore",
+      },
+      followUpSuggestions: ["Use green and gold", "Strengthen the hero overlay"],
+    };
+  }
+
+  const restored = restoreBrandPalette(input.project, {
+    primaryColor: palette.primaryColor,
+    accentColor: palette.accentColor,
+    secondaryColor: palette.secondaryColor,
+    backgroundColor: palette.backgroundColor,
+    theme: palette.theme,
+  });
+  const changed =
+    restored.accentColor !== input.project.accentColor ||
+    restored.primaryColor !== input.project.primaryColor ||
+    restored.backgroundColor !== input.project.backgroundColor;
+
+  const project = rememberExecution(
+    restored,
+    input.request,
+    {
+      success: changed,
+      verified: true,
+      operationType: "restoreBrandPalette",
+      verificationFailures: [],
+      createdEntities: [],
+      modifiedEntities: changed
+        ? ["primaryColor", "accentColor", "secondaryColor", "backgroundColor"]
+        : [],
+      warnings: [],
+      explanation:
+        "You’re right—the readability fix should not have changed your brand colors. I restored your previous palette and will keep contrast fixes local to the hero.",
+    },
+    [],
+    { paletteBefore: palette, scope: "hero" },
+  );
+
+  return {
+    ok: true,
+    explanation:
+      "You’re right—the readability fix should not have changed your brand colors. I restored your previous palette and will keep contrast fixes local to the hero.",
+    operations: changed
+      ? validateEditOperations([
+          {
+            operation: "changeTheme",
+            primary: palette.primaryColor,
+            accent: palette.accentColor,
+            secondary: palette.secondaryColor,
+            background: palette.backgroundColor,
+            theme: palette.theme,
+          },
+        ])
+      : [],
+    changes: changed
+      ? [{ id: "brand-restore", label: "Brand colors restored", ok: true as const }]
+      : [],
+    project,
+    applyStatus: changed ? "applied" : "no_changes",
+    decision: {
+      intent: "continue_plan",
+      confidence: 0.99,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: {
+        goal: "Restore brand colors",
+        steps: [
+          {
+            id: "brand.restore",
+            agent: "editor_agent",
+            label: "Restore the previous brand palette",
+          },
+        ],
+        estimatedImpact: "high",
+      },
+      explanation: "Restore protected brand colors.",
+      followUpSuggestions: ["Strengthen the hero overlay"],
+      decisionStage: "continuation",
+      commandKind: "brand_restore",
+    },
+    followUpSuggestions: ["Strengthen the hero overlay"],
+  };
 }
 
 function runEditorSpecialist(input: {
@@ -795,6 +933,22 @@ export async function runAtlasBrain(
         repaired.followUpSuggestions,
       ),
       atlasMemory: repaired.project.atlasMemory,
+    };
+  }
+
+  // Brand regression from a prior over-scoped edit — restore palette, don’t redesign.
+  const brandRestored = tryRestoreBrandPalette({
+    project: projectForTurn,
+    request,
+  });
+  if (brandRestored) {
+    return {
+      ...brandRestored,
+      followUpSuggestions: followUpsForProject(
+        brandRestored.project,
+        brandRestored.followUpSuggestions ?? [],
+      ),
+      atlasMemory: brandRestored.project.atlasMemory,
     };
   }
 
@@ -1436,19 +1590,46 @@ export async function runAtlasBrain(
     }
   }
 
-  // Hero readability — diagnose cause, apply smallest treatments, verify score
+  // Hero readability — local treatments only; preserve brand palette
   if (
     decision.commandKind === "hero_readability" ||
     isHeroReadabilityRequest(request)
   ) {
-    const planned = planHeroReadabilityOperations(project);
+    const preservation = defaultHeroPreservationContext();
+    const planned = planHeroReadabilityOperations(project, preservation);
     if (planned.alreadyReadable || planned.operations.length === 0) {
       const explanation = buildHeroReadabilityExplanation(
         planned.assessment,
         planned.assessment,
         [],
+        { preservedPalette: true },
       );
-      project = withMemory(project, request, decision.memoryPatch);
+      logHeroReadabilityDiagnostics(
+        buildHeroReadabilityDiagnostics({
+          requestId: input.atlasRequestId,
+          before: project,
+          after: project,
+          treatments: [],
+          verified: false,
+          preservation,
+        }),
+      );
+      project = rememberExecution(
+        withMemory(project, request, decision.memoryPatch),
+        request,
+        {
+          success: false,
+          verified: true,
+          operationType: "hero_readability",
+          verificationFailures: [],
+          createdEntities: [],
+          modifiedEntities: [],
+          warnings: [],
+          explanation,
+        },
+        [],
+        { paletteBefore: planned.paletteBefore, scope: "hero" },
+      );
       return {
         ok: true,
         explanation,
@@ -1459,46 +1640,104 @@ export async function runAtlasBrain(
         decision,
         followUpSuggestions: planned.assessment.hasHeroImage
           ? ["Try a different hero image", "Strengthen the hero overlay"]
-          : ["Improve button contrast"],
+          : ["Review my website"],
         executionPlan: decision.executionPlan,
         atlasMemory: project.atlasMemory,
       };
     }
 
     try {
-      const ops = validateEditOperations(planned.operations);
+      const ops = validateEditOperations(
+        filterOperationsForBrandPreservation(planned.operations, preservation),
+      );
       const before = project;
       const applied = applyEditOperations(before, ops);
+      // Enforce palette even if a filter missed something.
+      const paletteSafe = restoreBrandPalette(
+        applied.project,
+        planned.paletteBefore,
+      );
       const scoreCheck = verifyHeroReadabilityImprovement(
         before,
-        applied.project,
+        paletteSafe,
+        preservation,
       );
-      const afterAssessment = analyzeHeroReadability(applied.project);
+      const afterAssessment = analyzeHeroReadability(paletteSafe, preservation);
       const explanation = buildHeroReadabilityExplanation(
         planned.assessment,
         afterAssessment,
         planned.assessment.recommendedTreatments,
+        { preservedPalette: true },
       );
 
-      if (!scoreCheck.improved || !scoreCheck.tokensChanged) {
-        project = withMemory(before, request, decision.memoryPatch);
+      logHeroReadabilityDiagnostics(
+        buildHeroReadabilityDiagnostics({
+          requestId: input.atlasRequestId,
+          before,
+          after: paletteSafe,
+          treatments: planned.assessment.recommendedTreatments,
+          verified: scoreCheck.improved,
+          preservation,
+        }),
+      );
+
+      if (
+        !scoreCheck.improved ||
+        scoreCheck.preservationViolation ||
+        scoreCheck.globalThemeTokensChanged.length > 0
+      ) {
+        project = rememberExecution(
+          withMemory(before, request, decision.memoryPatch),
+          request,
+          {
+            success: false,
+            verified: true,
+            operationType: "hero_readability",
+            verificationFailures: scoreCheck.explanationHint
+              ? [scoreCheck.explanationHint]
+              : [],
+            createdEntities: [],
+            modifiedEntities: [],
+            warnings: [],
+            explanation:
+              scoreCheck.explanationHint ||
+              "I wasn’t able to improve hero readability without changing your brand colors.",
+          },
+          ops,
+          { paletteBefore: planned.paletteBefore, scope: "hero" },
+        );
         return {
           ok: true,
           explanation:
             scoreCheck.explanationHint ||
-            "I wasn’t able to improve measured hero readability. A different hero image or crop is likely needed.",
+            "I wasn’t able to improve hero readability without changing your brand colors. A stronger overlay or a different hero image would help.",
           operations: [],
           changes: [],
           project,
           applyStatus: "no_changes",
           decision,
-          followUpSuggestions: ["Try a different hero image"],
+          followUpSuggestions: ["Strengthen the hero overlay", "Try a different hero image"],
           executionPlan: decision.executionPlan,
           atlasMemory: project.atlasMemory,
         };
       }
 
-      project = withMemory(applied.project, request, decision.memoryPatch);
+      project = rememberExecution(
+        withMemory(paletteSafe, request, decision.memoryPatch),
+        request,
+        {
+          success: true,
+          verified: true,
+          operationType: "hero_readability",
+          verificationFailures: [],
+          createdEntities: [],
+          modifiedEntities: scoreCheck.heroTokensChanged,
+          warnings: [],
+          explanation,
+        },
+        ops,
+        { paletteBefore: planned.paletteBefore, scope: "hero" },
+      );
       return {
         ok: true,
         explanation,
@@ -1511,7 +1750,7 @@ export async function runAtlasBrain(
           "busy_image_behind_text",
         )
           ? ["Try a different hero image"]
-          : decision.followUpSuggestions.slice(0, 1),
+          : ["Review my website"],
         executionPlan: decision.executionPlan,
         atlasMemory: project.atlasMemory,
       };

@@ -19,6 +19,15 @@ export type EditExecutionResult = {
   explanation: string;
 };
 
+/** Persisted brand palette for undo / brand-regression repair. */
+export type AtlasPreservedPalette = {
+  primaryColor: string;
+  accentColor: string;
+  secondaryColor: string;
+  backgroundColor: string;
+  theme: "light" | "dark" | "auto";
+};
+
 /** Persisted snapshot of the last edit attempt for conversation repair. */
 export type AtlasLastExecution = {
   request: string;
@@ -32,6 +41,9 @@ export type AtlasLastExecution = {
   modifiedEntities: string[];
   explanation: string;
   followUpRecommendation?: string;
+  /** Palette before this turn — restore if brand regression is reported. */
+  paletteBefore?: AtlasPreservedPalette | null;
+  scope?: "hero" | "global" | "unknown";
 };
 
 export function emptyExecutionResult(

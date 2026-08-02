@@ -13,6 +13,7 @@ import {
   isExecutionDisputeRequest,
   type AtlasLastExecution,
 } from "@/lib/ai/edit-execution-result";
+import { isHeroReadabilityRequest } from "@/lib/ai/hero-readability";
 import {
   isEditOperationKind,
   type EditOperation,
@@ -341,7 +342,7 @@ function looksLikeStandaloneLayoutOrEdit(request: string): boolean {
     return true;
   }
   const editVerb = new RegExp(
-    String.raw`\b(?:change|update|set|make|rewrite|replace|add|remove|increase|decrease)\b`,
+    String.raw`\b(?:change|update|set|make|rewrite|replace|add|remove|increase|decrease|fix)\b`,
     "i",
   );
   if (editVerb.test(text) && text.split(/\s+/).length >= 4) {
@@ -828,6 +829,11 @@ export function shouldExecuteActionMemory(
 
   // “I don’t see it” / dispute → execution repair, not Apply All.
   if (isExecutionDisputeRequest(request)) {
+    return false;
+  }
+
+  // Hero readability / corrective hero contrast — never Action Memory.
+  if (isHeroReadabilityRequest(request)) {
     return false;
   }
 

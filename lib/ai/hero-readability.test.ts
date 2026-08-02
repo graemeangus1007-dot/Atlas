@@ -1,11 +1,17 @@
 /**
- * v1.2 — Hero readability diagnosis, routing, and verification.
+ * v1.2 — Hero readability: local scope, brand preservation, Action Memory bypass.
  */
 
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   decideWithAtlasBrainEngine,
 } from "@/lib/ai/atlas-brain-decision-engine";
+import {
+  getLastExecution,
+  shouldExecuteActionMemory,
+  storeLastExecution,
+  storeRecommendations,
+} from "@/lib/ai/atlas-action-memory";
 import {
   registerEditorPlanner,
   runAtlasBrain,
@@ -15,39 +21,43 @@ import { applyEditOperations } from "@/lib/ai/apply-edit-operations";
 import { validateEditOperations } from "@/lib/ai/validate-edit-operations";
 import { buildSiteDesignStyle } from "@/lib/design-theme";
 import { buildStaticSiteCss } from "@/lib/publishing/styles/site-css";
+import { NAMED_COLORS } from "@/lib/ai/named-colors";
 import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
 import type { BusinessProject } from "@/types/business-project";
 import {
   analyzeHeroReadability,
+  heroTreatmentsToOperations,
+  isBrandRegressionComplaint,
   isHeroReadabilityRequest,
   planHeroReadabilityOperations,
   verifyHeroReadabilityImprovement,
 } from "@/lib/ai/hero-readability";
-import { extractNaturalLanguageEditPlan } from "@/lib/ai/nl-edit-planner";
 
 beforeAll(() => {
   registerEditorPlanner(planEditOperations);
 });
 
-function project(overrides: Partial<BusinessProject> = {}): BusinessProject {
+function greenGoldProject(
+  overrides: Partial<BusinessProject> = {},
+): BusinessProject {
   return {
     ...MOCK_BUSINESS_PROJECT,
     businessName: "Harborview Landscaping",
-    businessType: "landscaping",
+    businessType: "Contractor",
     heroHeadline: "Outdoor spaces that feel finished",
     heroSubheadline: "Design, build, and care for yards that look intentional.",
     primaryCta: "Get a quote",
-    primaryColor: "#0f766e",
-    accentColor: "#0f766e",
-    secondaryColor: "#134e4a",
+    primaryColor: NAMED_COLORS.forestGreen,
+    accentColor: NAMED_COLORS.gold,
+    secondaryColor: NAMED_COLORS.forestGreen,
     backgroundColor: "#f7f8fa",
     theme: "light",
     headingFont: "inter",
     bodyFont: "inter",
     buttonStyle: "rounded",
     siteWidth: "boxed",
-    heroOverlay: 50,
-    heroImageId: null,
+    heroOverlay: 25,
+    heroImageId: "hero-busy",
     creativePolish: {
       spacing: "airy",
       visualHierarchy: true,
@@ -59,182 +69,259 @@ function project(overrides: Partial<BusinessProject> = {}): BusinessProject {
   };
 }
 
-describe("isHeroReadabilityRequest routing", () => {
-  it.each([
-    "Make the words in the hero section easier to read.",
-    "Make the hero words easier to read.",
-    "The hero text is hard to see.",
-    "I can’t read the headline.",
-    "The text blends into the image.",
-    "Make the hero clearer.",
-  ])("detects: %s", (phrase) => {
-    expect(isHeroReadabilityRequest(phrase)).toBe(true);
-  });
-
-  it("does not steal generic site-wide readability", () => {
-    expect(isHeroReadabilityRequest("Make the words easier to read.")).toBe(
-      false,
+describe("routing — hero readability beats Action Memory", () => {
+  it("detects corrective follow-ups", () => {
+    expect(
+      isHeroReadabilityRequest(
+        "The text blends into the hero background. Fix that.",
+      ),
+    ).toBe(true);
+    expect(isHeroReadabilityRequest("Fix the hero contrast.")).toBe(true);
+    expect(isHeroReadabilityRequest("I still can’t read the headline.")).toBe(
+      true,
     );
-    expect(isHeroReadabilityRequest("Make everything easier to read.")).toBe(
-      false,
+    expect(isHeroReadabilityRequest("That didn’t fix it.")).toBe(true);
+    expect(isHeroReadabilityRequest("The hero is still hard to read.")).toBe(
+      true,
     );
   });
 
-  it("decision engine routes hero request to hero_readability", () => {
+  it("never routes corrective blend request through Action Memory", () => {
+    const memory = storeRecommendations(undefined, {
+      creative: [
+        {
+          id: "visual.icons",
+          kind: "visual",
+          title: "Add icons",
+          explanation: "Icons",
+          impact: "high",
+          impactScore: 90,
+          confidence: 0.9,
+          operations: [{ operation: "setCreativePolish", serviceIcons: true }],
+          capabilityIds: [],
+          applyable: true,
+          estimatedTime: "<10 seconds",
+        },
+      ],
+    });
+    expect(
+      shouldExecuteActionMemory(
+        "The text blends into the hero background. Fix that.",
+        memory,
+      ),
+    ).toBe(false);
+  });
+
+  it("brain never returns empty-plan message for blend follow-up", async () => {
+    const memory = storeRecommendations(undefined, {
+      creative: [
+        {
+          id: "visual.icons",
+          kind: "visual",
+          title: "Add icons",
+          explanation: "Icons",
+          impact: "high",
+          impactScore: 90,
+          confidence: 0.9,
+          operations: [{ operation: "setCreativePolish", serviceIcons: true }],
+          capabilityIds: [],
+          applyable: true,
+          estimatedTime: "<10 seconds",
+        },
+      ],
+    });
+    const result = await runAtlasBrain({
+      project: greenGoldProject({
+        atlasActionMemory: memory,
+        heroOverlay: 0,
+      }),
+      request: "The text blends into the hero background. Fix that.",
+    });
+    expect(result.explanation).not.toMatch(
+      /applyable improvements queued|Review the site first|Apply All/i,
+    );
+    expect(result.applyStatus).toBe("applied");
+    expect(result.project.accentColor).toBe(NAMED_COLORS.gold);
+  });
+
+  it("decision engine uses hero_readability", () => {
     const decision = decideWithAtlasBrainEngine({
-      project: project({ heroImageId: "img-1", heroOverlay: 25 }),
+      project: greenGoldProject(),
       request: "Make the words in the hero section easier to read.",
     });
     expect(decision.commandKind).toBe("hero_readability");
-    expect(decision.stage).toBe("explicit_command");
-  });
-
-  it("NL planner marks hero_readability instead of generic copy edits", () => {
-    const plan = extractNaturalLanguageEditPlan({
-      project: project({ heroImageId: "img-1", heroOverlay: 0 }),
-      request: "The hero text is hard to see.",
-    });
-    expect(plan.matchedSignals).toContain("hero_readability");
-    expect(
-      plan.operations.some((op) => op.operation === "setHeroOverlay"),
-    ).toBe(true);
-    expect(
-      plan.operations.some((op) => op.operation === "replaceText"),
-    ).toBe(false);
   });
 });
 
-describe("analyzeHeroReadability signals", () => {
-  it("flags light text risk on light hero background (no image)", () => {
-    // Light bg with muted-derived text is usually fine; force weak CTA + thin type.
-    const assessment = analyzeHeroReadability(
-      project({
-        backgroundColor: "#f3f4f6",
-        headingFont: "playfair",
-        accentColor: "#fde68a",
-        heroImageId: null,
-        heroOverlay: 0,
-        creativePolish: { spacing: "default", visualHierarchy: false },
-        siteWidth: "full",
-      }),
-    );
-    expect(assessment.issues).toContain("thin_heading_weight");
-    expect(assessment.issues).toContain("weak_button_contrast");
-    expect(assessment.issues).toContain("excessive_line_width");
-    expect(assessment.readable).toBe(false);
-  });
-
-  it("flags dark-on-dark style backgrounds via low contrast when surface is dark", () => {
-    const assessment = analyzeHeroReadability(
-      project({
-        backgroundColor: "#111827",
-        theme: "dark",
-        heroImageId: null,
-        heroOverlay: 0,
-        // Derived text is light on dark — readable. Force weak CTA instead.
-        accentColor: "#94a3b8",
-      }),
-    );
-    expect(assessment.issues).toContain("weak_button_contrast");
-  });
-
-  it("flags busy image with no / weak overlay", () => {
-    const none = analyzeHeroReadability(
-      project({ heroImageId: "hero-1", heroOverlay: 0 }),
-    );
-    expect(none.issues).toContain("weak_overlay");
-    expect(none.issues).toContain("busy_image_behind_text");
-    expect(none.issues).toContain("image_unanalyzed");
-    expect(none.imageAnalysisAvailable).toBe(false);
-
-    const weak = analyzeHeroReadability(
-      project({ heroImageId: "hero-1", heroOverlay: 25 }),
-    );
-    expect(weak.issues).toContain("weak_overlay");
-  });
-
-  it("flags thin heading and small/dense body cues", () => {
-    const assessment = analyzeHeroReadability(
-      project({
-        headingFont: "lora",
-        heroSubheadline: "A".repeat(180),
-        creativePolish: { spacing: "default", visualHierarchy: false },
-      }),
-    );
-    expect(assessment.issues).toContain("thin_heading_weight");
-    expect(assessment.issues).toContain("small_body_text");
-  });
-
-  it("recognizes an already-readable hero", () => {
-    const assessment = analyzeHeroReadability(project());
-    expect(assessment.readable).toBe(true);
-    expect(assessment.score).toBeGreaterThanOrEqual(72);
-  });
-});
-
-describe("treatment + verification", () => {
-  it("improves score for weak overlay + busy image", async () => {
-    const before = project({
-      heroImageId: "hero-busy",
-      heroOverlay: 0,
-      headingFont: "playfair",
-      accentColor: "#fcd34d",
-    });
-    const beforeScore = analyzeHeroReadability(before).score;
-
+describe("green-and-gold brand preservation", () => {
+  it("strengthens overlay and keeps gold accent / global palette", async () => {
+    const before = greenGoldProject({ heroOverlay: 0 });
     const result = await runAtlasBrain({
       project: before,
       request: "Make the words in the hero section easier to read.",
     });
 
     expect(result.applyStatus).toBe("applied");
-    expect(
-      result.operations.some((op) => op.operation === "setHeroOverlay"),
-    ).toBe(true);
     expect(result.project.heroOverlay).toBeGreaterThan(before.heroOverlay);
-    expect(result.explanation).toMatch(/overlay|headline|contrast/i);
-    expect(result.explanation).not.toMatch(/I('ll| will) improve readability — clearer type hierarchy/i);
+    expect(result.project.accentColor).toBe(NAMED_COLORS.gold);
+    expect(result.project.primaryColor).toBe(NAMED_COLORS.forestGreen);
+    expect(result.project.backgroundColor).toBe(before.backgroundColor);
+    expect(result.operations.some((op) => op.operation === "changeTheme")).toBe(
+      false,
+    );
+    expect(result.explanation).toMatch(/overlay|headline/i);
+    expect(result.explanation).not.toMatch(/button contrast/i);
+    expect(result.explanation).toMatch(/brand colors|without changing/i);
 
     const check = verifyHeroReadabilityImprovement(before, result.project);
     expect(check.improved).toBe(true);
-    expect(check.afterScore).toBeGreaterThan(beforeScore);
-    expect(check.tokensChanged).toBe(true);
+    expect(check.preservationViolation).toBe(false);
+    expect(check.globalThemeTokensChanged).toEqual([]);
   });
 
-  it("blocks success when rendered state does not change", () => {
-    const before = project({ heroImageId: "hero-1", heroOverlay: 0 });
-    const planned = planHeroReadabilityOperations(before);
-    // Apply empty — simulate emit-without-apply
-    const check = verifyHeroReadabilityImprovement(before, before);
+  it("never emits accent rewrite treatments", () => {
+    const assessment = analyzeHeroReadability(
+      greenGoldProject({
+        heroOverlay: 0,
+        accentColor: "#fcd34d",
+      }),
+    );
+    const ops = heroTreatmentsToOperations(assessment.recommendedTreatments);
+    expect(ops.some((op) => op.operation === "changeTheme")).toBe(false);
+    expect(ops.some((op) => op.operation === "setHeroOverlay")).toBe(true);
+  });
+
+  it("button contrast alone does not verify hero readability", () => {
+    const before = greenGoldProject({ heroOverlay: 75, heroImageId: "h1" });
+    const after = {
+      ...before,
+      accentColor: "#0f766e",
+    };
+    const check = verifyHeroReadabilityImprovement(before, after);
     expect(check.improved).toBe(false);
-    expect(check.tokensChanged).toBe(false);
-    expect(planned.operations.length).toBeGreaterThan(0);
+    expect(check.preservationViolation).toBe(true);
+    expect(check.explanationHint).toMatch(/brand colors|Button contrast/i);
   });
+});
 
-  it("no-op when hero is already readable", async () => {
-    const result = await runAtlasBrain({
-      project: project(),
-      request: "Make the hero words easier to read.",
-    });
-    expect(result.applyStatus).toBe("no_changes");
-    expect(result.explanation).toMatch(
-      /already has strong contrast|already readable|background image/i,
+describe("brand regression repair", () => {
+  it("detects gold complaint", () => {
+    expect(isBrandRegressionComplaint("Why did you get rid of the gold colors?")).toBe(
+      true,
     );
   });
 
-  it("preview and publish share the same overlay token treatment", () => {
-    const before = project({ heroImageId: "hero-1", heroOverlay: 0 });
+  it("restores prior palette and does not launch a gold redesign", async () => {
+    const original = greenGoldProject({ heroOverlay: 50 });
+    const corrupted = {
+      ...original,
+      accentColor: "#0f766e",
+      primaryColor: "#0f766e",
+      atlasActionMemory: storeLastExecution(undefined, {
+        request: "Make the words in the hero section easier to read.",
+        at: new Date().toISOString(),
+        success: true,
+        verified: false,
+        operationTypes: ["changeTheme", "setHeroOverlay"],
+        operations: [
+          { operation: "changeTheme", accent: "#0f766e" },
+          { operation: "setHeroOverlay", value: 75 },
+        ],
+        verificationFailures: [],
+        createdEntities: [],
+        modifiedEntities: ["accentColor", "heroOverlay"],
+        explanation: "Done. I improved button contrast.",
+        paletteBefore: {
+          primaryColor: original.primaryColor,
+          accentColor: original.accentColor,
+          secondaryColor: original.secondaryColor,
+          backgroundColor: original.backgroundColor,
+          theme: original.theme,
+        },
+        scope: "hero",
+      }),
+    };
+
+    const result = await runAtlasBrain({
+      project: corrupted,
+      request: "Why did you get rid of the gold colors?",
+    });
+
+    expect(result.project.accentColor).toBe(NAMED_COLORS.gold);
+    expect(result.project.primaryColor).toBe(NAMED_COLORS.forestGreen);
+    expect(result.explanation).toMatch(/should not have changed your brand/i);
+    expect(result.explanation).not.toMatch(/shift the color palette to gold/i);
+    expect(result.applyStatus).toBe("applied");
+  });
+});
+
+describe("local fix scenarios", () => {
+  it("local fix with image uses overlay", async () => {
+    const result = await runAtlasBrain({
+      project: greenGoldProject({ heroImageId: "img", heroOverlay: 25 }),
+      request: "The hero text is hard to see.",
+    });
+    expect(result.applyStatus).toBe("applied");
+    expect(result.project.heroOverlay).toBeGreaterThanOrEqual(50);
+    expect(result.project.accentColor).toBe(NAMED_COLORS.gold);
+  });
+
+  it("local fix without image does not rewrite background palette", async () => {
+    const before = greenGoldProject({
+      heroImageId: null,
+      heroOverlay: 0,
+      headingFont: "playfair",
+      creativePolish: { spacing: "default", visualHierarchy: false },
+    });
+    const result = await runAtlasBrain({
+      project: before,
+      request: "Make the words in the hero section easier to read.",
+    });
+    expect(result.project.backgroundColor).toBe(before.backgroundColor);
+    expect(result.project.accentColor).toBe(NAMED_COLORS.gold);
+    expect(result.operations.some((op) => op.operation === "changeTheme")).toBe(
+      false,
+    );
+  });
+
+  it("already-readable hero is a truthful no-op", async () => {
+    const result = await runAtlasBrain({
+      project: greenGoldProject({
+        heroImageId: null,
+        heroOverlay: 50,
+        headingFont: "inter",
+        creativePolish: { spacing: "airy", visualHierarchy: true },
+      }),
+      request: "Make the hero words easier to read.",
+    });
+    expect(result.applyStatus).toBe("no_changes");
+    expect(result.explanation).toMatch(/already|strong contrast/i);
+  });
+
+  it("preview/publish share overlay token", () => {
+    const before = greenGoldProject({ heroOverlay: 0 });
     const ops = validateEditOperations(
       planHeroReadabilityOperations(before).operations,
     );
     const after = applyEditOperations(before, ops).project;
-    expect(after.heroOverlay).toBeGreaterThan(0);
-
-    const style = buildSiteDesignStyle(after);
     const token = String(after.heroOverlay / 100);
+    const style = buildSiteDesignStyle(after) as Record<string, string>;
     expect(style["--site-hero-overlay"]).toBe(token);
+    expect(buildStaticSiteCss(after)).toContain(`--site-hero-overlay: ${token}`);
+  });
 
-    const css = buildStaticSiteCss(after);
-    expect(css).toContain(`--site-hero-overlay: ${token}`);
+  it("undo snapshot keeps palette before hero treatment", async () => {
+    const before = greenGoldProject({ heroOverlay: 0 });
+    const result = await runAtlasBrain({
+      project: before,
+      request: "Make the words in the hero section easier to read.",
+    });
+    const last = getLastExecution(
+      result.project.atlasActionMemory as Parameters<
+        typeof getLastExecution
+      >[0],
+    );
+    expect(last?.paletteBefore?.accentColor).toBe(NAMED_COLORS.gold);
+    expect(last?.scope).toBe("hero");
   });
 });

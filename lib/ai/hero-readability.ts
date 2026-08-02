@@ -1,21 +1,32 @@
 /**
- * Hero readability diagnosis + treatment selection (v1.2).
- * Diagnose the visual cause before applying typography or theme changes.
+ * Hero readability diagnosis + local treatments (v1.2).
+ * Prefer hero-local fixes; never rewrite brand palette unless explicitly allowed.
  */
 
 import {
   HERO_OVERLAY_STEPS,
   type HeroOverlayStep,
 } from "@/data/design-options";
-import {
-  contrastRatio,
-  meetsWcagAa,
-  relativeLuminance,
-} from "@/lib/ai/contrast";
+import { contrastRatio, relativeLuminance } from "@/lib/ai/contrast";
 import type { EditOperation } from "@/lib/ai/edit-operations";
 import type { BusinessProject } from "@/types/business-project";
 
 export const HERO_READABILITY_THRESHOLD = 72;
+
+/** Brand tokens protected during local hero readability fixes. */
+export type EditPreservationContext = {
+  preserveBrandPalette: boolean;
+  protectedThemeTokens: string[];
+  approvedDesignDirection?: string;
+};
+
+export type ProtectedBrandPalette = {
+  primaryColor: string;
+  accentColor: string;
+  secondaryColor: string;
+  backgroundColor: string;
+  theme: "light" | "dark" | "auto";
+};
 
 export type HeroReadabilityIssue =
   | "low_text_background_contrast"
@@ -28,32 +39,119 @@ export type HeroReadabilityIssue =
   | "poor_spacing"
   | "image_unanalyzed";
 
+/** Local-only treatments (no global theme rewrite). */
 export type HeroReadabilityTreatment =
   | { kind: "strengthen_overlay"; targetOverlay: HeroOverlayStep; reason: string }
-  | { kind: "adjust_background"; background: string; theme: "light" | "dark"; reason: string }
   | { kind: "strengthen_heading"; headingFont: "manrope" | "inter" | "poppins"; reason: string }
   | { kind: "improve_hierarchy"; reason: string }
-  | { kind: "narrow_text_width"; reason: string }
-  | { kind: "improve_cta_contrast"; accent: string; reason: string }
   | { kind: "airy_spacing"; reason: string }
   | { kind: "simplify_subheadline"; value: string; reason: string };
 
 export type HeroReadabilityAssessment = {
   readable: boolean;
   score: number;
+  /** Score excluding CTA/button issues — used for hero-text verification. */
+  heroTextScore: number;
   issues: HeroReadabilityIssue[];
   recommendedTreatments: HeroReadabilityTreatment[];
-  /** Estimated composite surface behind hero text (hex). */
   estimatedSurface: string;
-  /** Derived foreground used for hero headline. */
   textColor: string;
-  /** Derived muted color for subheadline. */
   mutedColor: string;
   hasHeroImage: boolean;
   overlay: number;
   imageAnalysisAvailable: boolean;
   notes: string[];
+  preservation: EditPreservationContext;
 };
+
+export type HeroReadabilityDiagnostics = {
+  requestId?: string | null;
+  intent: "hero_readability";
+  requestedScope: "hero";
+  heroScoreBefore: number;
+  heroScoreAfter: number;
+  heroTokensChanged: string[];
+  globalThemeTokensChanged: string[];
+  preservationViolation: boolean;
+  selectedTreatments: string[];
+  verified: boolean;
+};
+
+const DEFAULT_PROTECTED_TOKENS = [
+  "primaryColor",
+  "accentColor",
+  "secondaryColor",
+  "backgroundColor",
+  "theme",
+] as const;
+
+export function defaultHeroPreservationContext(
+  approvedDesignDirection?: string,
+): EditPreservationContext {
+  return {
+    preserveBrandPalette: true,
+    protectedThemeTokens: [...DEFAULT_PROTECTED_TOKENS],
+    approvedDesignDirection,
+  };
+}
+
+export function captureBrandPalette(project: BusinessProject): ProtectedBrandPalette {
+  const theme =
+    project.theme === "dark" || project.theme === "auto" ? project.theme : "light";
+  return {
+    primaryColor: project.primaryColor,
+    accentColor: project.accentColor,
+    secondaryColor: project.secondaryColor,
+    backgroundColor: project.backgroundColor,
+    theme,
+  };
+}
+
+export function restoreBrandPalette(
+  project: BusinessProject,
+  palette: ProtectedBrandPalette,
+): BusinessProject {
+  return {
+    ...project,
+    primaryColor: palette.primaryColor,
+    accentColor: palette.accentColor,
+    secondaryColor: palette.secondaryColor,
+    backgroundColor: palette.backgroundColor,
+    theme: palette.theme,
+  };
+}
+
+export function globalThemeTokensChanged(
+  before: BusinessProject,
+  after: BusinessProject,
+  protectedTokens: string[] = [...DEFAULT_PROTECTED_TOKENS],
+): string[] {
+  const a = captureBrandPalette(before);
+  const b = captureBrandPalette(after);
+  const changed: string[] = [];
+  if (a.primaryColor !== b.primaryColor && protectedTokens.includes("primaryColor")) {
+    changed.push("primaryColor");
+  }
+  if (a.accentColor !== b.accentColor && protectedTokens.includes("accentColor")) {
+    changed.push("accentColor");
+  }
+  if (
+    a.secondaryColor !== b.secondaryColor &&
+    protectedTokens.includes("secondaryColor")
+  ) {
+    changed.push("secondaryColor");
+  }
+  if (
+    a.backgroundColor !== b.backgroundColor &&
+    protectedTokens.includes("backgroundColor")
+  ) {
+    changed.push("backgroundColor");
+  }
+  if (a.theme !== b.theme && protectedTokens.includes("theme")) {
+    changed.push("theme");
+  }
+  return changed;
+}
 
 function parseHex(hex: string): { r: number; g: number; b: number } | null {
   const clean = hex.replace("#", "").trim();
@@ -99,22 +197,15 @@ function nextStrongerOverlay(current: number, minTarget: number): HeroOverlaySte
 function derivedTextColors(background: string): {
   textColor: string;
   mutedColor: string;
-  lightBg: boolean;
 } {
   const lum = relativeLuminance(background) ?? 0;
   const lightBg = lum > 0.5;
   return {
-    lightBg,
     textColor: lightBg ? "#101828" : "#f2f4f7",
     mutedColor: lightBg ? "#667085" : "#9aa3b2",
   };
 }
 
-/**
- * Estimate the surface behind hero type.
- * Overlay tints the image toward page background (matches --site-hero-overlay CSS).
- * When image brightness is unknown, use a mid-gray “busy photo” proxy.
- */
 export function estimateHeroSurface(project: BusinessProject): {
   surface: string;
   hasHeroImage: boolean;
@@ -138,14 +229,12 @@ export function estimateHeroSurface(project: BusinessProject): {
     };
   }
 
-  // Pixel brightness unavailable in this runtime — conservative busy-image proxy.
   const imageProxy = "#6b7280";
   notes.push(
     "Hero image brightness couldn’t be measured safely; assuming a busy mid-tone photo and preferring a stronger overlay.",
   );
-  const surface = mixHex(imageProxy, bg, overlay);
   return {
-    surface,
+    surface: mixHex(imageProxy, bg, overlay),
     hasHeroImage: true,
     imageAnalysisAvailable: false,
     overlay: overlayPct,
@@ -156,21 +245,26 @@ export function estimateHeroSurface(project: BusinessProject): {
 const THIN_HEADING_FONTS = new Set(["playfair", "lora"]);
 
 /**
- * Deterministic hero readability assessment from project + design tokens.
+ * Deterministic hero readability assessment.
+ * Default preservation keeps brand palette intact.
  */
 export function analyzeHeroReadability(
   project: BusinessProject,
+  preservation: EditPreservationContext = defaultHeroPreservationContext(),
 ): HeroReadabilityAssessment {
   const surfaceInfo = estimateHeroSurface(project);
   const pageBg = project.backgroundColor || "#07090d";
   const { textColor, mutedColor } = derivedTextColors(pageBg);
   const issues: HeroReadabilityIssue[] = [];
-  const treatments: HeroReadabilityTreatment[] = [];
   let score = 100;
+  let heroTextScore = 100;
 
   const headlineRatio = contrastRatio(textColor, surfaceInfo.surface);
   const mutedRatio = contrastRatio(mutedColor, surfaceInfo.surface);
-  const ctaRatio = contrastRatio("#ffffff", project.accentColor || project.primaryColor);
+  const ctaRatio = contrastRatio(
+    "#ffffff",
+    project.accentColor || project.primaryColor,
+  );
 
   if (!surfaceInfo.imageAnalysisAvailable && surfaceInfo.hasHeroImage) {
     issues.push("image_unanalyzed");
@@ -183,19 +277,21 @@ export function analyzeHeroReadability(
   ) {
     issues.push("low_text_background_contrast");
     score -= 28;
+    heroTextScore -= 28;
   }
 
   if (surfaceInfo.hasHeroImage && surfaceInfo.overlay < 50) {
     issues.push("weak_overlay");
     score -= 22;
+    heroTextScore -= 22;
   }
 
   if (surfaceInfo.hasHeroImage && surfaceInfo.overlay < 75) {
-    // Busy image is the default assumption when pixels aren’t available.
     if (!surfaceInfo.imageAnalysisAvailable || surfaceInfo.overlay < 50) {
       if (!issues.includes("busy_image_behind_text")) {
         issues.push("busy_image_behind_text");
         score -= 16;
+        heroTextScore -= 16;
       }
     }
   }
@@ -203,24 +299,29 @@ export function analyzeHeroReadability(
   if (THIN_HEADING_FONTS.has(project.headingFont)) {
     issues.push("thin_heading_weight");
     score -= 12;
+    heroTextScore -= 12;
   }
 
   const sub = (project.heroSubheadline ?? "").trim();
-  if (sub.length > 140 || !project.creativePolish?.visualHierarchy) {
-    if (sub.length > 160 || (sub.length > 100 && !project.creativePolish?.visualHierarchy)) {
-      issues.push("small_body_text");
-      score -= 10;
-    }
+  if (
+    sub.length > 160 ||
+    (sub.length > 100 && !project.creativePolish?.visualHierarchy)
+  ) {
+    issues.push("small_body_text");
+    score -= 10;
+    heroTextScore -= 10;
   }
 
   if (project.siteWidth === "full") {
     issues.push("excessive_line_width");
     score -= 8;
+    heroTextScore -= 8;
   }
 
   if (ctaRatio == null || ctaRatio < 4.5) {
     issues.push("weak_button_contrast");
     score -= 14;
+    // Intentionally omitted from heroTextScore — CTA palette is brand, not hero text.
   }
 
   if (
@@ -229,11 +330,57 @@ export function analyzeHeroReadability(
   ) {
     issues.push("poor_spacing");
     score -= 6;
+    heroTextScore -= 6;
   }
 
   score = Math.max(0, Math.min(100, score));
+  heroTextScore = Math.max(0, Math.min(100, heroTextScore));
 
-  // --- Smallest coordinated treatment set ---
+  const treatments = selectLocalTreatments({
+    project,
+    issues,
+    surfaceInfo,
+    sub,
+    preservation,
+  });
+
+  const heroTextIssues = issues.filter(
+    (i) =>
+      i !== "image_unanalyzed" &&
+      i !== "poor_spacing" &&
+      i !== "weak_button_contrast" &&
+      i !== "excessive_line_width",
+  );
+  const readable =
+    heroTextScore >= HERO_READABILITY_THRESHOLD && heroTextIssues.length === 0;
+
+  return {
+    readable,
+    score,
+    heroTextScore,
+    issues,
+    recommendedTreatments: treatments,
+    estimatedSurface: surfaceInfo.surface,
+    textColor,
+    mutedColor,
+    hasHeroImage: surfaceInfo.hasHeroImage,
+    overlay: surfaceInfo.overlay,
+    imageAnalysisAvailable: surfaceInfo.imageAnalysisAvailable,
+    notes: surfaceInfo.notes,
+    preservation,
+  };
+}
+
+function selectLocalTreatments(input: {
+  project: BusinessProject;
+  issues: HeroReadabilityIssue[];
+  surfaceInfo: ReturnType<typeof estimateHeroSurface>;
+  sub: string;
+  preservation: EditPreservationContext;
+}): HeroReadabilityTreatment[] {
+  const { project, issues, surfaceInfo, sub } = input;
+  const treatments: HeroReadabilityTreatment[] = [];
+
   const needsOverlay =
     issues.includes("weak_overlay") ||
     issues.includes("busy_image_behind_text") ||
@@ -255,93 +402,53 @@ export function analyzeHeroReadability(
           ? "Strengthen the hero overlay so type separates from the photo."
           : "Image brightness is unknown — use a stronger overlay as a conservative fix.",
       });
+    } else if (surfaceInfo.overlay < 100) {
+      // Already at planned min but still struggling — push one more step if possible.
+      const bump = nextStrongerOverlay(surfaceInfo.overlay, surfaceInfo.overlay + 1);
+      if (bump > surfaceInfo.overlay) {
+        treatments.push({
+          kind: "strengthen_overlay",
+          targetOverlay: bump,
+          reason: "Push the hero overlay further so type clears the background.",
+        });
+      }
     }
   }
 
+  // No-image low contrast: strengthen hierarchy/type locally; do NOT rewrite page bg
+  // when preserveBrandPalette is on (global background is a protected token).
   if (
     issues.includes("low_text_background_contrast") &&
-    !surfaceInfo.hasHeroImage
+    !surfaceInfo.hasHeroImage &&
+    !project.creativePolish?.visualHierarchy
   ) {
-    const pageLum = relativeLuminance(pageBg) ?? 0.5;
-    const background = pageLum > 0.5 ? "#f7f8fa" : "#0f1419";
-    const theme = pageLum > 0.5 ? "light" : "dark";
-    // Push further if still weak
-    const probe = derivedTextColors(background);
-    const probeSurface = background;
-    if (!meetsWcagAa(probe.textColor, probeSurface, { largeText: true })) {
-      treatments.push({
-        kind: "adjust_background",
-        background: pageLum > 0.5 ? "#ffffff" : "#07090d",
-        theme,
-        reason: "Shift the hero/page background so headline contrast clears WCAG AA.",
-      });
-    } else {
-      treatments.push({
-        kind: "adjust_background",
-        background,
-        theme,
-        reason: "Improve page background contrast behind hero type.",
-      });
-    }
-  }
-
-  // If contrast is still weak with an image even after overlay plan, nudge page bg.
-  if (
-    issues.includes("low_text_background_contrast") &&
-    surfaceInfo.hasHeroImage
-  ) {
-    const plannedOverlay = treatments.find((t) => t.kind === "strengthen_overlay");
-    const overlayPct =
-      plannedOverlay && plannedOverlay.kind === "strengthen_overlay"
-        ? plannedOverlay.targetOverlay
-        : surfaceInfo.overlay;
-    const projected = mixHex("#6b7280", pageBg, overlayPct / 100);
-    if (!meetsWcagAa(textColor, projected, { largeText: true })) {
-      const pageLum = relativeLuminance(pageBg) ?? 0.5;
-      treatments.push({
-        kind: "adjust_background",
-        background: pageLum > 0.45 ? "#0f1419" : "#f7f8fa",
-        theme: pageLum > 0.45 ? "dark" : "light",
-        reason:
-          "Adjust the overlay tint color so reinforced opacity yields readable type.",
-      });
-    }
+    treatments.push({
+      kind: "improve_hierarchy",
+      reason: "Increase heading scale so the hero title reads more clearly.",
+    });
   }
 
   if (issues.includes("thin_heading_weight")) {
     treatments.push({
       kind: "strengthen_heading",
       headingFont: "manrope",
-      reason: "Switch to a heavier heading face so the hero title holds against the image.",
+      reason:
+        "Switch to a heavier heading face so the hero title holds against the background.",
     });
   }
 
   if (
-    issues.includes("small_body_text") ||
-    issues.includes("thin_heading_weight") ||
-    issues.includes("low_text_background_contrast")
+    (issues.includes("small_body_text") ||
+      issues.includes("thin_heading_weight") ||
+      issues.includes("low_text_background_contrast")) &&
+    !project.creativePolish?.visualHierarchy
   ) {
-    if (!project.creativePolish?.visualHierarchy) {
+    if (!treatments.some((t) => t.kind === "improve_hierarchy")) {
       treatments.push({
         kind: "improve_hierarchy",
         reason: "Increase heading scale so the hero title reads first.",
       });
     }
-  }
-
-  if (issues.includes("excessive_line_width")) {
-    treatments.push({
-      kind: "narrow_text_width",
-      reason: "Narrow the content width so hero lines are easier to scan.",
-    });
-  }
-
-  if (issues.includes("weak_button_contrast")) {
-    treatments.push({
-      kind: "improve_cta_contrast",
-      accent: "#0f766e",
-      reason: "Darken the accent so white CTA label contrast meets WCAG AA.",
-    });
   }
 
   if (issues.includes("poor_spacing")) {
@@ -359,26 +466,10 @@ export function analyzeHeroReadability(
     });
   }
 
-  const readable = score >= HERO_READABILITY_THRESHOLD && issues.filter(
-    (i) => i !== "image_unanalyzed" && i !== "poor_spacing",
-  ).length === 0;
+  // Explicitly never emit improve_cta_contrast / changeTheme while preserving brand.
+  void input.preservation;
 
-  // Prefer overlay-first; avoid flooding with every secondary treatment.
-  const prioritized = prioritizeTreatments(treatments);
-
-  return {
-    readable,
-    score,
-    issues,
-    recommendedTreatments: prioritized,
-    estimatedSurface: surfaceInfo.surface,
-    textColor,
-    mutedColor,
-    hasHeroImage: surfaceInfo.hasHeroImage,
-    overlay: surfaceInfo.overlay,
-    imageAnalysisAvailable: surfaceInfo.imageAnalysisAvailable,
-    notes: surfaceInfo.notes,
-  };
+  return prioritizeTreatments(treatments);
 }
 
 function prioritizeTreatments(
@@ -386,22 +477,17 @@ function prioritizeTreatments(
 ): HeroReadabilityTreatment[] {
   const order: HeroReadabilityTreatment["kind"][] = [
     "strengthen_overlay",
-    "adjust_background",
     "strengthen_heading",
     "improve_hierarchy",
-    "improve_cta_contrast",
-    "narrow_text_width",
     "airy_spacing",
     "simplify_subheadline",
   ];
-  const sorted = [...treatments].sort(
-    (a, b) => order.indexOf(a.kind) - order.indexOf(b.kind),
-  );
-  // Cap to a small coordinated set.
-  return sorted.slice(0, 4);
+  return [...treatments]
+    .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
+    .slice(0, 3);
 }
 
-/** Convert treatments into existing (plus setHeroOverlay) edit operations. */
+/** Convert local treatments — never emits changeTheme / accent rewrites. */
 export function heroTreatmentsToOperations(
   treatments: HeroReadabilityTreatment[],
 ): EditOperation[] {
@@ -419,31 +505,14 @@ export function heroTreatmentsToOperations(
           value: treatment.targetOverlay,
         });
         break;
-      case "adjust_background":
-        ops.push({
-          operation: "changeTheme",
-          background: treatment.background,
-          theme: treatment.theme,
-        });
-        break;
       case "strengthen_heading":
         ops.push({
           operation: "setTypography",
           headingFont: treatment.headingFont,
-          bodyFont: "inter",
         });
         break;
       case "improve_hierarchy":
         polish = { ...polish, visualHierarchy: true };
-        break;
-      case "narrow_text_width":
-        ops.push({ operation: "setSiteWidth", value: "boxed" });
-        break;
-      case "improve_cta_contrast":
-        ops.push({
-          operation: "changeTheme",
-          accent: treatment.accent,
-        });
         break;
       case "airy_spacing":
         polish = { ...polish, spacing: "airy" };
@@ -472,13 +541,15 @@ export function heroTreatmentsToOperations(
     });
   }
 
-  return ops;
+  // Hard reject any accidental theme ops.
+  return ops.filter((op) => op.operation !== "changeTheme");
 }
 
 export function buildHeroReadabilityExplanation(
   before: HeroReadabilityAssessment,
   after: HeroReadabilityAssessment,
   applied: HeroReadabilityTreatment[],
+  options?: { preservedPalette?: boolean },
 ): string {
   if (applied.length === 0 && before.readable) {
     if (before.hasHeroImage && !before.imageAnalysisAvailable) {
@@ -487,26 +558,21 @@ export function buildHeroReadabilityExplanation(
     return "The hero already has strong contrast and readable type. The remaining issue may be the background image itself.";
   }
 
+  if (applied.length === 0 && !before.readable) {
+    return "I couldn’t improve hero readability with local treatments alone without changing your brand colors. Strengthening the overlay further or swapping the hero image would help.";
+  }
+
   const parts: string[] = [];
   for (const t of applied) {
     switch (t.kind) {
       case "strengthen_overlay":
         parts.push("strengthened the hero overlay");
         break;
-      case "adjust_background":
-        parts.push("adjusted the hero background contrast");
-        break;
       case "strengthen_heading":
         parts.push("increased the headline weight");
         break;
       case "improve_hierarchy":
         parts.push("increased the headline scale");
-        break;
-      case "improve_cta_contrast":
-        parts.push("improved button contrast");
-        break;
-      case "narrow_text_width":
-        parts.push("narrowed the text width");
         break;
       case "airy_spacing":
         parts.push("added more breathing room");
@@ -519,13 +585,18 @@ export function buildHeroReadabilityExplanation(
     }
   }
 
+  const paletteNote =
+    options?.preservedPalette !== false
+      ? " without changing your brand colors"
+      : "";
+
   const lead =
     parts.length > 0
-      ? `Done. I ${formatList(parts)} so the text stands out more clearly from the background.`
+      ? `Done. I ${formatList(parts)} so the text stands out more clearly from the background${paletteNote}.`
       : "I reviewed the hero for readability.";
 
   if (
-    after.score > before.score &&
+    after.heroTextScore > before.heroTextScore &&
     after.hasHeroImage &&
     (after.issues.includes("busy_image_behind_text") ||
       after.issues.includes("image_unanalyzed"))
@@ -533,8 +604,8 @@ export function buildHeroReadabilityExplanation(
     return `${lead} The background image is still visually busy, so replacing or repositioning it would improve readability further.`;
   }
 
-  if (after.score <= before.score) {
-    return "I wasn’t able to improve measured hero readability with the available treatments. A different hero image or crop is likely needed.";
+  if (after.heroTextScore <= before.heroTextScore) {
+    return "I wasn’t able to improve measured hero readability with local treatments. A different hero image or crop is likely needed.";
   }
 
   return lead;
@@ -556,22 +627,20 @@ export function isHeroReadabilityRequest(request: string): boolean {
     /\b(headline|hero\s+(text|words|copy|title|section))\b/i.test(text);
 
   const readCue =
-    /\b(easier\s+to\s+read|easy\s+to\s+read|hard\s+to\s+(read|see)|can['\u2019]?t\s+read|cannot\s+read|blends?\s+into|hard\s+to\s+see|clearer|stand\s+out|contrast|unreadable|illegible|readability|readable)\b/i.test(
+    /\b(easier\s+to\s+read|easy\s+to\s+read|hard\s+to\s+(read|see)|can['\u2019]?t\s+read|cannot\s+read|blends?\s+in(to)?|hard\s+to\s+see|clearer|stand\s+out|contrast|unreadable|illegible|readability|readable|fix\s+(that|it|the\s+contrast))\b/i.test(
       text,
     );
 
   if (heroCue && readCue) return true;
 
-  // “The text blends into the image” / “I can’t read the headline”
   if (
-    /\b(blends?\s+into\s+(the\s+)?(image|photo|background)|can['\u2019]?t\s+read\s+the\s+headline|cannot\s+read\s+the\s+headline|hero\s+text\s+is\s+hard|text\s+is\s+hard\s+to\s+see)\b/i.test(
+    /\b(blends?\s+in(to)?\s+(with\s+)?(the\s+)?(hero\s+)?(image|photo|background)|can['\u2019]?t\s+read\s+the\s+headline|cannot\s+read\s+the\s+headline|hero\s+text\s+is\s+hard|text\s+is\s+hard\s+to\s+see)\b/i.test(
       text,
     )
   ) {
     return true;
   }
 
-  // Headline-specific readability without the word “hero”
   if (
     /\b(can['\u2019]?t|cannot)\s+read\s+the\s+headline\b/i.test(text) ||
     /\bheadline\b.{0,24}\b(hard\s+to\s+(read|see)|unreadable)\b/i.test(text)
@@ -579,71 +648,199 @@ export function isHeroReadabilityRequest(request: string): boolean {
     return true;
   }
 
+  if (
+    /\b(fix\s+the\s+hero\s+contrast|i\s+still\s+can['\u2019]?t\s+read\s+the\s+headline|that\s+didn['\u2019]?t\s+fix\s+it|the\s+hero\s+is\s+still\s+hard\s+to\s+read|still\s+hard\s+to\s+read)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
   return false;
+}
+
+/** User noticed Atlas wiped brand colors during a prior edit. */
+export function isBrandRegressionComplaint(request: string): boolean {
+  const text = request.trim();
+  if (!text) return false;
+  return (
+    /\b(why\s+did\s+you|get\s+rid\s+of|removed|changed|lost|wiped)\b[\s\S]{0,60}\b(gold|green|brand|color|palette|accent)s?\b/i.test(
+      text,
+    ) ||
+    /\b(gold|green|brand\s+colors?|palette|accent)\b[\s\S]{0,40}\b(gone|missing|changed|removed)\b/i.test(
+      text,
+    )
+  );
+}
+
+export function listHeroLocalTokenChanges(
+  before: BusinessProject,
+  after: BusinessProject,
+): string[] {
+  const changed: string[] = [];
+  if ((before.heroOverlay ?? 50) !== (after.heroOverlay ?? 50)) {
+    changed.push("heroOverlay");
+  }
+  if (before.headingFont !== after.headingFont) {
+    changed.push("headingFont");
+  }
+  if (before.heroSubheadline !== after.heroSubheadline) {
+    changed.push("heroSubheadline");
+  }
+  if (
+    JSON.stringify(before.creativePolish ?? null) !==
+    JSON.stringify(after.creativePolish ?? null)
+  ) {
+    changed.push("creativePolish");
+  }
+  return changed;
 }
 
 export function verifyHeroReadabilityImprovement(
   before: BusinessProject,
   after: BusinessProject,
+  preservation: EditPreservationContext = defaultHeroPreservationContext(),
 ): {
   improved: boolean;
   beforeScore: number;
   afterScore: number;
   overlayChanged: boolean;
   tokensChanged: boolean;
+  heroTokensChanged: string[];
+  globalThemeTokensChanged: string[];
+  preservationViolation: boolean;
   explanationHint?: string;
 } {
-  const a = analyzeHeroReadability(before);
-  const b = analyzeHeroReadability(after);
+  const a = analyzeHeroReadability(before, preservation);
+  const b = analyzeHeroReadability(after, preservation);
+  const heroTokensChanged = listHeroLocalTokenChanges(before, after);
+  const themeChanged = globalThemeTokensChanged(
+    before,
+    after,
+    preservation.protectedThemeTokens,
+  );
+  const preservationViolation =
+    preservation.preserveBrandPalette && themeChanged.length > 0;
   const overlayChanged = (before.heroOverlay ?? 50) !== (after.heroOverlay ?? 50);
-  const tokensChanged =
-    overlayChanged ||
-    before.backgroundColor !== after.backgroundColor ||
-    before.headingFont !== after.headingFont ||
-    before.accentColor !== after.accentColor ||
-    before.siteWidth !== after.siteWidth ||
-    before.heroSubheadline !== after.heroSubheadline ||
-    JSON.stringify(before.creativePolish) !== JSON.stringify(after.creativePolish);
+  const tokensChanged = heroTokensChanged.length > 0;
 
-  const improved = b.score > a.score && tokensChanged;
+  // Button / accent-only diffs must never count as hero-readability success.
+  const accentOnly =
+    themeChanged.includes("accentColor") &&
+    heroTokensChanged.length === 0;
+
+  const improved =
+    !preservationViolation &&
+    !accentOnly &&
+    b.heroTextScore > a.heroTextScore &&
+    tokensChanged;
+
   return {
     improved,
-    beforeScore: a.score,
-    afterScore: b.score,
+    beforeScore: a.heroTextScore,
+    afterScore: b.heroTextScore,
     overlayChanged,
     tokensChanged,
-    explanationHint:
-      !tokensChanged
-        ? "Rendered hero tokens did not change."
-        : b.score <= a.score
-          ? "Readability score did not improve."
-          : undefined,
+    heroTokensChanged,
+    globalThemeTokensChanged: themeChanged,
+    preservationViolation,
+    explanationHint: preservationViolation
+      ? "Hero readability must not change protected brand colors."
+      : accentOnly
+        ? "Button contrast alone does not satisfy a hero-readability request."
+        : !tokensChanged
+          ? "Rendered hero tokens did not change."
+          : b.heroTextScore <= a.heroTextScore
+            ? "Hero readability score did not improve."
+            : undefined,
   };
 }
 
-/** Plan ops from analysis — empty when already readable. */
+/** Plan local ops — empty when already readable or only brand-level issues remain. */
 export function planHeroReadabilityOperations(
   project: BusinessProject,
+  preservation: EditPreservationContext = defaultHeroPreservationContext(),
 ): {
   assessment: HeroReadabilityAssessment;
   operations: EditOperation[];
   alreadyReadable: boolean;
+  paletteBefore: ProtectedBrandPalette;
 } {
-  const assessment = analyzeHeroReadability(project);
+  const assessment = analyzeHeroReadability(project, preservation);
+  const paletteBefore = captureBrandPalette(project);
   if (assessment.readable || assessment.recommendedTreatments.length === 0) {
     return {
       assessment,
       operations: [],
       alreadyReadable: true,
+      paletteBefore,
     };
   }
+  const operations = heroTreatmentsToOperations(
+    assessment.recommendedTreatments,
+  );
   return {
     assessment,
-    operations: heroTreatmentsToOperations(assessment.recommendedTreatments),
-    alreadyReadable: false,
+    operations,
+    alreadyReadable: operations.length === 0,
+    paletteBefore,
   };
+}
+
+export function buildHeroReadabilityDiagnostics(input: {
+  requestId?: string | null;
+  before: BusinessProject;
+  after: BusinessProject;
+  treatments: HeroReadabilityTreatment[];
+  verified: boolean;
+  preservation?: EditPreservationContext;
+}): HeroReadabilityDiagnostics {
+  const preservation = input.preservation ?? defaultHeroPreservationContext();
+  const check = verifyHeroReadabilityImprovement(
+    input.before,
+    input.after,
+    preservation,
+  );
+  return {
+    requestId: input.requestId ?? null,
+    intent: "hero_readability",
+    requestedScope: "hero",
+    heroScoreBefore: check.beforeScore,
+    heroScoreAfter: check.afterScore,
+    heroTokensChanged: check.heroTokensChanged,
+    globalThemeTokensChanged: check.globalThemeTokensChanged,
+    preservationViolation: check.preservationViolation,
+    selectedTreatments: input.treatments.map((t) => t.kind),
+    verified: input.verified && check.improved,
+  };
+}
+
+export function logHeroReadabilityDiagnostics(
+  diagnostics: HeroReadabilityDiagnostics,
+): void {
+  // Safe structured log — no prompts or project content.
+  console.info(
+    "[atlas.hero_readability]",
+    JSON.stringify({
+      type: "hero_readability",
+      ...diagnostics,
+    }),
+  );
 }
 
 export function snapOverlayValue(value: number): HeroOverlayStep {
   return clampOverlayStep(value);
+}
+
+/** Reject ops that would violate brand preservation for hero-local requests. */
+export function filterOperationsForBrandPreservation(
+  operations: EditOperation[],
+  preservation: EditPreservationContext = defaultHeroPreservationContext(),
+): EditOperation[] {
+  if (!preservation.preserveBrandPalette) return operations;
+  return operations.filter((op) => {
+    if (op.operation === "changeTheme") return false;
+    if (op.operation === "replaceColors") return false;
+    return true;
+  });
 }

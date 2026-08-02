@@ -222,6 +222,14 @@ export type BusinessProject = {
       modifiedEntities: string[];
       explanation: string;
       followUpRecommendation?: string;
+      paletteBefore?: {
+        primaryColor: string;
+        accentColor: string;
+        secondaryColor: string;
+        backgroundColor: string;
+        theme: string;
+      } | null;
+      scope?: "hero" | "global" | "unknown";
     } | null;
     updatedAt: string;
   };
