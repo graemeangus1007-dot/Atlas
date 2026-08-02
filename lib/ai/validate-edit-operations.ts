@@ -6,6 +6,7 @@ import {
   BODY_FONTS,
   BUTTON_STYLES,
   HEADING_FONTS,
+  HERO_OVERLAY_STEPS,
   SITE_THEMES,
   SITE_WIDTHS,
 } from "@/data/design-options";
@@ -588,6 +589,21 @@ function validateOne(raw: unknown, index: number): EditOperation {
         section,
         position,
         ...(relativeToRaw ? { relativeTo: relativeToRaw } : {}),
+      };
+    }
+    case "setHeroOverlay": {
+      const value = Number(row.value);
+      if (
+        !(HERO_OVERLAY_STEPS as readonly number[]).includes(value)
+      ) {
+        throw new AiError(
+          "bad_request",
+          `setHeroOverlay.value must be one of ${HERO_OVERLAY_STEPS.join(", ")} at index ${index}.`,
+        );
+      }
+      return {
+        operation: "setHeroOverlay",
+        value: value as (typeof HERO_OVERLAY_STEPS)[number],
       };
     }
     default: {

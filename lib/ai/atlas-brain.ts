@@ -51,6 +51,13 @@ import {
   verifyEditExecution,
   verifyMoveSection,
 } from "@/lib/ai/verify-edit-execution";
+import {
+  analyzeHeroReadability,
+  buildHeroReadabilityExplanation,
+  isHeroReadabilityRequest,
+  planHeroReadabilityOperations,
+  verifyHeroReadabilityImprovement,
+} from "@/lib/ai/hero-readability";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
   formatNaturalPreferenceNote,
@@ -1429,6 +1436,90 @@ export async function runAtlasBrain(
     }
   }
 
+  // Hero readability — diagnose cause, apply smallest treatments, verify score
+  if (
+    decision.commandKind === "hero_readability" ||
+    isHeroReadabilityRequest(request)
+  ) {
+    const planned = planHeroReadabilityOperations(project);
+    if (planned.alreadyReadable || planned.operations.length === 0) {
+      const explanation = buildHeroReadabilityExplanation(
+        planned.assessment,
+        planned.assessment,
+        [],
+      );
+      project = withMemory(project, request, decision.memoryPatch);
+      return {
+        ok: true,
+        explanation,
+        operations: [],
+        changes: [],
+        project,
+        applyStatus: "no_changes",
+        decision,
+        followUpSuggestions: planned.assessment.hasHeroImage
+          ? ["Try a different hero image", "Strengthen the hero overlay"]
+          : ["Improve button contrast"],
+        executionPlan: decision.executionPlan,
+        atlasMemory: project.atlasMemory,
+      };
+    }
+
+    try {
+      const ops = validateEditOperations(planned.operations);
+      const before = project;
+      const applied = applyEditOperations(before, ops);
+      const scoreCheck = verifyHeroReadabilityImprovement(
+        before,
+        applied.project,
+      );
+      const afterAssessment = analyzeHeroReadability(applied.project);
+      const explanation = buildHeroReadabilityExplanation(
+        planned.assessment,
+        afterAssessment,
+        planned.assessment.recommendedTreatments,
+      );
+
+      if (!scoreCheck.improved || !scoreCheck.tokensChanged) {
+        project = withMemory(before, request, decision.memoryPatch);
+        return {
+          ok: true,
+          explanation:
+            scoreCheck.explanationHint ||
+            "I wasn’t able to improve measured hero readability. A different hero image or crop is likely needed.",
+          operations: [],
+          changes: [],
+          project,
+          applyStatus: "no_changes",
+          decision,
+          followUpSuggestions: ["Try a different hero image"],
+          executionPlan: decision.executionPlan,
+          atlasMemory: project.atlasMemory,
+        };
+      }
+
+      project = withMemory(applied.project, request, decision.memoryPatch);
+      return {
+        ok: true,
+        explanation,
+        operations: ops,
+        changes: dedupeChangeLabels(applied.changes),
+        project,
+        applyStatus: "applied",
+        decision,
+        followUpSuggestions: afterAssessment.issues.includes(
+          "busy_image_behind_text",
+        )
+          ? ["Try a different hero image"]
+          : decision.followUpSuggestions.slice(0, 1),
+        executionPlan: decision.executionPlan,
+        atlasMemory: project.atlasMemory,
+      };
+    } catch {
+      // fall through
+    }
+  }
+
   // Explicit polish commands — apply before broader specialists
   const isMotionCommand =
     decision.commandKind === "animations" ||
@@ -1694,6 +1785,7 @@ export async function runAtlasBrain(
   const skipEditorAfterExplicitApply =
     applyStatus === "applied" &&
     (decision.commandKind === "section_order" ||
+      decision.commandKind === "hero_readability" ||
       decision.commandKind === "animations" ||
       decision.commandKind === "remove_animations" ||
       decision.intent === "command_animations");

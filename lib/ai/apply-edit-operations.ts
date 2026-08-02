@@ -266,6 +266,8 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
               : `${op.section} reordered`;
       return { id, label, ok: true };
     }
+    case "setHeroOverlay":
+      return { id, label: "Hero overlay strengthened", ok: true };
     default: {
       const _exhaustive: never = op;
       return _exhaustive;
@@ -568,6 +570,9 @@ export function applyEditOperations(
         next = moved.project;
         break;
       }
+      case "setHeroOverlay":
+        next = { ...next, heroOverlay: op.value };
+        break;
       default: {
         const _exhaustive: never = op;
         return _exhaustive;

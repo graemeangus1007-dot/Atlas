@@ -365,6 +365,39 @@ export function verifyEditOperation(
             explanation: "That button style is already applied.",
           };
     }
+    case "setHeroOverlay": {
+      const changed = (before.heroOverlay ?? 50) !== (after.heroOverlay ?? 50);
+      const matched = (after.heroOverlay ?? 50) === op.value;
+      if (changed && matched) {
+        return {
+          success: true,
+          verified: true,
+          operationType: "setHeroOverlay",
+          verificationFailures: [],
+          createdEntities: [],
+          modifiedEntities: ["heroOverlay"],
+          warnings: [],
+          explanation: "Done. I strengthened the hero overlay.",
+        };
+      }
+      if (!changed) {
+        return {
+          success: false,
+          verified: true,
+          operationType: "setHeroOverlay",
+          verificationFailures: [],
+          createdEntities: [],
+          modifiedEntities: [],
+          warnings: ["Hero overlay was already at that strength."],
+          explanation: "The hero overlay is already at that strength.",
+        };
+      }
+      return {
+        ...emptyExecutionResult("setHeroOverlay"),
+        verificationFailures: ["Hero overlay did not reach the requested value."],
+        explanation: "I wasn’t able to update the hero overlay.",
+      };
+    }
     case "replaceText": {
       const target = op.target;
       const beforeVal = readTextTarget(before, target);

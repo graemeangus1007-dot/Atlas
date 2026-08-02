@@ -12,6 +12,11 @@ import {
   NAMED_COLORS,
 } from "@/lib/ai/named-colors";
 import {
+  buildHeroReadabilityExplanation,
+  isHeroReadabilityRequest,
+  planHeroReadabilityOperations,
+} from "@/lib/ai/hero-readability";
+import {
   isSectionOrderRequest,
   parseSectionMoveRequest,
 } from "@/lib/ai/section-order";
@@ -449,6 +454,26 @@ export function extractNaturalLanguageEditPlan(input: {
       explanation: ATLAS_VOICE.lowConfidence,
       categories: [],
       matchedSignals: ["ambiguous"],
+      plannerVersion: NL_EDIT_PLANNER_VERSION,
+    };
+  }
+
+  // Hero-local readability beats generic typography / site-wide readability.
+  if (isHeroReadabilityRequest(request)) {
+    const planned = planHeroReadabilityOperations(input.project);
+    const explanation = buildHeroReadabilityExplanation(
+      planned.assessment,
+      planned.assessment,
+      planned.assessment.recommendedTreatments,
+    );
+    return {
+      intent: "edit",
+      confidence: 0.98,
+      steps: [{ type: "improveReadability", targets: ["text", "contrast"] }],
+      operations: planned.operations,
+      explanation,
+      categories: ["readability", "contrast", "accessibility"],
+      matchedSignals: ["hero_readability"],
       plannerVersion: NL_EDIT_PLANNER_VERSION,
     };
   }

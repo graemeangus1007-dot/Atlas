@@ -220,6 +220,7 @@ export function hasMeaningfulProjectDiff(
     headingFont: p.headingFont,
     bodyFont: p.bodyFont,
     buttonStyle: p.buttonStyle,
+    heroOverlay: p.heroOverlay,
     siteWidth: p.siteWidth,
     theme: p.theme,
     pages: p.pages.map((page) => ({ id: page.id, title: page.title })),

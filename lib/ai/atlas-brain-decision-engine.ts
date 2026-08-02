@@ -35,6 +35,7 @@ import {
   extractNaturalLanguageEditPlan,
   shouldExecuteNlEditPlan,
 } from "@/lib/ai/nl-edit-planner";
+import { isHeroReadabilityRequest } from "@/lib/ai/hero-readability";
 import { isSectionOrderRequest } from "@/lib/ai/section-order";
 import type { BusinessProject } from "@/types/business-project";
 
@@ -65,6 +66,7 @@ export const COMMAND_KINDS = [
   "images",
   "typography",
   "spacing",
+  "hero_readability",
   "readability",
   "branding",
   "navigation",
@@ -180,6 +182,24 @@ const COMMAND_RULES: CommandRule[] = [
     explanation: "I’ll add icons so services and key points are easier to scan.",
     steps: [
       { id: "cmd.icons", agent: "editor_agent", label: "Enable service icons" },
+    ],
+  },
+  {
+    kind: "hero_readability",
+    pattern:
+      /\b(hero).{0,48}(easier\s+to\s+read|hard\s+to\s+(read|see)|can'?t\s+read|clearer|blends?\s+into|stand\s+out|contrast)|((easier\s+to\s+read|hard\s+to\s+(read|see)|can'?t\s+read|clearer|blends?\s+into).{0,48}\bhero\b)|\b(can'?t\s+read\s+the\s+headline|hero\s+text\s+is\s+hard|text\s+blends?\s+into\s+(the\s+)?(image|photo|background)|make\s+the\s+hero\s+clearer)\b/i,
+    confidence: 0.98,
+    agents: ["editor_agent"],
+    intent: "command_readability",
+    goal: "Improve hero readability",
+    explanation:
+      "I’ll diagnose why the hero text is hard to read, then apply the smallest fix that improves contrast on the hero.",
+    steps: [
+      {
+        id: "cmd.hero_read",
+        agent: "editor_agent",
+        label: "Diagnose hero contrast and apply targeted treatments",
+      },
     ],
   },
   {
@@ -517,6 +537,33 @@ export function stageExplicitCommand(
           memoryPatch: inferMemoryFromMessage(request),
           decisionStage: "explicit_command",
           commandKind: "section_order",
+        }),
+      };
+    }
+  }
+
+  // Hero readability beats generic typography / site-wide readability.
+  if (isHeroReadabilityRequest(request)) {
+    const heroRule = COMMAND_RULES.find((r) => r.kind === "hero_readability");
+    if (heroRule) {
+      return {
+        stage: "explicit_command",
+        commandKind: "hero_readability",
+        decision: withConfidencePolicy({
+          intent: heroRule.intent,
+          confidence: heroRule.confidence,
+          selectedAgents: heroRule.agents,
+          needsClarification: false,
+          executionPlan: plan(heroRule.goal, heroRule.steps, "high"),
+          explanation: heroRule.explanation,
+          followUpSuggestions: [
+            "Strengthen the hero overlay",
+            "Try a different hero image",
+            "Improve button contrast",
+          ],
+          memoryPatch: inferMemoryFromMessage(request),
+          decisionStage: "explicit_command",
+          commandKind: "hero_readability",
         }),
       };
     }

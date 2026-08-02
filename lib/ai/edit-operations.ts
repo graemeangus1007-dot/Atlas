@@ -7,6 +7,7 @@ import type {
   BodyFontId,
   ButtonStyleId,
   HeadingFontId,
+  HeroOverlayStep,
   SiteThemeId,
   SiteWidthId,
 } from "@/data/design-options";
@@ -79,6 +80,7 @@ export const EDIT_OPERATION_KINDS = [
   "deleteFaq",
   "setCreativePolish",
   "moveSection",
+  "setHeroOverlay",
 ] as const;
 
 export type EditOperationKind = (typeof EDIT_OPERATION_KINDS)[number];
@@ -209,6 +211,12 @@ export type MoveSectionOperation = {
   relativeTo?: string;
 };
 
+/** Hero image overlay darkness 0–100 (Brand Studio steps). */
+export type SetHeroOverlayOperation = {
+  operation: "setHeroOverlay";
+  value: HeroOverlayStep;
+};
+
 export type EditOperation =
   | ReplaceTextOperation
   | ChangeThemeOperation
@@ -227,7 +235,8 @@ export type EditOperation =
   | InsertFaqOperation
   | DeleteFaqOperation
   | SetCreativePolishOperation
-  | MoveSectionOperation;
+  | MoveSectionOperation
+  | SetHeroOverlayOperation;
 
 /** Human-readable bullet for the post-edit preview list. */
 export type EditChangeSummary = {

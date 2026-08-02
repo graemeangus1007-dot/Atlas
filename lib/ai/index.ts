@@ -605,6 +605,19 @@ export {
 } from "@/lib/ai/verify-edit-execution";
 export { tryRepairDisputedExecution } from "@/lib/ai/execution-repair";
 export {
+  analyzeHeroReadability,
+  buildHeroReadabilityExplanation,
+  heroTreatmentsToOperations,
+  isHeroReadabilityRequest,
+  planHeroReadabilityOperations,
+  verifyHeroReadabilityImprovement,
+} from "@/lib/ai/hero-readability";
+export type {
+  HeroReadabilityAssessment,
+  HeroReadabilityIssue,
+  HeroReadabilityTreatment,
+} from "@/lib/ai/hero-readability";
+export {
   storeLastExecution,
   getLastExecution,
 } from "@/lib/ai/atlas-action-memory";

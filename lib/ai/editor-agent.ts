@@ -32,6 +32,10 @@ import {
   wantsPreserveWording,
 } from "@/lib/ai/named-colors";
 import {
+  isHeroReadabilityRequest,
+  planHeroReadabilityOperations,
+} from "@/lib/ai/hero-readability";
+import {
   extractNaturalLanguageEditPlan,
   shouldExecuteNlEditPlan,
 } from "@/lib/ai/nl-edit-planner";
@@ -618,36 +622,42 @@ export function planDirectEditOperations(input: {
       text,
     )
   ) {
-    operations.push({
-      operation: "setTypography",
-      headingFont: "inter",
-      bodyFont: "inter",
-    });
-    operations.push({ operation: "setSiteWidth", value: "boxed" });
-    operations.push({
-      operation: "setCreativePolish",
-      spacing: "airy",
-      visualHierarchy: true,
-    });
-    operations.push({
-      operation: "changeTheme",
-      background:
-        input.project.theme === "dark" ? "#0f1419" : "#f7f8fa",
-      secondary: "#111827",
-      theme: input.project.theme === "dark" ? "dark" : "light",
-    });
-    operations.push({ operation: "shortenNavigation", maxLabelLength: 10 });
-    const sub = input.project.heroSubheadline.trim();
-    operations.push({
-      operation: "replaceText",
-      target: "hero.subheadline",
-      value: sub
-        ? sub.length > 120
-          ? `${sub.slice(0, 117).trimEnd()}…`
-          : `${sub.replace(/\s+/g, " ").trim()}`
-        : "Clear information, easy scanning, and a layout that gives every section room to breathe.",
-    });
-    notes.push("Improved readability (type, spacing, contrast, and clearer copy)");
+    if (isHeroReadabilityRequest(text)) {
+      const planned = planHeroReadabilityOperations(input.project);
+      operations.push(...planned.operations);
+      notes.push("Diagnosed hero readability and applied targeted treatments");
+    } else {
+      operations.push({
+        operation: "setTypography",
+        headingFont: "inter",
+        bodyFont: "inter",
+      });
+      operations.push({ operation: "setSiteWidth", value: "boxed" });
+      operations.push({
+        operation: "setCreativePolish",
+        spacing: "airy",
+        visualHierarchy: true,
+      });
+      operations.push({
+        operation: "changeTheme",
+        background:
+          input.project.theme === "dark" ? "#0f1419" : "#f7f8fa",
+        secondary: "#111827",
+        theme: input.project.theme === "dark" ? "dark" : "light",
+      });
+      operations.push({ operation: "shortenNavigation", maxLabelLength: 10 });
+      const sub = input.project.heroSubheadline.trim();
+      operations.push({
+        operation: "replaceText",
+        target: "hero.subheadline",
+        value: sub
+          ? sub.length > 120
+            ? `${sub.slice(0, 117).trimEnd()}…`
+            : `${sub.replace(/\s+/g, " ").trim()}`
+          : "Clear information, easy scanning, and a layout that gives every section room to breathe.",
+      });
+      notes.push("Improved readability (type, spacing, contrast, and clearer copy)");
+    }
   }
 
   if (
