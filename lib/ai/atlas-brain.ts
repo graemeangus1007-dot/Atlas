@@ -18,6 +18,7 @@ import {
   resolvePlanReference,
   selectRecommendationsToApply,
   shouldExecuteActionMemory,
+  storeLastExecution,
   storePendingClarification,
   storeRecommendations,
   toAdvisorRecommendations,
@@ -34,9 +35,22 @@ import {
   motionFieldsForPreset,
 } from "@/lib/ai/motion-model";
 import {
+  sectionDisplayName,
+  type AtlasLastExecution,
+  type EditExecutionResult,
+} from "@/lib/ai/edit-execution-result";
+import { tryRepairDisputedExecution } from "@/lib/ai/execution-repair";
+import {
   isSectionOrderRequest,
   parseSectionMoveRequest,
 } from "@/lib/ai/section-order";
+import {
+  applyStatusFromExecution,
+  isSectionAlreadyAtIntent,
+  isSectionPresentOnPage,
+  verifyEditExecution,
+  verifyMoveSection,
+} from "@/lib/ai/verify-edit-execution";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
   formatNaturalPreferenceNote,
@@ -87,7 +101,12 @@ import type {
   EditorAgentInput,
   EditorAgentResult,
 } from "@/lib/ai/editor-agent";
-import type { EditChangeSummary, EditOperation } from "@/lib/ai/edit-operations";
+import {
+  isInsertableSectionType,
+  type EditChangeSummary,
+  type EditOperation,
+  type InsertableSectionType,
+} from "@/lib/ai/edit-operations";
 import { applyEditOperations } from "@/lib/ai/apply-edit-operations";
 import { validateEditOperations } from "@/lib/ai/validate-edit-operations";
 import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
@@ -548,6 +567,41 @@ function appendExplanation(base: string, extra: string): string {
   return `${a}\n\n${b}`;
 }
 
+function toLastExecutionRecord(
+  request: string,
+  result: EditExecutionResult,
+  operations: EditOperation[],
+): AtlasLastExecution {
+  return {
+    request,
+    at: new Date().toISOString(),
+    success: result.success,
+    verified: result.verified,
+    operationTypes: operations.map((op) => op.operation),
+    operations,
+    verificationFailures: result.verificationFailures,
+    createdEntities: result.createdEntities,
+    modifiedEntities: result.modifiedEntities,
+    explanation: result.explanation,
+    followUpRecommendation: result.followUpRecommendation,
+  };
+}
+
+function rememberExecution(
+  project: BusinessProject,
+  request: string,
+  result: EditExecutionResult,
+  operations: EditOperation[],
+): BusinessProject {
+  return withActionMemory(
+    project,
+    storeLastExecution(
+      getActionMemory(project),
+      toLastExecutionRecord(request, result, operations),
+    ),
+  );
+}
+
 function runEditorSpecialist(input: {
   project: BusinessProject;
   request: string;
@@ -589,16 +643,73 @@ function runEditorSpecialist(input: {
   }
 
   const operations = validateEditOperations(planned.operations);
-  const applied = applyEditOperations(input.project, operations);
-  const changed = hasMeaningfulProjectDiff(input.project, applied.project);
+  const before = input.project;
+  const applied = applyEditOperations(before, operations);
+  const meaningful = hasMeaningfulProjectDiff(before, applied.project);
+  const verified = verifyEditExecution(before, applied.project, operations);
+  const status = applyStatusFromExecution(verified);
+
+  // Structural ops that failed verification with nothing landed → honest failure.
+  const structuralHardFail =
+    !meaningful &&
+    status === "needs_clarification" &&
+    operations.some(
+      (op) =>
+        op.operation === "moveSection" ||
+        op.operation === "insertSection" ||
+        op.operation === "removeSection",
+    );
+
+  if (!meaningful || structuralHardFail) {
+    const project = rememberExecution(
+      before,
+      input.request,
+      verified,
+      operations,
+    );
+    const applyStatus = structuralHardFail
+      ? "needs_clarification"
+      : status === "needs_clarification"
+        ? "needs_clarification"
+        : "no_changes";
+    return {
+      project,
+      operations: [],
+      changes: [],
+      explanation:
+        verified.explanation ||
+        (applyStatus === "no_changes"
+          ? ATLAS_VOICE.alreadyMatched
+          : "I wasn’t able to complete that change."),
+      applyStatus,
+      needsClarification: applyStatus === "needs_clarification",
+      reasoning: planned.reasoning,
+    };
+  }
+
+  const project = rememberExecution(
+    applied.project,
+    input.request,
+    {
+      ...verified,
+      success: status === "applied" || verified.success,
+      verified: true,
+      explanation:
+        verified.explanation ||
+        planned.explanation ||
+        "Done. I applied that update.",
+    },
+    operations,
+  );
   return {
-    project: changed ? applied.project : input.project,
-    operations: changed ? operations : [],
-    changes: changed ? applied.changes : [],
-    explanation: changed
-      ? planned.explanation
-      : ATLAS_VOICE.alreadyMatched,
-    applyStatus: changed ? "applied" : "no_changes",
+    project,
+    operations,
+    changes: applied.changes,
+    explanation:
+      verified.explanation ||
+      planned.explanation ||
+      "Done. I applied that update.",
+    applyStatus: "applied",
     needsClarification: false,
     reasoning: planned.reasoning,
   };
@@ -657,6 +768,27 @@ export async function runAtlasBrain(
       input.project,
       clearPendingClarification(getActionMemory(input.project)),
     );
+  }
+
+  // v1.2 — user disputes prior edit → verify/repair (never restart with plan chips)
+  const repaired = tryRepairDisputedExecution({
+    project: projectForTurn,
+    request,
+  });
+  if (repaired) {
+    return {
+      ...repaired,
+      changes: repaired.changes.map((c) => ({
+        id: c.id,
+        label: c.label,
+        ok: true as const,
+      })),
+      followUpSuggestions: followUpsForProject(
+        repaired.project,
+        repaired.followUpSuggestions,
+      ),
+      atlasMemory: repaired.project.atlasMemory,
+    };
   }
 
   // Sprint 26.1 — Action Memory short-circuit (Apply All / Yes / clarification)
@@ -1104,7 +1236,7 @@ export async function runAtlasBrain(
 
   const agents = new Set(decision.selectedAgents);
 
-  // Explicit section-order commands — before polish / NL / editor
+  // Explicit section-order commands — plan → apply → verify → respond
   if (
     decision.commandKind === "section_order" ||
     isSectionOrderRequest(request)
@@ -1131,48 +1263,166 @@ export async function runAtlasBrain(
         };
       }
     } else {
+      const intent = parsed.intent;
+      const sectionName = sectionDisplayName(intent.section);
+
+      if (isSectionAlreadyAtIntent(project, intent)) {
+        const already = verifyMoveSection(project, project, intent);
+        project = rememberExecution(project, request, already, []);
+        project = withMemory(project, request, decision.memoryPatch);
+        return {
+          ok: true,
+          explanation: `${sectionName} is already in that position.`,
+          operations: [],
+          changes: [],
+          project,
+          applyStatus: "no_changes",
+          decision,
+          followUpSuggestions: decision.followUpSuggestions.slice(0, 1),
+          executionPlan: decision.executionPlan,
+          atlasMemory: project.atlasMemory,
+        };
+      }
+
+      const sectionMissing = !isSectionPresentOnPage(project, intent.section);
+      const anchorMissing =
+        Boolean(intent.relativeTo) &&
+        (intent.position === "before" || intent.position === "after") &&
+        !isSectionPresentOnPage(project, intent.relativeTo!);
+
+      if (sectionMissing && !isInsertableSectionType(intent.section)) {
+        const failed: EditExecutionResult = {
+          success: false,
+          verified: true,
+          operationType: "moveSection",
+          verificationFailures: [
+            `The page doesn’t contain a ${sectionName} section.`,
+          ],
+          createdEntities: [],
+          modifiedEntities: [],
+          warnings: [],
+          explanation: `I can’t move ${sectionName} because the page doesn’t contain that section yet.`,
+          followUpRecommendation: "Review my website",
+        };
+        project = rememberExecution(project, request, failed, []);
+        project = withMemory(project, request, decision.memoryPatch);
+        return {
+          ok: true,
+          explanation: failed.explanation,
+          operations: [],
+          changes: [],
+          project,
+          applyStatus: "needs_clarification",
+          decision,
+          followUpSuggestions: failed.followUpRecommendation
+            ? [failed.followUpRecommendation]
+            : [],
+          executionPlan: decision.executionPlan,
+          atlasMemory: project.atlasMemory,
+        };
+      }
+
+      if (anchorMissing) {
+        const anchorName = sectionDisplayName(intent.relativeTo!);
+        const failed: EditExecutionResult = {
+          success: false,
+          verified: true,
+          operationType: "moveSection",
+          verificationFailures: [
+            `The anchor section “${anchorName}” isn’t on the page.`,
+          ],
+          createdEntities: [],
+          modifiedEntities: [],
+          warnings: [],
+          explanation: `I couldn’t place ${sectionName} ${intent.position} ${anchorName} because ${anchorName} isn’t on the page.`,
+          followUpRecommendation: isInsertableSectionType(intent.relativeTo!)
+            ? `Add ${anchorName}`
+            : "Review my website",
+        };
+        project = rememberExecution(project, request, failed, []);
+        project = withMemory(project, request, decision.memoryPatch);
+        return {
+          ok: true,
+          explanation: failed.explanation,
+          operations: [],
+          changes: [],
+          project,
+          applyStatus: "needs_clarification",
+          decision,
+          followUpSuggestions: failed.followUpRecommendation
+            ? [failed.followUpRecommendation]
+            : [],
+          executionPlan: decision.executionPlan,
+          atlasMemory: project.atlasMemory,
+        };
+      }
+
       try {
-        const ops = validateEditOperations([
-          {
-            operation: "moveSection",
-            section: parsed.intent.section,
-            position: parsed.intent.position,
-            ...(parsed.intent.relativeTo
-              ? { relativeTo: parsed.intent.relativeTo }
-              : {}),
-          },
-        ]);
-        const applied = applyEditOperations(project, ops);
-        if (hasMeaningfulProjectDiff(project, applied.project)) {
-          project = applied.project;
-          operations.push(...ops);
-          changes.push(...dedupeChangeLabels(applied.changes));
-          applyStatus = "applied";
-          explanation = appendExplanation(
-            explanation,
-            `Moved ${parsed.intent.section} ${
-              parsed.intent.position === "last"
-                ? "to the bottom"
-                : parsed.intent.position === "first"
-                  ? "to the top"
-                  : `${parsed.intent.position} ${parsed.intent.relativeTo}`
-            }.`,
+        const opList: EditOperation[] = [];
+        if (sectionMissing && isInsertableSectionType(intent.section)) {
+          opList.push({
+            operation: "insertSection",
+            type: intent.section as InsertableSectionType,
+          });
+        }
+        opList.push({
+          operation: "moveSection",
+          section: intent.section,
+          position: intent.position,
+          ...(intent.relativeTo ? { relativeTo: intent.relativeTo } : {}),
+        });
+        const ops = validateEditOperations(opList);
+        const before = project;
+        const applied = applyEditOperations(before, ops);
+        const verified = verifyEditExecution(before, applied.project, ops);
+        const status = applyStatusFromExecution(verified);
+
+        if (status === "applied") {
+          project = rememberExecution(
+            applied.project,
+            request,
+            verified,
+            ops,
           );
-        } else {
           project = withMemory(project, request, decision.memoryPatch);
+          const followUps = followUpsForProject(
+            project,
+            verified.followUpRecommendation
+              ? [verified.followUpRecommendation]
+              : decision.followUpSuggestions.slice(0, 1),
+          );
           return {
             ok: true,
-            explanation: `“${parsed.intent.section}” is already in that position.`,
-            operations: [],
-            changes: [],
+            explanation: verified.explanation,
+            operations: ops,
+            changes: dedupeChangeLabels(applied.changes),
             project,
-            applyStatus: "no_changes",
+            applyStatus: "applied",
             decision,
-            followUpSuggestions: decision.followUpSuggestions,
+            followUpSuggestions: followUps,
             executionPlan: decision.executionPlan,
             atlasMemory: project.atlasMemory,
           };
         }
+
+        project = rememberExecution(before, request, verified, ops);
+        project = withMemory(project, request, decision.memoryPatch);
+        return {
+          ok: true,
+          explanation:
+            verified.explanation ||
+            `I wasn’t able to move ${sectionName}.`,
+          operations: [],
+          changes: [],
+          project,
+          applyStatus: status,
+          decision,
+          followUpSuggestions: verified.followUpRecommendation
+            ? [verified.followUpRecommendation]
+            : decision.followUpSuggestions.slice(0, 1),
+          executionPlan: decision.executionPlan,
+          atlasMemory: project.atlasMemory,
+        };
       } catch {
         // fall through
       }

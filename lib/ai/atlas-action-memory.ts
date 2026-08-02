@@ -10,6 +10,10 @@ import type { CreativeDirectorRecommendation } from "@/lib/ai/creative-director-
 import type { BusinessRecommendation } from "@/lib/ai/business-advisor-types";
 import { shouldOverridePendingClarification } from "@/lib/ai/critique-request";
 import {
+  isExecutionDisputeRequest,
+  type AtlasLastExecution,
+} from "@/lib/ai/edit-execution-result";
+import {
   isEditOperationKind,
   type EditOperation,
 } from "@/lib/ai/edit-operations";
@@ -68,6 +72,8 @@ export type AtlasActionMemory = {
   applyAllPending?: boolean;
   pendingClarification?: AtlasPendingClarification | null;
   lastRecommendationSelected?: string | null;
+  /** Last edit attempt — used for “I don’t see it” conversation repair. */
+  lastExecution?: AtlasLastExecution | null;
   updatedAt: string;
 };
 
@@ -635,6 +641,23 @@ export function clearActionMemory(): AtlasActionMemory {
   return emptyActionMemory();
 }
 
+export function storeLastExecution(
+  memory: AtlasActionMemory | null | undefined,
+  execution: AtlasLastExecution,
+): AtlasActionMemory {
+  return {
+    ...(memory ?? emptyActionMemory()),
+    lastExecution: execution,
+    updatedAt: nowIso(),
+  };
+}
+
+export function getLastExecution(
+  memory: AtlasActionMemory | null | undefined,
+): AtlasLastExecution | null {
+  return memory?.lastExecution ?? null;
+}
+
 export function withActionMemory(
   project: BusinessProject,
   memory: AtlasActionMemory | null | undefined,
@@ -800,6 +823,11 @@ export function shouldExecuteActionMemory(
   memory: AtlasActionMemory | null | undefined,
 ): boolean {
   if (shouldOverridePendingClarification(request)) {
+    return false;
+  }
+
+  // “I don’t see it” / dispute → execution repair, not Apply All.
+  if (isExecutionDisputeRequest(request)) {
     return false;
   }
 

@@ -209,6 +209,20 @@ export type BusinessProject = {
       askedAt: string;
     } | null;
     lastRecommendationSelected?: string | null;
+    /** Last edit attempt for conversation repair / truthfulness. */
+    lastExecution?: {
+      request: string;
+      at: string;
+      success: boolean;
+      verified: boolean;
+      operationTypes: string[];
+      operations: unknown[];
+      verificationFailures: string[];
+      createdEntities: string[];
+      modifiedEntities: string[];
+      explanation: string;
+      followUpRecommendation?: string;
+    } | null;
     updatedAt: string;
   };
   /**

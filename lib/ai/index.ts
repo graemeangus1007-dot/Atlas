@@ -587,6 +587,28 @@ export {
   getEffectiveSectionOrder,
 } from "@/lib/ai/section-order";
 export {
+  isExecutionDisputeRequest,
+  mergeExecutionResults,
+  sectionDisplayName,
+} from "@/lib/ai/edit-execution-result";
+export type {
+  AtlasLastExecution,
+  EditExecutionResult,
+} from "@/lib/ai/edit-execution-result";
+export {
+  applyStatusFromExecution,
+  isSectionAlreadyAtIntent,
+  isSectionPresentOnPage,
+  verifyEditExecution,
+  verifyEditOperation,
+  verifyMoveSection,
+} from "@/lib/ai/verify-edit-execution";
+export { tryRepairDisputedExecution } from "@/lib/ai/execution-repair";
+export {
+  storeLastExecution,
+  getLastExecution,
+} from "@/lib/ai/atlas-action-memory";
+export {
   readMotionState,
   motionFieldsForPreset,
   desiredMotionPresetFromRequest,
