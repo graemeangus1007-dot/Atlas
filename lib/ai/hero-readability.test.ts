@@ -26,11 +26,14 @@ import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
 import type { BusinessProject } from "@/types/business-project";
 import {
   analyzeHeroReadability,
+  getHeroReadabilityRepairLevel,
   heroTreatmentsToOperations,
   isBrandRegressionComplaint,
   isHeroReadabilityRequest,
+  isUserReportedHeroDifficulty,
   planHeroReadabilityOperations,
   verifyHeroReadabilityImprovement,
+  withHeroReadabilityRepairLevel,
 } from "@/lib/ai/hero-readability";
 
 beforeAll(() => {
@@ -284,24 +287,134 @@ describe("local fix scenarios", () => {
     );
   });
 
-  it("already-readable hero is a truthful no-op", async () => {
+  it("user report overrides heuristic readable and applies local treatment", async () => {
+    // Heuristic may call this readable (high overlay), but user disagrees.
+    const before = greenGoldProject({
+      heroImageId: "busy-hero",
+      heroOverlay: 75,
+      headingFont: "inter",
+      creativePolish: { spacing: "airy", visualHierarchy: true },
+    });
+    const heuristic = analyzeHeroReadability(before);
+    expect(heuristic.heuristicReadable).toBe(true);
+
     const result = await runAtlasBrain({
-      project: greenGoldProject({
-        heroImageId: null,
-        heroOverlay: 50,
-        headingFont: "inter",
+      project: before,
+      request: "Make the words in the hero section easier to read.",
+    });
+
+    expect(result.applyStatus).toBe("applied");
+    expect(result.explanation).not.toMatch(
+      /already has strong contrast and readable type/i,
+    );
+    expect(result.project.heroOverlay).toBeGreaterThan(before.heroOverlay);
+    expect(result.project.accentColor).toBe(NAMED_COLORS.gold);
+    expect(getHeroReadabilityRepairLevel(result.project)).toBeGreaterThan(0);
+  });
+
+  it("blend follow-up overrides score and preserves gold", async () => {
+    const before = greenGoldProject({
+      heroImageId: "busy-hero",
+      heroOverlay: 75,
+    });
+    expect(isUserReportedHeroDifficulty(
+      "The text blends into the hero background. Fix that.",
+    )).toBe(true);
+
+    const result = await runAtlasBrain({
+      project: before,
+      request: "The text blends into the hero background. Fix that.",
+    });
+
+    expect(result.applyStatus).toBe("applied");
+    expect(result.explanation).not.toMatch(/already has strong contrast/i);
+    expect(result.project.heroOverlay).toBeGreaterThan(before.heroOverlay);
+    expect(result.project.accentColor).toBe(NAMED_COLORS.gold);
+    expect(
+      shouldExecuteActionMemory(
+        "The text blends into the hero background. Fix that.",
+        storeRecommendations(undefined, {
+          creative: [
+            {
+              id: "x",
+              kind: "visual",
+              title: "x",
+              explanation: "x",
+              impact: "high",
+              impactScore: 1,
+              confidence: 1,
+              operations: [],
+              capabilityIds: [],
+              applyable: true,
+              estimatedTime: "1s",
+            },
+          ],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("escalates repair level on still-can’t-read", async () => {
+    const first = await runAtlasBrain({
+      project: greenGoldProject({ heroImageId: "h", heroOverlay: 50 }),
+      request: "Make the words in the hero section easier to read.",
+    });
+    expect(first.applyStatus).toBe("applied");
+    const level1 = getHeroReadabilityRepairLevel(first.project);
+
+    const second = await runAtlasBrain({
+      project: first.project,
+      request: "I still can’t read it.",
+    });
+    expect(second.applyStatus).toBe("applied");
+    expect(getHeroReadabilityRepairLevel(second.project)).toBeGreaterThan(
+      level1,
+    );
+    expect(second.project.heroOverlay).toBeGreaterThan(
+      first.project.heroOverlay,
+    );
+    expect(second.explanation).not.toBe(first.explanation);
+    expect(second.explanation).not.toMatch(/already has strong contrast/i);
+    expect(second.project.accentColor).toBe(NAMED_COLORS.gold);
+  });
+
+  it("at max repair level recommends image/crop without repeating no-op", async () => {
+    const maxed = withHeroReadabilityRepairLevel(
+      greenGoldProject({
+        heroImageId: "h",
+        heroOverlay: 100,
+        headingFont: "manrope",
         creativePolish: { spacing: "airy", visualHierarchy: true },
       }),
-      request: "Make the hero words easier to read.",
+      3,
+    );
+    const result = await runAtlasBrain({
+      project: maxed,
+      request: "I still can’t read the headline.",
     });
     expect(result.applyStatus).toBe("no_changes");
-    expect(result.explanation).toMatch(/already|strong contrast/i);
+    expect(result.explanation).toMatch(/image or crop/i);
+    expect(result.explanation).not.toMatch(
+      /already has strong contrast and readable type/i,
+    );
+  });
+
+  it("hero image change resets repair level", () => {
+    const leveled = withHeroReadabilityRepairLevel(
+      greenGoldProject({ heroImageId: "old", heroOverlay: 100 }),
+      3,
+    );
+    expect(getHeroReadabilityRepairLevel(leveled)).toBe(3);
+    const swapped = { ...leveled, heroImageId: "new-image" };
+    expect(getHeroReadabilityRepairLevel(swapped)).toBe(0);
   });
 
   it("preview/publish share overlay token", () => {
     const before = greenGoldProject({ heroOverlay: 0 });
     const ops = validateEditOperations(
-      planHeroReadabilityOperations(before).operations,
+      planHeroReadabilityOperations(before, undefined, {
+        request: "Make the words in the hero section easier to read.",
+      }).operations,
     );
     const after = applyEditOperations(before, ops).project;
     const token = String(after.heroOverlay / 100);

@@ -47,6 +47,14 @@ export type HeroReadabilityTreatment =
   | { kind: "airy_spacing"; reason: string }
   | { kind: "simplify_subheadline"; value: string; reason: string };
 
+export type HeroAssessmentSource =
+  | "rendered_analysis"
+  | "image_analysis"
+  | "token_heuristic"
+  | "user_report";
+
+export type HeroReadabilityRepairLevel = 0 | 1 | 2 | 3;
+
 export type HeroReadabilityAssessment = {
   readable: boolean;
   score: number;
@@ -54,6 +62,9 @@ export type HeroReadabilityAssessment = {
   heroTextScore: number;
   issues: HeroReadabilityIssue[];
   recommendedTreatments: HeroReadabilityTreatment[];
+  confidence: number;
+  source: HeroAssessmentSource;
+  userReportedIssue?: boolean;
   estimatedSurface: string;
   textColor: string;
   mutedColor: string;
@@ -62,19 +73,66 @@ export type HeroReadabilityAssessment = {
   imageAnalysisAvailable: boolean;
   notes: string[];
   preservation: EditPreservationContext;
+  heuristicReadable: boolean;
 };
 
 export type HeroReadabilityDiagnostics = {
   requestId?: string | null;
   intent: "hero_readability";
   requestedScope: "hero";
+  assessmentSource: HeroAssessmentSource;
+  heuristicScore: number;
+  heuristicReadable: boolean;
+  userReportedIssue: boolean;
+  repairLevelBefore: HeroReadabilityRepairLevel;
+  repairLevelAfter: HeroReadabilityRepairLevel;
   heroScoreBefore: number;
   heroScoreAfter: number;
   heroTokensChanged: string[];
-  globalThemeTokensChanged: string[];
+  globalPaletteChanged: string[];
   preservationViolation: boolean;
   selectedTreatments: string[];
   verified: boolean;
+};
+
+/** Future screenshot / pixel-aware analysis hook (not required for current fix). */
+export type HeroVisualAnalysisInput = {
+  projectId?: string;
+  heroImageId: string | null;
+  overlay: number;
+  backgroundColor: string;
+  textColor: string;
+};
+
+export type HeroVisualAnalysisResult = {
+  available: boolean;
+  busyBehindText?: boolean;
+  localBrightnessHotspots?: boolean;
+  recommendedOverlay?: HeroOverlayStep;
+  confidence: number;
+  notes: string[];
+};
+
+export type HeroVisualAnalyzer = {
+  analyze(input: HeroVisualAnalysisInput): Promise<HeroVisualAnalysisResult>;
+};
+
+/** Deterministic low-confidence proxy until pixel analysis exists. */
+export const tokenHeuristicHeroVisualAnalyzer: HeroVisualAnalyzer = {
+  async analyze(input) {
+    return {
+      available: false,
+      confidence: 0.35,
+      recommendedOverlay: input.heroImageId
+        ? input.overlay < 75
+          ? 75
+          : 100
+        : undefined,
+      notes: [
+        "Pixel-level hero analysis unavailable — using token heuristic proxy.",
+      ],
+    };
+  },
 };
 
 const DEFAULT_PROTECTED_TOKENS = [
@@ -351,22 +409,38 @@ export function analyzeHeroReadability(
       i !== "weak_button_contrast" &&
       i !== "excessive_line_width",
   );
-  const readable =
+  const heuristicReadable =
     heroTextScore >= HERO_READABILITY_THRESHOLD && heroTextIssues.length === 0;
 
+  // Token heuristic is a low-confidence proxy when image pixels aren’t measured.
+  const confidence = surfaceInfo.hasHeroImage
+    ? surfaceInfo.imageAnalysisAvailable
+      ? 0.7
+      : 0.35
+    : 0.75;
+
   return {
-    readable,
+    readable: heuristicReadable,
+    heuristicReadable,
     score,
     heroTextScore,
     issues,
     recommendedTreatments: treatments,
+    confidence,
+    source: "token_heuristic",
+    userReportedIssue: false,
     estimatedSurface: surfaceInfo.surface,
     textColor,
     mutedColor,
     hasHeroImage: surfaceInfo.hasHeroImage,
     overlay: surfaceInfo.overlay,
     imageAnalysisAvailable: surfaceInfo.imageAnalysisAvailable,
-    notes: surfaceInfo.notes,
+    notes: [
+      ...surfaceInfo.notes,
+      ...(surfaceInfo.hasHeroImage && !surfaceInfo.imageAnalysisAvailable
+        ? ["Assessment source: low-confidence token heuristic (no pixel analysis)."]
+        : []),
+    ],
     preservation,
   };
 }
@@ -549,13 +623,19 @@ export function buildHeroReadabilityExplanation(
   before: HeroReadabilityAssessment,
   after: HeroReadabilityAssessment,
   applied: HeroReadabilityTreatment[],
-  options?: { preservedPalette?: boolean },
+  options?: {
+    preservedPalette?: boolean;
+    repairLevelAfter?: HeroReadabilityRepairLevel;
+    maxRepairReached?: boolean;
+  },
 ): string {
-  if (applied.length === 0 && before.readable) {
-    if (before.hasHeroImage && !before.imageAnalysisAvailable) {
-      return "The hero typography is already readable. The remaining issue may be the background image itself — a darker overlay or a different crop would help further.";
-    }
-    return "The hero already has strong contrast and readable type. The remaining issue may be the background image itself.";
+  // Never claim “already strong contrast” after an explicit user difficulty report.
+  if (options?.maxRepairReached || (applied.length === 0 && before.userReportedIssue)) {
+    return "I’ve applied the strongest local contrast treatments available without changing your brand colors. If the headline still blends in, the hero image or crop itself needs to change.";
+  }
+
+  if (applied.length === 0 && before.heuristicReadable && !before.userReportedIssue) {
+    return "Hero type already meets contrast targets on the current background. If a specific area still feels hard to read, point me at the hero and I’ll strengthen the local overlay.";
   }
 
   if (applied.length === 0 && !before.readable) {
@@ -590,23 +670,19 @@ export function buildHeroReadabilityExplanation(
       ? " without changing your brand colors"
       : "";
 
+  const level = options?.repairLevelAfter ?? 1;
+  if (level >= 2 && parts.length > 0) {
+    return `I increased the local contrast again${parts.includes("strengthened the hero overlay") ? " with a stronger overlay" : ""}${parts.includes("increased the headline weight") || parts.includes("increased the headline scale") ? " and a clearer headline treatment" : ""}${paletteNote}. If it still feels busy, the image or crop is the remaining issue.`;
+  }
+
+  if (parts.includes("strengthened the hero overlay")) {
+    return `I strengthened the hero overlay so the headline separates more clearly from the image${paletteNote}.`;
+  }
+
   const lead =
     parts.length > 0
       ? `Done. I ${formatList(parts)} so the text stands out more clearly from the background${paletteNote}.`
       : "I reviewed the hero for readability.";
-
-  if (
-    after.heroTextScore > before.heroTextScore &&
-    after.hasHeroImage &&
-    (after.issues.includes("busy_image_behind_text") ||
-      after.issues.includes("image_unanalyzed"))
-  ) {
-    return `${lead} The background image is still visually busy, so replacing or repositioning it would improve readability further.`;
-  }
-
-  if (after.heroTextScore <= before.heroTextScore) {
-    return "I wasn’t able to improve measured hero readability with local treatments. A different hero image or crop is likely needed.";
-  }
 
   return lead;
 }
@@ -649,7 +725,7 @@ export function isHeroReadabilityRequest(request: string): boolean {
   }
 
   if (
-    /\b(fix\s+the\s+hero\s+contrast|i\s+still\s+can['\u2019]?t\s+read\s+the\s+headline|that\s+didn['\u2019]?t\s+fix\s+it|the\s+hero\s+is\s+still\s+hard\s+to\s+read|still\s+hard\s+to\s+read)\b/i.test(
+    /\b(fix\s+the\s+hero\s+contrast|i\s+still\s+can['\u2019]?t\s+read(\s+it|\s+the\s+headline)?|that\s+didn['\u2019]?t\s+fix\s+it|the\s+hero\s+is\s+still\s+hard\s+to\s+read|still\s+hard\s+to\s+read|make\s+the\s+hero\s+text\s+stand\s+out)\b/i.test(
       text,
     )
   ) {
@@ -657,6 +733,114 @@ export function isHeroReadabilityRequest(request: string): boolean {
   }
 
   return false;
+}
+
+/**
+ * Explicit user observation that the hero is hard to read.
+ * Overrides heuristic readable:true — scoped to hero only.
+ */
+export function isUserReportedHeroDifficulty(request: string): boolean {
+  if (!isHeroReadabilityRequest(request)) return false;
+  const text = request.trim();
+  return (
+    /\b(blends?\s+in|hard\s+to\s+(read|see)|can['\u2019]?t\s+read|cannot\s+read|still\s+|didn['\u2019]?t\s+fix|stand\s+out\s+more|easier\s+to\s+read|fix\s+that|unreadable|illegible)\b/i.test(
+      text,
+    )
+  );
+}
+
+export function getHeroReadabilityRepairLevel(
+  project: BusinessProject,
+): HeroReadabilityRepairLevel {
+  const state = project.atlasActionMemory?.heroReadabilityRepair;
+  if (!state) return 0;
+  const currentImage = project.heroImageId ?? null;
+  if ((state.heroImageId ?? null) !== currentImage) return 0;
+  const level = state.level;
+  if (level === 0 || level === 1 || level === 2 || level === 3) return level;
+  return 0;
+}
+
+export function withHeroReadabilityRepairLevel(
+  project: BusinessProject,
+  level: HeroReadabilityRepairLevel,
+): BusinessProject {
+  const memory = project.atlasActionMemory ?? {
+    updatedAt: new Date().toISOString(),
+  };
+  return {
+    ...project,
+    atlasActionMemory: {
+      ...memory,
+      heroReadabilityRepair: {
+        level,
+        heroImageId: project.heroImageId ?? null,
+        updatedAt: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+/** Force local corrective treatments for a repair level (1–3). */
+export function treatmentsForRepairLevel(
+  project: BusinessProject,
+  level: Exclude<HeroReadabilityRepairLevel, 0>,
+): HeroReadabilityTreatment[] {
+  const current = project.heroOverlay ?? 50;
+  const treatments: HeroReadabilityTreatment[] = [];
+
+  const targetOverlay: HeroOverlayStep =
+    level === 1
+      ? nextStrongerOverlay(current, Math.min(75, Math.max(50, current + 25)))
+      : level === 2
+        ? nextStrongerOverlay(current, 75)
+        : 100;
+
+  if (targetOverlay > current) {
+    treatments.push({
+      kind: "strengthen_overlay",
+      targetOverlay,
+      reason: "User-reported blending — strengthen local hero overlay.",
+    });
+  } else if (current < 100) {
+    const bump = nextStrongerOverlay(current, current + 1);
+    if (bump > current) {
+      treatments.push({
+        kind: "strengthen_overlay",
+        targetOverlay: bump,
+        reason: "Escalate hero overlay after continued user difficulty report.",
+      });
+    }
+  }
+
+  if (level >= 2 && !project.creativePolish?.visualHierarchy) {
+    treatments.push({
+      kind: "improve_hierarchy",
+      reason: "Escalate headline scale for clearer separation.",
+    });
+  }
+
+  if (level >= 3) {
+    if (THIN_HEADING_FONTS.has(project.headingFont)) {
+      treatments.push({
+        kind: "strengthen_heading",
+        headingFont: "manrope",
+        reason: "Max local escalation — heavier hero heading face.",
+      });
+    }
+    if (
+      !project.creativePolish?.visualHierarchy &&
+      !treatments.some((t) => t.kind === "improve_hierarchy")
+    ) {
+      treatments.push({
+        kind: "improve_hierarchy",
+        reason: "Max local escalation — stronger headline scale.",
+      });
+    }
+  }
+
+  return prioritizeTreatments(treatments);
 }
 
 /** User noticed Atlas wiped brand colors during a prior edit. */
@@ -700,6 +884,7 @@ export function verifyHeroReadabilityImprovement(
   before: BusinessProject,
   after: BusinessProject,
   preservation: EditPreservationContext = defaultHeroPreservationContext(),
+  options?: { userReportedIssue?: boolean },
 ): {
   improved: boolean;
   beforeScore: number;
@@ -729,11 +914,14 @@ export function verifyHeroReadabilityImprovement(
     themeChanged.includes("accentColor") &&
     heroTokensChanged.length === 0;
 
-  const improved =
-    !preservationViolation &&
-    !accentOnly &&
-    b.heroTextScore > a.heroTextScore &&
-    tokensChanged;
+  // User-reported difficulty: verify the corrective treatment was applied,
+  // not that the low-confidence heuristic score crossed a threshold.
+  const improved = options?.userReportedIssue
+    ? !preservationViolation && !accentOnly && tokensChanged
+    : !preservationViolation &&
+      !accentOnly &&
+      b.heroTextScore > a.heroTextScore &&
+      tokensChanged;
 
   return {
     improved,
@@ -750,40 +938,111 @@ export function verifyHeroReadabilityImprovement(
         ? "Button contrast alone does not satisfy a hero-readability request."
         : !tokensChanged
           ? "Rendered hero tokens did not change."
-          : b.heroTextScore <= a.heroTextScore
+          : !options?.userReportedIssue && b.heroTextScore <= a.heroTextScore
             ? "Hero readability score did not improve."
             : undefined,
   };
 }
 
-/** Plan local ops — empty when already readable or only brand-level issues remain. */
+/** Plan local ops — user reports override heuristic readable:true. */
 export function planHeroReadabilityOperations(
   project: BusinessProject,
   preservation: EditPreservationContext = defaultHeroPreservationContext(),
+  options?: { request?: string },
 ): {
   assessment: HeroReadabilityAssessment;
   operations: EditOperation[];
   alreadyReadable: boolean;
   paletteBefore: ProtectedBrandPalette;
+  repairLevelBefore: HeroReadabilityRepairLevel;
+  repairLevelAfter: HeroReadabilityRepairLevel;
+  maxRepairReached: boolean;
 } {
-  const assessment = analyzeHeroReadability(project, preservation);
+  const request = options?.request?.trim() ?? "";
+  const heuristic = analyzeHeroReadability(project, preservation);
   const paletteBefore = captureBrandPalette(project);
-  if (assessment.readable || assessment.recommendedTreatments.length === 0) {
+  const repairLevelBefore = getHeroReadabilityRepairLevel(project);
+  const userReported =
+    Boolean(request) && isUserReportedHeroDifficulty(request);
+
+  // Direct user observation always overrides heuristic readable:true for hero scope.
+  const shouldOverride = userReported;
+
+  if (!shouldOverride && heuristic.heuristicReadable) {
     return {
-      assessment,
+      assessment: heuristic,
       operations: [],
       alreadyReadable: true,
       paletteBefore,
+      repairLevelBefore,
+      repairLevelAfter: repairLevelBefore,
+      maxRepairReached: false,
     };
   }
-  const operations = heroTreatmentsToOperations(
-    assessment.recommendedTreatments,
-  );
+
+  if (!shouldOverride && heuristic.recommendedTreatments.length > 0) {
+    return {
+      assessment: heuristic,
+      operations: heroTreatmentsToOperations(heuristic.recommendedTreatments),
+      alreadyReadable: false,
+      paletteBefore,
+      repairLevelBefore,
+      repairLevelAfter: Math.min(
+        3,
+        Math.max(1, repairLevelBefore + 1),
+      ) as HeroReadabilityRepairLevel,
+      maxRepairReached: false,
+    };
+  }
+
+  // User report path (or empty heuristic treatments with difficulty report).
+  const repairLevelAfter = (
+    repairLevelBefore >= 3
+      ? 3
+      : Math.min(3, Math.max(1, repairLevelBefore + 1))
+  ) as HeroReadabilityRepairLevel;
+
+  const forced =
+    repairLevelAfter === 0
+      ? []
+      : treatmentsForRepairLevel(
+          project,
+          repairLevelAfter as 1 | 2 | 3,
+        );
+
+  // Prefer forced escalation treatments; fall back to heuristic set.
+  const treatments =
+    forced.length > 0 ? forced : heuristic.recommendedTreatments;
+  const operations = heroTreatmentsToOperations(treatments);
+  const maxRepairReached =
+    userReported && operations.length === 0 && repairLevelBefore >= 3;
+
+  const assessment: HeroReadabilityAssessment = {
+    ...heuristic,
+    readable: userReported ? false : heuristic.readable,
+    userReportedIssue: userReported,
+    source: userReported ? "user_report" : heuristic.source,
+    confidence: userReported ? Math.min(heuristic.confidence, 0.4) : heuristic.confidence,
+    recommendedTreatments: treatments,
+    issues: userReported
+      ? Array.from(
+          new Set<HeroReadabilityIssue>([
+            ...heuristic.issues,
+            "busy_image_behind_text",
+            "low_text_background_contrast",
+          ]),
+        )
+      : heuristic.issues,
+  };
+
   return {
     assessment,
     operations,
-    alreadyReadable: operations.length === 0,
+    alreadyReadable: false,
     paletteBefore,
+    repairLevelBefore,
+    repairLevelAfter,
+    maxRepairReached,
   };
 }
 
@@ -794,21 +1053,33 @@ export function buildHeroReadabilityDiagnostics(input: {
   treatments: HeroReadabilityTreatment[];
   verified: boolean;
   preservation?: EditPreservationContext;
+  assessmentSource?: HeroAssessmentSource;
+  userReportedIssue?: boolean;
+  repairLevelBefore?: HeroReadabilityRepairLevel;
+  repairLevelAfter?: HeroReadabilityRepairLevel;
 }): HeroReadabilityDiagnostics {
   const preservation = input.preservation ?? defaultHeroPreservationContext();
   const check = verifyHeroReadabilityImprovement(
     input.before,
     input.after,
     preservation,
+    { userReportedIssue: input.userReportedIssue },
   );
+  const heuristic = analyzeHeroReadability(input.before, preservation);
   return {
     requestId: input.requestId ?? null,
     intent: "hero_readability",
     requestedScope: "hero",
+    assessmentSource: input.assessmentSource ?? heuristic.source,
+    heuristicScore: heuristic.heroTextScore,
+    heuristicReadable: heuristic.heuristicReadable,
+    userReportedIssue: Boolean(input.userReportedIssue),
+    repairLevelBefore: input.repairLevelBefore ?? 0,
+    repairLevelAfter: input.repairLevelAfter ?? 0,
     heroScoreBefore: check.beforeScore,
     heroScoreAfter: check.afterScore,
     heroTokensChanged: check.heroTokensChanged,
-    globalThemeTokensChanged: check.globalThemeTokensChanged,
+    globalPaletteChanged: check.globalThemeTokensChanged,
     preservationViolation: check.preservationViolation,
     selectedTreatments: input.treatments.map((t) => t.kind),
     verified: input.verified && check.improved,

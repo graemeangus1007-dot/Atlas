@@ -610,18 +610,24 @@ export {
   captureBrandPalette,
   defaultHeroPreservationContext,
   filterOperationsForBrandPreservation,
+  getHeroReadabilityRepairLevel,
   heroTreatmentsToOperations,
   isBrandRegressionComplaint,
   isHeroReadabilityRequest,
+  isUserReportedHeroDifficulty,
   planHeroReadabilityOperations,
   restoreBrandPalette,
+  treatmentsForRepairLevel,
   verifyHeroReadabilityImprovement,
+  withHeroReadabilityRepairLevel,
 } from "@/lib/ai/hero-readability";
 export type {
   EditPreservationContext,
   HeroReadabilityAssessment,
   HeroReadabilityIssue,
+  HeroReadabilityRepairLevel,
   HeroReadabilityTreatment,
+  HeroVisualAnalyzer,
   ProtectedBrandPalette,
 } from "@/lib/ai/hero-readability";
 export {

@@ -460,7 +460,9 @@ export function extractNaturalLanguageEditPlan(input: {
 
   // Hero-local readability beats generic typography / site-wide readability.
   if (isHeroReadabilityRequest(request)) {
-    const planned = planHeroReadabilityOperations(input.project);
+    const planned = planHeroReadabilityOperations(input.project, undefined, {
+      request,
+    });
     const explanation = buildHeroReadabilityExplanation(
       planned.assessment,
       planned.assessment,

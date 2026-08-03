@@ -63,6 +63,7 @@ import {
   planHeroReadabilityOperations,
   restoreBrandPalette,
   verifyHeroReadabilityImprovement,
+  withHeroReadabilityRepairLevel,
   type ProtectedBrandPalette,
 } from "@/lib/ai/hero-readability";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
@@ -1590,13 +1591,74 @@ export async function runAtlasBrain(
     }
   }
 
-  // Hero readability — local treatments only; preserve brand palette
+  // Hero readability — local treatments only; user reports override heuristic no-op
   if (
     decision.commandKind === "hero_readability" ||
     isHeroReadabilityRequest(request)
   ) {
     const preservation = defaultHeroPreservationContext();
-    const planned = planHeroReadabilityOperations(project, preservation);
+    const planned = planHeroReadabilityOperations(project, preservation, {
+      request,
+    });
+
+    if (planned.maxRepairReached || (planned.operations.length === 0 && planned.assessment.userReportedIssue)) {
+      const explanation = buildHeroReadabilityExplanation(
+        planned.assessment,
+        planned.assessment,
+        [],
+        {
+          preservedPalette: true,
+          repairLevelAfter: planned.repairLevelAfter,
+          maxRepairReached: true,
+        },
+      );
+      logHeroReadabilityDiagnostics(
+        buildHeroReadabilityDiagnostics({
+          requestId: input.atlasRequestId,
+          before: project,
+          after: project,
+          treatments: [],
+          verified: false,
+          preservation,
+          assessmentSource: planned.assessment.source,
+          userReportedIssue: planned.assessment.userReportedIssue,
+          repairLevelBefore: planned.repairLevelBefore,
+          repairLevelAfter: planned.repairLevelAfter,
+        }),
+      );
+      project = rememberExecution(
+        withHeroReadabilityRepairLevel(
+          withMemory(project, request, decision.memoryPatch),
+          3,
+        ),
+        request,
+        {
+          success: false,
+          verified: true,
+          operationType: "hero_readability",
+          verificationFailures: [],
+          createdEntities: [],
+          modifiedEntities: [],
+          warnings: [],
+          explanation,
+        },
+        [],
+        { paletteBefore: planned.paletteBefore, scope: "hero" },
+      );
+      return {
+        ok: true,
+        explanation,
+        operations: [],
+        changes: [],
+        project,
+        applyStatus: "no_changes",
+        decision,
+        followUpSuggestions: ["Try a different hero image"],
+        executionPlan: decision.executionPlan,
+        atlasMemory: project.atlasMemory,
+      };
+    }
+
     if (planned.alreadyReadable || planned.operations.length === 0) {
       const explanation = buildHeroReadabilityExplanation(
         planned.assessment,
@@ -1612,6 +1674,10 @@ export async function runAtlasBrain(
           treatments: [],
           verified: false,
           preservation,
+          assessmentSource: planned.assessment.source,
+          userReportedIssue: false,
+          repairLevelBefore: planned.repairLevelBefore,
+          repairLevelAfter: planned.repairLevelAfter,
         }),
       );
       project = rememberExecution(
@@ -1652,22 +1718,26 @@ export async function runAtlasBrain(
       );
       const before = project;
       const applied = applyEditOperations(before, ops);
-      // Enforce palette even if a filter missed something.
       const paletteSafe = restoreBrandPalette(
         applied.project,
         planned.paletteBefore,
       );
+      const userReported = Boolean(planned.assessment.userReportedIssue);
       const scoreCheck = verifyHeroReadabilityImprovement(
         before,
         paletteSafe,
         preservation,
+        { userReportedIssue: userReported },
       );
       const afterAssessment = analyzeHeroReadability(paletteSafe, preservation);
       const explanation = buildHeroReadabilityExplanation(
         planned.assessment,
-        afterAssessment,
+        { ...afterAssessment, userReportedIssue: userReported },
         planned.assessment.recommendedTreatments,
-        { preservedPalette: true },
+        {
+          preservedPalette: true,
+          repairLevelAfter: planned.repairLevelAfter,
+        },
       );
 
       logHeroReadabilityDiagnostics(
@@ -1678,6 +1748,10 @@ export async function runAtlasBrain(
           treatments: planned.assessment.recommendedTreatments,
           verified: scoreCheck.improved,
           preservation,
+          assessmentSource: planned.assessment.source,
+          userReportedIssue: userReported,
+          repairLevelBefore: planned.repairLevelBefore,
+          repairLevelAfter: planned.repairLevelAfter,
         }),
       );
 
@@ -1716,14 +1790,21 @@ export async function runAtlasBrain(
           project,
           applyStatus: "no_changes",
           decision,
-          followUpSuggestions: ["Strengthen the hero overlay", "Try a different hero image"],
+          followUpSuggestions: [
+            "Strengthen the hero overlay",
+            "Try a different hero image",
+          ],
           executionPlan: decision.executionPlan,
           atlasMemory: project.atlasMemory,
         };
       }
 
+      const withLevel = withHeroReadabilityRepairLevel(
+        paletteSafe,
+        planned.repairLevelAfter,
+      );
       project = rememberExecution(
-        withMemory(paletteSafe, request, decision.memoryPatch),
+        withMemory(withLevel, request, decision.memoryPatch),
         request,
         {
           success: true,
@@ -1746,11 +1827,10 @@ export async function runAtlasBrain(
         project,
         applyStatus: "applied",
         decision,
-        followUpSuggestions: afterAssessment.issues.includes(
-          "busy_image_behind_text",
-        )
-          ? ["Try a different hero image"]
-          : ["Review my website"],
+        followUpSuggestions:
+          planned.repairLevelAfter >= 2
+            ? ["Try a different hero image"]
+            : ["Review my website"],
         executionPlan: decision.executionPlan,
         atlasMemory: project.atlasMemory,
       };

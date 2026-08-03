@@ -623,7 +623,9 @@ export function planDirectEditOperations(input: {
     )
   ) {
     if (isHeroReadabilityRequest(text)) {
-      const planned = planHeroReadabilityOperations(input.project);
+      const planned = planHeroReadabilityOperations(input.project, undefined, {
+        request: text,
+      });
       operations.push(...planned.operations);
       notes.push("Diagnosed hero readability and applied targeted treatments");
     } else {

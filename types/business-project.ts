@@ -231,6 +231,11 @@ export type BusinessProject = {
       } | null;
       scope?: "hero" | "global" | "unknown";
     } | null;
+    heroReadabilityRepair?: {
+      level: 0 | 1 | 2 | 3;
+      heroImageId: string | null;
+      updatedAt: string;
+    } | null;
     updatedAt: string;
   };
   /**

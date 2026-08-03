@@ -75,6 +75,15 @@ export type AtlasActionMemory = {
   lastRecommendationSelected?: string | null;
   /** Last edit attempt — used for “I don’t see it” conversation repair. */
   lastExecution?: AtlasLastExecution | null;
+  /**
+   * Bounded hero-readability repair escalation (0–3).
+   * Resets when heroImageId changes.
+   */
+  heroReadabilityRepair?: {
+    level: 0 | 1 | 2 | 3;
+    heroImageId: string | null;
+    updatedAt: string;
+  } | null;
   updatedAt: string;
 };
 
