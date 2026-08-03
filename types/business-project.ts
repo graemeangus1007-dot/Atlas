@@ -174,6 +174,28 @@ export type BusinessProject = {
     selectedAt: string;
   };
   /**
+   * Scoped component surface styles (form fields, text panels, cards).
+   * Local only — does not rewrite brand theme tokens.
+   */
+  componentSurfaces?: {
+    formFields?: {
+      backgroundColor?: string;
+      textColor?: string;
+      borderColor?: string;
+      focusColor?: string;
+    };
+    textPanels?: {
+      backgroundColor?: string;
+      textColor?: string;
+      borderColor?: string;
+    };
+    cards?: {
+      backgroundColor?: string;
+      textColor?: string;
+      borderColor?: string;
+    };
+  };
+  /**
    * Atlas Brain Action Memory (Sprint 26.1).
    * Active recommendations, pending clarification, Apply All continuity.
    */

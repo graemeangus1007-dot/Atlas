@@ -606,6 +606,37 @@ function validateOne(raw: unknown, index: number): EditOperation {
         value: value as (typeof HERO_OVERLAY_STEPS)[number],
       };
     }
+    case "setComponentSurface": {
+      const target = row.target;
+      if (
+        target !== "form_fields" &&
+        target !== "text_panels" &&
+        target !== "cards"
+      ) {
+        throw new AiError(
+          "bad_request",
+          `setComponentSurface.target must be form_fields, text_panels, or cards at index ${index}.`,
+        );
+      }
+      const backgroundColor = optionalHex(row.backgroundColor, "backgroundColor");
+      if (!backgroundColor) {
+        throw new AiError(
+          "bad_request",
+          `setComponentSurface.backgroundColor is required at index ${index}.`,
+        );
+      }
+      const textColor = optionalHex(row.textColor, "textColor");
+      const borderColor = optionalHex(row.borderColor, "borderColor");
+      const focusColor = optionalHex(row.focusColor, "focusColor");
+      return {
+        operation: "setComponentSurface",
+        target,
+        backgroundColor,
+        ...(textColor ? { textColor } : {}),
+        ...(borderColor ? { borderColor } : {}),
+        ...(focusColor ? { focusColor } : {}),
+      };
+    }
     default: {
       const _exhaustive: never = kind;
       throw new AiError(

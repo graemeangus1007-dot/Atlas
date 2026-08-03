@@ -41,6 +41,7 @@ import {
   shouldExecuteNlEditPlan,
 } from "@/lib/ai/nl-edit-planner";
 import { AiError } from "@/lib/ai/errors";
+import { planSurfaceStyleOperations } from "@/lib/ai/surface-styling";
 import type { BusinessProject } from "@/types/business-project";
 
 export type EditorAgentHistoryItem = {
@@ -125,6 +126,25 @@ export function planEditOperations(input: {
     project: input.project,
     history: input.history,
   });
+
+  // Scoped surface styling — never a global theme rewrite.
+  const surfacePlan = planSurfaceStyleOperations({
+    project: input.project,
+    request,
+  });
+  if (surfacePlan.ok) {
+    return {
+      operations: surfacePlan.operations,
+      explanation: surfacePlan.explanation,
+    };
+  }
+  if (surfacePlan.needsClarification) {
+    return {
+      operations: [],
+      explanation: surfacePlan.explanation,
+      needsClarification: true,
+    };
+  }
 
   // Sprint 28.2 — Natural Language Edit Planner (multi-edit, high confidence).
   const nlPlan = extractNaturalLanguageEditPlan({

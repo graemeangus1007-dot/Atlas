@@ -19,6 +19,8 @@ import {
   type EditOperation,
 } from "@/lib/ai/edit-operations";
 import type { ImageOperation } from "@/lib/ai/image-operations";
+import { resolveNamedColor } from "@/lib/ai/named-colors";
+import { isSurfaceStyleRequest } from "@/lib/ai/surface-styling";
 import type { BusinessProject } from "@/types/business-project";
 
 export type AtlasStoredRecommendationSource =
@@ -44,7 +46,16 @@ export type ClarificationDestination =
   | "conversions"
   | "other"
   | "apply_all"
-  | "apply_selected";
+  | "apply_selected"
+  | "restore_accent"
+  | "restore_palette";
+
+export type ClarificationKind =
+  | "color"
+  | "section"
+  | "attachment"
+  | "recommendation"
+  | "general";
 
 export type AtlasPendingClarification = {
   pendingQuestion: string;
@@ -53,6 +64,11 @@ export type AtlasPendingClarification = {
   /** Maps each allowed answer → destination override when present. */
   answerDestinations?: Record<string, ClarificationDestination>;
   askedAt: string;
+  /** Typed clarification — color answers resolve via named-color parser. */
+  kind?: ClarificationKind;
+  /** Field/destination hint, e.g. accentColor. */
+  resolveTo?: string;
+  context?: Record<string, unknown>;
 };
 
 export type AtlasActionMemory = {
@@ -494,9 +510,28 @@ export function detectActionConfirmation(request: string): ActionConfirmation {
 export function matchClarificationAnswer(
   request: string,
   pending: AtlasPendingClarification,
-): { answer: string; destination: ClarificationDestination } | null {
+): {
+  answer: string;
+  destination: ClarificationDestination;
+  resolvedColor?: string;
+} | null {
   const normalized = request.trim().toLowerCase().replace(/[.!?]+$/g, "");
   if (!normalized) return null;
+
+  // Typed color clarification — accept named colors (e.g. "gold").
+  if (pending.kind === "color") {
+    const hex = resolveNamedColor(normalized);
+    if (hex) {
+      return {
+        answer: normalized,
+        destination:
+          pending.destination === "restore_palette"
+            ? "restore_palette"
+            : "restore_accent",
+        resolvedColor: hex,
+      };
+    }
+  }
 
   for (const answer of pending.allowedAnswers) {
     const a = answer.toLowerCase();
@@ -597,19 +632,30 @@ export function storePendingClarification(
     allowedAnswers?: string[];
     destination?: ClarificationDestination;
     answerDestinations?: Record<string, ClarificationDestination>;
+    kind?: ClarificationKind;
+    resolveTo?: string;
+    context?: Record<string, unknown>;
   },
 ): AtlasActionMemory {
+  const kind = clarification.kind ?? "general";
   const allowedAnswers =
-    clarification.allowedAnswers ?? [...ATLAS_BRAIN_CLARIFICATION_OPTIONS];
-  const answerDestinations = clarification.answerDestinations ?? {
-    "Richer photos": "visuals",
-    "Sharper writing": "copy",
-    "Stronger calls to action": "conversions",
-    "Something else": "other",
-    "Better visuals": "visuals",
-    "Better copy": "copy",
-    "Better conversions": "conversions",
-  };
+    clarification.allowedAnswers ??
+    (kind === "color"
+      ? ["gold", "green", "navy", "cream", "white"]
+      : [...ATLAS_BRAIN_CLARIFICATION_OPTIONS]);
+  const answerDestinations =
+    clarification.answerDestinations ??
+    (kind === "color"
+      ? undefined
+      : {
+          "Richer photos": "visuals" as ClarificationDestination,
+          "Sharper writing": "copy",
+          "Stronger calls to action": "conversions",
+          "Something else": "other",
+          "Better visuals": "visuals",
+          "Better copy": "copy",
+          "Better conversions": "conversions",
+        });
 
   return {
     ...(memory ?? emptyActionMemory()),
@@ -617,8 +663,11 @@ export function storePendingClarification(
       pendingQuestion: clarification.question,
       allowedAnswers,
       destination: clarification.destination ?? "other",
-      answerDestinations,
+      ...(answerDestinations ? { answerDestinations } : {}),
       askedAt: nowIso(),
+      kind,
+      ...(clarification.resolveTo ? { resolveTo: clarification.resolveTo } : {}),
+      ...(clarification.context ? { context: clarification.context } : {}),
     },
     updatedAt: nowIso(),
   };
@@ -846,9 +895,23 @@ export function shouldExecuteActionMemory(
     return false;
   }
 
+  // Scoped surface styling — never Apply All / generic clarification chips.
+  if (isSurfaceStyleRequest(request)) {
+    return false;
+  }
+
   // Ordinal / named plan references beat sticky clarification chips.
   if (hasActiveRecommendations(memory) && looksLikePlanReference(request)) {
     return true;
+  }
+
+  // Typed pending clarifications (e.g. color “gold”) resolve before edit short-circuit.
+  if (hasPendingClarification(memory) && memory?.pendingClarification) {
+    const matched = matchClarificationAnswer(
+      request,
+      memory.pendingClarification,
+    );
+    if (matched) return true;
   }
 
   // Explicit layout / edit commands never depend on an active plan.

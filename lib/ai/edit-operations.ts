@@ -81,6 +81,7 @@ export const EDIT_OPERATION_KINDS = [
   "setCreativePolish",
   "moveSection",
   "setHeroOverlay",
+  "setComponentSurface",
 ] as const;
 
 export type EditOperationKind = (typeof EDIT_OPERATION_KINDS)[number];
@@ -217,6 +218,16 @@ export type SetHeroOverlayOperation = {
   value: HeroOverlayStep;
 };
 
+/** Scoped surface styling — form fields / panels / cards (not global theme). */
+export type SetComponentSurfaceOperation = {
+  operation: "setComponentSurface";
+  target: "form_fields" | "text_panels" | "cards";
+  backgroundColor: string;
+  textColor?: string;
+  borderColor?: string;
+  focusColor?: string;
+};
+
 export type EditOperation =
   | ReplaceTextOperation
   | ChangeThemeOperation
@@ -236,7 +247,8 @@ export type EditOperation =
   | DeleteFaqOperation
   | SetCreativePolishOperation
   | MoveSectionOperation
-  | SetHeroOverlayOperation;
+  | SetHeroOverlayOperation
+  | SetComponentSurfaceOperation;
 
 /** Human-readable bullet for the post-edit preview list. */
 export type EditChangeSummary = {

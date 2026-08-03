@@ -716,10 +716,10 @@ h1, h2, h3, p {
 .site-form-field input,
 .site-form-field textarea {
   width: 100%;
-  border: 1px solid var(--site-border);
+  border: 1px solid var(--site-form-field-border, var(--site-border));
   border-radius: 0.75rem;
-  background: color-mix(in srgb, var(--site-surface) 80%, transparent);
-  color: var(--site-foreground);
+  background: var(--site-form-field-bg, color-mix(in srgb, var(--site-surface) 80%, transparent));
+  color: var(--site-form-field-fg, var(--site-fg));
   padding: 0.65rem 0.85rem;
   font: inherit;
   font-size: 0.9rem;
@@ -727,7 +727,7 @@ h1, h2, h3, p {
 
 .site-form-field input:focus,
 .site-form-field textarea:focus {
-  outline: 2px solid color-mix(in srgb, var(--site-accent) 55%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--site-form-field-focus, var(--site-accent)) 55%, transparent);
   outline-offset: 1px;
 }
 

@@ -33,6 +33,7 @@ import { isAttachmentPlacementRequest } from "@/lib/ai/conversation-attachments"
 import type { AttachmentContext } from "@/lib/ai/conversation-attachments";
 import { isImageEditRequest } from "@/lib/ai/image-agent";
 import { routeIntent } from "@/lib/ai/intent-router";
+import { isSurfaceStyleRequest } from "@/lib/ai/surface-styling";
 import {
   extractNaturalLanguageEditPlan,
   shouldExecuteNlEditPlan,
@@ -70,6 +71,7 @@ export const COMMAND_KINDS = [
   "spacing",
   "hero_readability",
   "readability",
+  "surface_style",
   "branding",
   "navigation",
   "content",
@@ -338,6 +340,7 @@ const COMMAND_RULES: CommandRule[] = [
       { id: "cmd.brand", agent: "editor_agent", label: "Apply theme and color updates" },
     ],
   },
+  // NOTE: surface_style is handled as an early short-circuit in stageExplicitCommand.
   {
     kind: "publishing",
     pattern:
@@ -520,6 +523,41 @@ export function stageExplicitCommand(
         memoryPatch: inferMemoryFromMessage(request),
         decisionStage: "explicit_command",
         commandKind: "images",
+      }),
+    };
+  }
+
+  // Local surface styling (text boxes / form fields) — never global branding.
+  if (isSurfaceStyleRequest(request)) {
+    return {
+      stage: "explicit_command",
+      commandKind: "surface_style",
+      decision: withConfidencePolicy({
+        intent: "explicit_design_edit",
+        confidence: 0.98,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Update local surface styling",
+          [
+            {
+              id: "cmd.surface",
+              agent: "editor_agent",
+              label: "Style form fields or text panels",
+            },
+          ],
+          "medium",
+        ),
+        explanation: "I’ll update those surfaces without changing your brand colors.",
+        followUpSuggestions: [
+          "Restore the gold accent",
+          "Make the hero more readable",
+          "Review my website",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "explicit_command",
+        commandKind: "surface_style",
+        shouldExecuteEdits: true,
       }),
     };
   }

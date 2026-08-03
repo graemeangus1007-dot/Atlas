@@ -55,6 +55,7 @@ import {
   analyzeHeroReadability,
   buildHeroReadabilityDiagnostics,
   buildHeroReadabilityExplanation,
+  captureBrandPalette,
   defaultHeroPreservationContext,
   filterOperationsForBrandPreservation,
   isBrandRegressionComplaint,
@@ -66,6 +67,12 @@ import {
   withHeroReadabilityRepairLevel,
   type ProtectedBrandPalette,
 } from "@/lib/ai/hero-readability";
+import {
+  isSurfaceStyleRequest,
+  planSurfaceStyleOperations,
+  surfaceStyleChangedProtectedPalette,
+} from "@/lib/ai/surface-styling";
+import { NAMED_COLORS } from "@/lib/ai/named-colors";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
   formatNaturalPreferenceNote,
@@ -459,6 +466,88 @@ async function tryContinueActionMemory(input: {
     );
     const confirmation = detectActionConfirmation(input.request);
 
+    // Typed color clarification (e.g. user replies “gold”).
+    if (
+      matched?.resolvedColor &&
+      (matched.destination === "restore_accent" ||
+        matched.destination === "restore_palette" ||
+        memory.pendingClarification.kind === "color")
+    ) {
+      const accent = matched.resolvedColor;
+      const before = input.project;
+      const ops = validateEditOperations([
+        {
+          operation: "changeTheme",
+          accent,
+          ...(matched.destination === "restore_palette" &&
+          accent === NAMED_COLORS.gold
+            ? {}
+            : {}),
+        },
+      ]);
+      const applied = applyEditOperations(before, ops);
+      const cleared = withActionMemory(
+        applied.project,
+        clearPendingClarification(memory),
+      );
+      const project = rememberExecution(
+        cleared,
+        input.request,
+        {
+          success: cleared.accentColor === accent,
+          verified: cleared.accentColor === accent,
+          operationType: "restoreAccentColor",
+          verificationFailures:
+            cleared.accentColor === accent
+              ? []
+              : ["accentColor not restored"],
+          createdEntities: [],
+          modifiedEntities: ["accentColor"],
+          warnings: [],
+          explanation: `Done. I restored the ${matched.answer} accent and left your other local styling in place.`,
+        },
+        ops,
+        { paletteBefore: captureBrandPalette(before), scope: "global" },
+      );
+      return {
+        ok: true,
+        explanation: `Done. I restored the ${matched.answer} accent and left your other local styling in place.`,
+        operations: ops,
+        changes: applied.changes,
+        project,
+        applyStatus: "applied",
+        decision: {
+          intent: "continue_plan",
+          confidence: 0.99,
+          selectedAgents: ["editor_agent"],
+          needsClarification: false,
+          executionPlan: {
+            goal: "Restore accent color",
+            steps: [
+              {
+                id: "brand.accent",
+                agent: "editor_agent",
+                label: "Restore the accent color",
+              },
+            ],
+            estimatedImpact: "medium",
+          },
+          explanation: "Restore accent from clarification.",
+          followUpSuggestions: [
+            "Make the hero more readable",
+            "Review my website",
+          ],
+          decisionStage: "continuation",
+          commandKind: "brand_restore",
+        },
+        followUpSuggestions: [
+          "Make the hero more readable",
+          "Review my website",
+        ],
+        atlasMemory: project.atlasMemory,
+      };
+    }
+
     if (matched?.destination === "other") {
       const cleared = withActionMemory(
         withMemory(input.project, input.request),
@@ -637,13 +726,28 @@ function tryRestoreBrandPalette(input: {
   const last = memory.lastExecution;
   const palette = last?.paletteBefore;
   if (!palette) {
+    const withPending = withActionMemory(
+      input.project,
+      storePendingClarification(memory, {
+        question:
+          "You’re right to flag the colors — that update shouldn’t change your brand palette. Tell me the accent you’d like restored (for example, gold).",
+        kind: "color",
+        destination: "restore_accent",
+        resolveTo: "accentColor",
+        allowedAnswers: ["gold", "green", "navy", "cream", "white"],
+        context: {
+          reason: "brand_regression",
+          priorRequest: last?.request ?? null,
+        },
+      }),
+    );
     return {
       ok: true,
       explanation:
-        "You’re right to flag the colors — a readability fix shouldn’t change your brand palette. I don’t have the prior palette saved on this session, so tell me the accent you’d like restored (for example, gold).",
+        "You’re right to flag the colors — that update shouldn’t change your brand palette. I don’t have the prior palette saved on this session, so tell me the accent you’d like restored (for example, gold).",
       operations: [],
       changes: [],
-      project: input.project,
+      project: withPending,
       applyStatus: "needs_clarification",
       decision: {
         intent: "continue_plan",
@@ -662,11 +766,11 @@ function tryRestoreBrandPalette(input: {
           estimatedImpact: "medium",
         },
         explanation: "Restore protected brand colors.",
-        followUpSuggestions: ["Use green and gold", "Strengthen the hero overlay"],
+        followUpSuggestions: ["gold", "Use green and gold", "Strengthen the hero overlay"],
         decisionStage: "continuation",
         commandKind: "brand_restore",
       },
-      followUpSuggestions: ["Use green and gold", "Strengthen the hero overlay"],
+      followUpSuggestions: ["gold", "Use green and gold", "Strengthen the hero overlay"],
     };
   }
 
@@ -682,6 +786,11 @@ function tryRestoreBrandPalette(input: {
     restored.primaryColor !== input.project.primaryColor ||
     restored.backgroundColor !== input.project.backgroundColor;
 
+  const keptSurfaces = Boolean(input.project.componentSurfaces?.formFields);
+  const explanation = keptSurfaces
+    ? "You’re right—the text-box update should not have changed the gold accent. I restored it and kept the light-green styling local to the form fields."
+    : "You’re right—that update should not have changed your brand colors. I restored your previous palette and will keep local styling scoped.";
+
   const project = rememberExecution(
     restored,
     input.request,
@@ -695,8 +804,7 @@ function tryRestoreBrandPalette(input: {
         ? ["primaryColor", "accentColor", "secondaryColor", "backgroundColor"]
         : [],
       warnings: [],
-      explanation:
-        "You’re right—the readability fix should not have changed your brand colors. I restored your previous palette and will keep contrast fixes local to the hero.",
+      explanation,
     },
     [],
     { paletteBefore: palette, scope: "hero" },
@@ -704,8 +812,7 @@ function tryRestoreBrandPalette(input: {
 
   return {
     ok: true,
-    explanation:
-      "You’re right—the readability fix should not have changed your brand colors. I restored your previous palette and will keep contrast fixes local to the hero.",
+    explanation,
     operations: changed
       ? validateEditOperations([
           {
@@ -745,6 +852,137 @@ function tryRestoreBrandPalette(input: {
       commandKind: "brand_restore",
     },
     followUpSuggestions: ["Strengthen the hero overlay"],
+  };
+}
+
+function tryApplySurfaceStyle(input: {
+  project: BusinessProject;
+  request: string;
+}): AtlasBrainResult | null {
+  if (!isSurfaceStyleRequest(input.request)) return null;
+
+  const planned = planSurfaceStyleOperations({
+    request: input.request,
+    project: input.project,
+  });
+
+  if (!planned.ok) {
+    if (planned.needsClarification) {
+      return {
+        ok: true,
+        explanation: planned.explanation,
+        operations: [],
+        changes: [],
+        project: input.project,
+        applyStatus: "needs_clarification",
+        decision: {
+          intent: "clarification",
+          confidence: 0.9,
+          selectedAgents: ["editor_agent"],
+          needsClarification: true,
+          executionPlan: {
+            goal: "Clarify surface target",
+            steps: [],
+            estimatedImpact: "low",
+          },
+          explanation: planned.explanation,
+          followUpSuggestions: [
+            "Make the contact-form fields light green",
+            "Make the text panels light green",
+          ],
+          decisionStage: "clarification",
+          commandKind: "surface_style",
+        },
+        followUpSuggestions: [
+          "Make the contact-form fields light green",
+          "Make the text panels light green",
+        ],
+      };
+    }
+    return null;
+  }
+
+  const paletteBefore = captureBrandPalette(input.project);
+  const ops = validateEditOperations(planned.operations);
+  const applied = applyEditOperations(input.project, ops);
+  const protectedChanged = surfaceStyleChangedProtectedPalette(
+    input.project,
+    applied.project,
+  );
+  if (protectedChanged) {
+    // Hard guard — never allow local surface styling to rewrite brand tokens.
+    applied.project = restoreBrandPalette(applied.project, paletteBefore);
+  }
+
+  const verified =
+    applied.project.componentSurfaces?.formFields?.backgroundColor ===
+      planned.backgroundColor ||
+    applied.project.componentSurfaces?.textPanels?.backgroundColor ===
+      planned.backgroundColor ||
+    applied.project.componentSurfaces?.cards?.backgroundColor ===
+      planned.backgroundColor;
+
+  const accentUnchanged =
+    applied.project.accentColor === input.project.accentColor;
+
+  const project = rememberExecution(
+    applied.project,
+    input.request,
+    {
+      success: verified && accentUnchanged,
+      verified: verified && accentUnchanged,
+      operationType: "setComponentSurface",
+      verificationFailures: [
+        ...(!verified ? ["surface style not applied"] : []),
+        ...(!accentUnchanged ? ["protected accent changed"] : []),
+      ],
+      createdEntities: [],
+      modifiedEntities: verified ? ["componentSurfaces"] : [],
+      warnings: [],
+      explanation: planned.explanation,
+    },
+    ops,
+    { paletteBefore, scope: "unknown" },
+  );
+
+  return {
+    ok: true,
+    explanation: planned.explanation,
+    operations: ops,
+    changes: applied.changes,
+    project,
+    applyStatus: verified ? "applied" : "no_changes",
+    decision: {
+      intent: "explicit_design_edit",
+      confidence: 0.98,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: {
+        goal: "Update local surface styling",
+        steps: [
+          {
+            id: "cmd.surface",
+            agent: "editor_agent",
+            label: "Style form fields or text panels",
+          },
+        ],
+        estimatedImpact: "medium",
+      },
+      explanation: planned.explanation,
+      followUpSuggestions: [
+        "Restore the gold accent",
+        "Make the hero more readable",
+        "Review my website",
+      ],
+      decisionStage: "explicit_command",
+      commandKind: "surface_style",
+      shouldExecuteEdits: true,
+    },
+    followUpSuggestions: [
+      "Restore the gold accent",
+      "Make the hero more readable",
+      "Review my website",
+    ],
   };
 }
 
@@ -951,6 +1189,22 @@ export async function runAtlasBrain(
         brandRestored.followUpSuggestions ?? [],
       ),
       atlasMemory: brandRestored.project.atlasMemory,
+    };
+  }
+
+  // Scoped surface styling (text boxes / form fields) — never global theme.
+  const surfaceStyled = tryApplySurfaceStyle({
+    project: projectForTurn,
+    request,
+  });
+  if (surfaceStyled) {
+    return {
+      ...surfaceStyled,
+      followUpSuggestions: followUpsForProject(
+        surfaceStyled.project,
+        surfaceStyled.followUpSuggestions ?? [],
+      ),
+      atlasMemory: surfaceStyled.project.atlasMemory,
     };
   }
 
@@ -1929,10 +2183,13 @@ export async function runAtlasBrain(
   }
 
   // Design System Intelligence — auto-choose language when confidence is high
+  // Never auto-apply a design language over scoped surface styling.
   if (
-    decision.intent === "feel_direction" ||
-    decision.intent === "multi_goal" ||
-    decision.intent === "explicit_design_edit"
+    decision.commandKind !== "surface_style" &&
+    !isSurfaceStyleRequest(request) &&
+    (decision.intent === "feel_direction" ||
+      decision.intent === "multi_goal" ||
+      decision.intent === "explicit_design_edit")
   ) {
     const resolution = resolveDesignSystem(
       designSystemInputFromProject(project, request),
@@ -2108,6 +2365,7 @@ export async function runAtlasBrain(
     applyStatus === "applied" &&
     (decision.commandKind === "section_order" ||
       decision.commandKind === "hero_readability" ||
+      decision.commandKind === "surface_style" ||
       decision.commandKind === "animations" ||
       decision.commandKind === "remove_animations" ||
       decision.intent === "command_animations");
@@ -2161,6 +2419,40 @@ export async function runAtlasBrain(
         "Would you like me to:",
         ...followUps.map((item) => `• ${item}`),
       ].join("\n"),
+    );
+  }
+
+  // Persist paletteBefore whenever theme tokens may have changed (brand repair).
+  if (
+    applyStatus === "applied" &&
+    operations.some((op) => op.operation === "changeTheme")
+  ) {
+    const themeOps = operations.filter(
+      (op): op is EditOperation => op.operation === "changeTheme",
+    );
+    project = rememberExecution(
+      project,
+      request,
+      {
+        success: true,
+        verified: true,
+        operationType: "changeTheme",
+        verificationFailures: [],
+        createdEntities: [],
+        modifiedEntities: [
+          "primaryColor",
+          "accentColor",
+          "secondaryColor",
+          "backgroundColor",
+        ],
+        warnings: [],
+        explanation,
+      },
+      themeOps,
+      {
+        paletteBefore: captureBrandPalette(projectForTurn),
+        scope: "global",
+      },
     );
   }
 

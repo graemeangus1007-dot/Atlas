@@ -11,6 +11,7 @@ import {
   resolveNamedColor,
   NAMED_COLORS,
 } from "@/lib/ai/named-colors";
+import { isSurfaceStyleRequest } from "@/lib/ai/surface-styling";
 import {
   buildHeroReadabilityExplanation,
   isHeroReadabilityRequest,
@@ -454,6 +455,20 @@ export function extractNaturalLanguageEditPlan(input: {
       explanation: ATLAS_VOICE.lowConfidence,
       categories: [],
       matchedSignals: ["ambiguous"],
+      plannerVersion: NL_EDIT_PLANNER_VERSION,
+    };
+  }
+
+  // Local surface styling must not become a theme rewrite.
+  if (isSurfaceStyleRequest(request)) {
+    return {
+      intent: "ambiguous",
+      confidence: 0.2,
+      steps: [],
+      operations: [],
+      explanation: "",
+      categories: [],
+      matchedSignals: ["surface_style"],
       plannerVersion: NL_EDIT_PLANNER_VERSION,
     };
   }

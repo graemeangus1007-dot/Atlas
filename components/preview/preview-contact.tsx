@@ -120,27 +120,27 @@ export default function PreviewContact({
         <div className="mt-3 space-y-3">
           <div>
             <p className="text-xs text-muted">Name</p>
-            <div className="mt-1 h-9 rounded-lg border border-border bg-surface/50" />
+            <div className="mt-1 h-9 rounded-lg border border-[color:var(--site-form-field-border,var(--border))] bg-[color:var(--site-form-field-bg,var(--surface))]" />
           </div>
           <div>
             <p className="text-xs text-muted">Email</p>
-            <div className="mt-1 h-9 rounded-lg border border-border bg-surface/50" />
+            <div className="mt-1 h-9 rounded-lg border border-[color:var(--site-form-field-border,var(--border))] bg-[color:var(--site-form-field-bg,var(--surface))]" />
           </div>
           {contact.form?.showPhoneField !== false ? (
             <div>
               <p className="text-xs text-muted">Phone</p>
-              <div className="mt-1 h-9 rounded-lg border border-border bg-surface/50" />
+              <div className="mt-1 h-9 rounded-lg border border-[color:var(--site-form-field-border,var(--border))] bg-[color:var(--site-form-field-bg,var(--surface))]" />
             </div>
           ) : null}
           {contact.form?.showCompanyField ? (
             <div>
               <p className="text-xs text-muted">Company</p>
-              <div className="mt-1 h-9 rounded-lg border border-border bg-surface/50" />
+              <div className="mt-1 h-9 rounded-lg border border-[color:var(--site-form-field-border,var(--border))] bg-[color:var(--site-form-field-bg,var(--surface))]" />
             </div>
           ) : null}
           <div>
             <p className="text-xs text-muted">Message</p>
-            <div className="mt-1 h-20 rounded-lg border border-border bg-surface/50" />
+            <div className="mt-1 h-20 rounded-lg border border-[color:var(--site-form-field-border,var(--border))] bg-[color:var(--site-form-field-bg,var(--surface))]" />
           </div>
           <div className="inline-flex rounded-xl bg-[color:var(--site-accent)] px-4 py-2 text-sm font-medium text-background">
             {contact.form?.buttonText || "Send message"}

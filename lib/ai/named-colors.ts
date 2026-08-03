@@ -10,6 +10,8 @@ export const NAMED_COLORS = {
   navy: "#0b1d36",
   emerald: "#047857",
   green: "#0f766e",
+  /** Soft fill for form fields / panels — readable, not neon. */
+  lightGreen: "#dcfce7",
   forestGreen: "#14532d",
   sage: "#6b8f71",
   olive: "#556b2f",
@@ -36,6 +38,7 @@ const NAME_ALIASES: Array<{ id: NamedColorId; pattern: RegExp }> = [
   { id: "navy", pattern: /\bnavys?\b|\bnavy blue\b/i },
   { id: "emerald", pattern: /\bemeralds?\b/i },
   { id: "forestGreen", pattern: /\bforest\s+greens?\b/i },
+  { id: "lightGreen", pattern: /\blight\s+greens?\b|\bpale\s+greens?\b|\bsoft\s+greens?\b/i },
   { id: "sage", pattern: /\bsages?\b/i },
   { id: "olive", pattern: /\bolives?\b/i },
   { id: "green", pattern: /\bgreens?\b/i },
@@ -60,6 +63,9 @@ export function resolveNamedColor(raw: string): string | null {
   const trimmed = raw.trim().toLowerCase();
   if (!trimmed) return null;
   if (trimmed === "forest green") return NAMED_COLORS.forestGreen;
+  if (trimmed === "light green" || trimmed === "pale green" || trimmed === "soft green") {
+    return NAMED_COLORS.lightGreen;
+  }
   if (trimmed in NAMED_COLORS) {
     return NAMED_COLORS[trimmed as NamedColorId];
   }

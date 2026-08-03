@@ -268,6 +268,15 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
     }
     case "setHeroOverlay":
       return { id, label: "Hero overlay strengthened", ok: true };
+    case "setComponentSurface": {
+      const label =
+        op.target === "form_fields"
+          ? "Form field styling updated"
+          : op.target === "text_panels"
+            ? "Text panel styling updated"
+            : "Card styling updated";
+      return { id, label, ok: true };
+    }
     default: {
       const _exhaustive: never = op;
       return _exhaustive;
@@ -573,6 +582,30 @@ export function applyEditOperations(
       case "setHeroOverlay":
         next = { ...next, heroOverlay: op.value };
         break;
+      case "setComponentSurface": {
+        const key =
+          op.target === "form_fields"
+            ? "formFields"
+            : op.target === "text_panels"
+              ? "textPanels"
+              : "cards";
+        next = {
+          ...next,
+          componentSurfaces: {
+            ...(next.componentSurfaces ?? {}),
+            [key]: {
+              ...(next.componentSurfaces?.[key] ?? {}),
+              backgroundColor: op.backgroundColor,
+              ...(op.textColor ? { textColor: op.textColor } : {}),
+              ...(op.borderColor ? { borderColor: op.borderColor } : {}),
+              ...(op.focusColor && key === "formFields"
+                ? { focusColor: op.focusColor }
+                : {}),
+            },
+          },
+        };
+        break;
+      }
       default: {
         const _exhaustive: never = op;
         return _exhaustive;

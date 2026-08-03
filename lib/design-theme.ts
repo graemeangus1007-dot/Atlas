@@ -86,6 +86,18 @@ export function buildSiteDesignStyle(
     "--site-secondary": project.secondaryColor,
     "--site-accent": accent,
     "--site-accent-soft": accentToSoft(accent),
+    "--site-form-field-bg":
+      project.componentSurfaces?.formFields?.backgroundColor || surface,
+    "--site-form-field-fg":
+      project.componentSurfaces?.formFields?.textColor || fg,
+    "--site-form-field-border":
+      project.componentSurfaces?.formFields?.borderColor || border,
+    "--site-form-field-focus":
+      project.componentSurfaces?.formFields?.focusColor || accent,
+    "--site-text-panel-bg":
+      project.componentSurfaces?.textPanels?.backgroundColor || surface,
+    "--site-card-bg":
+      project.componentSurfaces?.cards?.backgroundColor || surface,
     "--site-heading-font": fontCssVar(project.headingFont, HEADING_FONTS),
     "--site-body-font": fontCssVar(project.bodyFont, BODY_FONTS),
     "--site-button-radius": buttonRadius(project.buttonStyle),
