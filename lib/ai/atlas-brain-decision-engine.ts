@@ -29,6 +29,8 @@ import {
   shouldOverridePendingClarification,
 } from "@/lib/ai/critique-request";
 import { detectPreferredLanguage } from "@/lib/ai/design-system-intelligence";
+import { isAttachmentPlacementRequest } from "@/lib/ai/conversation-attachments";
+import type { AttachmentContext } from "@/lib/ai/conversation-attachments";
 import { isImageEditRequest } from "@/lib/ai/image-agent";
 import { routeIntent } from "@/lib/ai/intent-router";
 import {
@@ -83,6 +85,7 @@ export type AtlasDecisionEngineInput = {
   request: string;
   project: BusinessProject;
   history?: Array<{ role: string; content: string }>;
+  attachmentContexts?: AttachmentContext[];
 };
 
 export type AtlasDecisionEngineResult = {
@@ -466,7 +469,13 @@ export function stageExplicitCommand(
   const request = input.request.trim();
 
   // Image agent short-circuit when clearly image-only and not a feel request
-  if (isImageEditRequest(request) && !FEEL_DIRECTION.test(request)) {
+  const attachmentPlacement =
+    (input.attachmentContexts?.length ?? 0) > 0 &&
+    isAttachmentPlacementRequest(request);
+  if (
+    (isImageEditRequest(request) || attachmentPlacement) &&
+    !FEEL_DIRECTION.test(request)
+  ) {
     const alsoCopy =
       /\b(and|also|then)\b/i.test(request) &&
       /\b(headline|cta|button|copy|text|faq|testimonial)\b/i.test(request);

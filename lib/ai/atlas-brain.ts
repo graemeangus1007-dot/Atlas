@@ -877,6 +877,7 @@ export function planAtlasBrain(input: EditorAgentInput): AtlasBrainDecision {
     request,
     project: input.project,
     history,
+    attachmentContexts: input.attachmentContexts,
   });
 }
 
@@ -1137,6 +1138,7 @@ export async function runAtlasBrain(
     request,
     project: projectForTurn,
     history,
+    attachmentContexts: input.attachmentContexts,
   });
 
   const atlasRequestId =
@@ -1972,6 +1974,7 @@ export async function runAtlasBrain(
       request,
       history,
       editorState: input.imageEditorState,
+      attachmentContexts: input.attachmentContexts,
     });
     if (imageResult.applyStatus === "applied") {
       project = imageResult.project;

@@ -11,6 +11,7 @@ import {
   isAiError,
   tryRunEditorAgent,
 } from "@/lib/ai";
+import type { AttachmentContext } from "@/lib/ai/conversation-attachments";
 import type { EditorAgentHistoryItem } from "@/lib/ai/editor-agent";
 import type { ImageEditorState } from "@/lib/ai/image-agent";
 import { checkDomainRateLimit } from "@/lib/domains/rate-limit";
@@ -26,6 +27,7 @@ type EditBody = {
   message?: string;
   history?: EditorAgentHistoryItem[];
   imageEditorState?: ImageEditorState | null;
+  attachmentContexts?: AttachmentContext[];
 };
 
 /**
@@ -65,11 +67,25 @@ export async function POST(request: Request) {
       return badRequest("project is required.", requestId, "missing_project");
     }
 
+    const attachmentContexts = Array.isArray(body.attachmentContexts)
+      ? body.attachmentContexts.filter(
+          (item): item is AttachmentContext =>
+            Boolean(item) &&
+            typeof item === "object" &&
+            typeof item.attachmentId === "string" &&
+            typeof item.assetId === "string" &&
+            (item.type === "image" || item.type === "logo") &&
+            typeof item.filename === "string" &&
+            typeof item.position === "number",
+        )
+      : undefined;
+
     const result = await tryRunEditorAgent({
       project: body.project,
       request: prompt,
       history: body.history,
       imageEditorState: body.imageEditorState,
+      attachmentContexts,
       atlasRequestId: requestId,
     });
 

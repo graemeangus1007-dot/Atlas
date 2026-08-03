@@ -13,6 +13,7 @@ import {
   type DesignReasoningResult,
 } from "@/lib/ai/design-reasoner";
 import { designFromTone } from "@/lib/ai/tone-design";
+import type { AttachmentContext } from "@/lib/ai/conversation-attachments";
 import {
   type EditorConversation,
   type EditorConversationMessage,
@@ -54,6 +55,8 @@ export type EditorAgentInput = {
   history?: EditorAgentHistoryItem[] | EditorConversation | EditorConversationMessage[];
   /** Optional image selection cues for “this / that image”. */
   imageEditorState?: ImageEditorState | null;
+  /** Composer attachments already uploaded for this turn (no raw bytes). */
+  attachmentContexts?: AttachmentContext[];
   /** Atlas HTTP / client request id for OpenAI correlation (Sprint 28.0B). */
   atlasRequestId?: string | null;
 };

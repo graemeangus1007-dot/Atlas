@@ -8,7 +8,12 @@
  */
 
 import { applyImageOperations } from "@/lib/ai/apply-image-operations";
+import {
+  attachmentAssetsPresent,
+  resolveAttachmentImageRequest,
+} from "@/lib/ai/attachment-resolver";
 import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
+import type { AttachmentContext } from "@/lib/ai/conversation-attachments";
 import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
 import type {
   ImageChangeSummary,
@@ -41,6 +46,8 @@ export type ImageAgentInput = {
   request: string;
   history?: ImageAgentHistoryItem[];
   editorState?: ImageEditorState | null;
+  /** Uploaded composer attachments for this message (stable asset ids). */
+  attachmentContexts?: AttachmentContext[];
 };
 
 export type ImageAgentApplyStatus =
@@ -321,6 +328,51 @@ export function planImageOperations(input: ImageAgentInput): ImagePlanResult {
     lastImageRef: input.editorState?.lastImageRef ?? null,
     selectedImageRef: input.editorState?.selectedImageRef ?? null,
   };
+
+  // --- Composer attachments (prefer over fuzzy library search) ---
+  const attachmentContexts = input.attachmentContexts ?? [];
+  if (attachmentContexts.length > 0) {
+    const resolved = resolveAttachmentImageRequest({
+      request,
+      attachments: attachmentContexts,
+      project: input.project,
+    });
+    if (resolved) {
+      if (!resolved.ok) {
+        return {
+          operations: [],
+          explanation: resolved.explanation,
+          needsClarification: resolved.needsClarification,
+          editorState,
+        };
+      }
+      const present = attachmentAssetsPresent(
+        input.project,
+        resolved.operations,
+      );
+      if (!present.ok) {
+        return {
+          operations: [],
+          explanation:
+            "Those photos finished uploading, but I could not find them in the project yet. Please try sending again.",
+          needsClarification: false,
+          editorState,
+        };
+      }
+      for (const op of resolved.operations) {
+        operations.push(op);
+      }
+      notes.push(resolved.explanation);
+      const first = attachmentContexts[0];
+      if (first) {
+        editorState = {
+          ...editorState,
+          lastImageRef: { kind: "library", assetId: first.assetId },
+        };
+      }
+      return { operations, explanation: notes.join(" "), editorState };
+    }
+  }
 
   // --- Move gallery ---
   if (/\bmove\b/.test(text) && /\bgallery\b/.test(text)) {
@@ -661,6 +713,24 @@ export function runImageAgent(input: ImageAgentInput): ImageAgentResult {
   const applied = applyImageOperations(input.project, operations);
   const changed = hasMeaningfulProjectDiff(input.project, applied.project);
 
+  // Attachment placements: never claim success if the target asset is wrong.
+  if (
+    changed &&
+    (input.attachmentContexts?.length ?? 0) > 0 &&
+    !verifyAttachmentPlacement(applied.project, operations)
+  ) {
+    return {
+      ok: true,
+      explanation:
+        "I uploaded the photo, but could not confirm it was placed on the site. Please try again.",
+      operations: [],
+      changes: [],
+      project: input.project,
+      applyStatus: "no_changes",
+      editorState: planned.editorState,
+    };
+  }
+
   return {
     ok: true,
     explanation: changed
@@ -672,6 +742,28 @@ export function runImageAgent(input: ImageAgentInput): ImageAgentResult {
     applyStatus: changed ? "applied" : "no_changes",
     editorState: planned.editorState,
   };
+}
+
+function verifyAttachmentPlacement(
+  project: BusinessProject,
+  operations: ImageOperation[],
+): boolean {
+  for (const op of operations) {
+    if (op.operation === "replaceHeroImage") {
+      if (project.heroImageId !== op.assetId) return false;
+    } else if (op.operation === "setLogo") {
+      if (project.logoAssetId !== op.assetId) return false;
+    } else if (op.operation === "setSectionImage") {
+      if (project.sectionImages?.[op.section] !== op.assetId) return false;
+    } else if (op.operation === "replaceGalleryImage") {
+      if (project.galleryImageIds?.[op.index] !== op.assetId) return false;
+    } else if (op.operation === "insertImage" && op.galleryIndex !== undefined) {
+      if (project.galleryImageIds?.[op.galleryIndex] !== op.assetId) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 export function tryRunImageAgent(

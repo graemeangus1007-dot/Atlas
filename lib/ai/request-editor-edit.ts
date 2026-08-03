@@ -10,6 +10,7 @@ import {
   type EditorAgentHistoryItem,
   type EditorAgentResult,
 } from "@/lib/ai/editor-agent";
+import type { AttachmentContext } from "@/lib/ai/conversation-attachments";
 import type { ImageEditorState } from "@/lib/ai/image-agent";
 import type { BusinessProject } from "@/types/business-project";
 
@@ -46,6 +47,7 @@ export async function requestEditorAgentEdit(input: {
   history?: EditorAgentHistoryItem[];
   projectId?: string | null;
   imageEditorState?: ImageEditorState | null;
+  attachmentContexts?: AttachmentContext[];
 }): Promise<EditorEditClientResult> {
   const requestId = createClientRequestId();
 
@@ -62,6 +64,7 @@ export async function requestEditorAgentEdit(input: {
         request: input.request,
         history: input.history,
         imageEditorState: input.imageEditorState ?? undefined,
+        attachmentContexts: input.attachmentContexts ?? undefined,
       }),
     });
 
@@ -74,6 +77,7 @@ export async function requestEditorAgentEdit(input: {
         request: input.request,
         history: input.history,
         imageEditorState: input.imageEditorState,
+        attachmentContexts: input.attachmentContexts,
       });
       return { ...local, requestId: headerId };
     }
@@ -147,6 +151,7 @@ export async function requestEditorAgentEdit(input: {
       request: input.request,
       history: input.history,
       imageEditorState: input.imageEditorState,
+      attachmentContexts: input.attachmentContexts,
     });
     return { ...local, requestId };
   }

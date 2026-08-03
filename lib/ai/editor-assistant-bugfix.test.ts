@@ -133,6 +133,40 @@ describe("persistence after reload", () => {
     expect(localShape.snapshots[0]?.after.designSections?.enabled).toContain("faq");
     expect(meta.conversation.messages).toHaveLength(2);
   });
+
+  it("persists uploaded attachment metadata without blob: URLs", () => {
+    let convo = createEmptyEditorConversation();
+    convo = appendConversationMessage(convo, {
+      role: "user",
+      content: "Use this as the hero image.",
+      attachments: [
+        {
+          id: "att-1",
+          type: "image",
+          projectId: "proj-1",
+          assetId: "asset-1",
+          storagePath: "user/proj-1/file.jpg",
+          filename: "hero.jpg",
+          mimeType: "image/jpeg",
+          sizeBytes: 2048,
+          status: "uploaded",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          previewUrl: "blob:http://localhost/temp",
+          localObjectUrl: "blob:http://localhost/temp",
+        },
+      ],
+    });
+    const meta = buildDesignAssistantMeta({
+      conversation: convo,
+      revisionStack: createEmptyRevisionStack(),
+      lastChanges: null,
+    });
+    const saved = meta.conversation.messages[0]?.attachments?.[0];
+    expect(saved?.assetId).toBe("asset-1");
+    expect(saved?.previewUrl).toBeUndefined();
+    expect(saved?.localObjectUrl).toBeUndefined();
+    expect(JSON.stringify(meta)).not.toMatch(/blob:/);
+  });
 });
 
 describe("API failure surfaces an error", () => {

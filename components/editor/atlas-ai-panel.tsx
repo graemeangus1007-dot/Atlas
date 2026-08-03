@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type DragEvent,
 } from "react";
 import AtlasActivePlanBar from "@/components/editor/atlas-active-plan-bar";
 import AtlasAiHeader from "@/components/editor/atlas-ai-header";
@@ -23,6 +24,7 @@ import type {
   AtlasAiPanelProps,
   AtlasPanelView,
 } from "@/components/editor/atlas-ai-panel-types";
+import { useComposerAttachments } from "@/hooks/use-composer-attachments";
 import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import { parseCritiqueAssistantContent } from "@/lib/ai/critique-fallback-presentation";
 import { parseCritiqueMessage } from "@/lib/ai/critique-message-presentation";
@@ -75,6 +77,7 @@ export default function AtlasAiPanel({
   applyingRecommendationId = null,
   recommendationStates = {},
   onSend,
+  onMediaAssetsAdded,
   onUndo,
   onRedo,
   onApplyRecommendation,
@@ -92,6 +95,12 @@ export default function AtlasAiPanel({
   const [dismissedFollowUpKey, setDismissedFollowUpKey] = useState<
     string | null
   >(null);
+  const [panelDragOver, setPanelDragOver] = useState(false);
+
+  const composerAttachments = useComposerAttachments({
+    projectId,
+    onAssetUploaded: (asset) => onMediaAssetsAdded?.([asset]),
+  });
 
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -269,9 +278,35 @@ export default function AtlasAiPanel({
   }, [status, applyingRecommendationId, focusComposer]);
 
   function handleSubmit(value: string) {
+    if (
+      composerAttachments.attachments.length > 0 &&
+      (!composerAttachments.ready || composerAttachments.uploading)
+    ) {
+      return;
+    }
     stickToBottomRef.current = true;
+    const persisted = composerAttachments.persistedForMessage();
     setDraft("");
-    onSend(value);
+    composerAttachments.clearAttachments();
+    onSend(value, persisted.length ? persisted : undefined);
+  }
+
+  function handlePanelDragOver(event: DragEvent) {
+    if (![...event.dataTransfer.types].includes("Files")) return;
+    event.preventDefault();
+    setPanelDragOver(true);
+  }
+
+  function handlePanelDragLeave(event: DragEvent) {
+    event.preventDefault();
+    setPanelDragOver(false);
+  }
+
+  function handlePanelDrop(event: DragEvent) {
+    event.preventDefault();
+    setPanelDragOver(false);
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (files.length) composerAttachments.ingestDroppedOrPastedFiles(files);
   }
 
   function handleUndo() {
@@ -308,12 +343,24 @@ export default function AtlasAiPanel({
 
   return (
     <aside
-      className="flex h-full min-h-0 w-full flex-col border-l border-border bg-surface/95 backdrop-blur-xl"
+      className="relative flex h-full min-h-0 w-full flex-col border-l border-border bg-surface/95 backdrop-blur-xl"
       aria-label="Atlas"
       aria-busy={sending || undefined}
       data-testid="atlas-ai-panel"
       data-view={view}
+      onDragOver={handlePanelDragOver}
+      onDragLeave={handlePanelDragLeave}
+      onDrop={handlePanelDrop}
     >
+      {panelDragOver ? (
+        <div
+          className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-accent/10 text-sm font-medium text-foreground backdrop-blur-[1px]"
+          data-testid="atlas-panel-drop-overlay"
+          aria-hidden
+        >
+          Drop photos to attach
+        </div>
+      ) : null}
       <AtlasAiHeader
         status={status}
         applying={Boolean(applyingRecommendationId)}
@@ -411,6 +458,10 @@ export default function AtlasAiPanel({
               onReviewPlan={() => openSecondaryView("plan")}
               onApplyAll={handleApplyAll}
               onViewChanges={() => openSecondaryView("changes")}
+              resolveAttachmentPreviewUrl={(assetId) =>
+                project.mediaLibrary?.find((asset) => asset.id === assetId)
+                  ?.url
+              }
             />
 
             {showPlanBar ? (
@@ -450,6 +501,24 @@ export default function AtlasAiPanel({
               onFollowUpSuggestion={onFollowUpSuggestion}
               onDismissFollowUps={() => setDismissedFollowUpKey(followUpKey)}
               showFollowUps={showFollowUps}
+              attachments={composerAttachments.attachments}
+              attachmentError={composerAttachments.error}
+              onUploadPhotos={(files) => {
+                void composerAttachments.enqueueFiles(files, "image");
+              }}
+              onUploadLogo={(files) => {
+                void composerAttachments.enqueueFiles(files, "logo");
+              }}
+              onAttachExisting={(assets) => {
+                composerAttachments.attachExistingAssets(assets, "image");
+              }}
+              onRemoveAttachment={composerAttachments.removeAttachment}
+              onRetryAttachment={composerAttachments.retryAttachment}
+              onMoveAttachment={composerAttachments.moveAttachment}
+              onIngestFiles={composerAttachments.ingestDroppedOrPastedFiles}
+              projectMedia={project.mediaLibrary ?? []}
+              attachmentsReady={composerAttachments.ready}
+              attachmentsUploading={composerAttachments.uploading}
             />
           </>
         ) : null}

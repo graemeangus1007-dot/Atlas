@@ -23,6 +23,8 @@ type AtlasConversationProps = {
   onReviewPlan: () => void;
   onApplyAll: () => void;
   onViewChanges: () => void;
+  /** Resolve attachment thumbnails from project media (persistent URLs). */
+  resolveAttachmentPreviewUrl?: (assetId: string) => string | undefined;
 };
 
 const AtlasConversation = forwardRef<HTMLDivElement, AtlasConversationProps>(
@@ -37,6 +39,7 @@ const AtlasConversation = forwardRef<HTMLDivElement, AtlasConversationProps>(
       onReviewPlan,
       onApplyAll,
       onViewChanges,
+      resolveAttachmentPreviewUrl,
     },
     ref,
   ) {
@@ -80,9 +83,46 @@ const AtlasConversation = forwardRef<HTMLDivElement, AtlasConversationProps>(
                   onApplyAll={onApplyAll}
                 />
               ) : (
-                <p className="whitespace-pre-wrap leading-relaxed">
-                  {message.content}
-                </p>
+                <div className="space-y-2">
+                  {message.attachments?.length ? (
+                    <ul
+                      className="flex flex-wrap gap-1.5"
+                      aria-label="Attached photos"
+                    >
+                      {message.attachments.map((att) => {
+                        const url =
+                          (att.assetId &&
+                            resolveAttachmentPreviewUrl?.(att.assetId)) ||
+                          (att.previewUrl &&
+                          !att.previewUrl.startsWith("blob:")
+                            ? att.previewUrl
+                            : undefined);
+                        return (
+                          <li
+                            key={att.id}
+                            className="overflow-hidden rounded-md border border-border/70"
+                          >
+                            {url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={url}
+                                alt={att.altText || att.filename}
+                                className="size-12 object-cover"
+                              />
+                            ) : (
+                              <span className="flex size-12 items-center justify-center text-[9px] text-muted">
+                                Photo
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                  <p className="whitespace-pre-wrap leading-relaxed">
+                    {message.content}
+                  </p>
+                </div>
               )}
             </AtlasMessage>
           ))}

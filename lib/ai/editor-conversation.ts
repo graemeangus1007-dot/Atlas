@@ -2,6 +2,7 @@
  * Conversation history for the Atlas AI Design Assistant (Sprint 22.0A).
  */
 
+import type { ConversationAttachment } from "@/lib/ai/conversation-attachments";
 import type { AtlasAiOperation } from "@/lib/ai/editor-revisions";
 import type { EditChangeSummary } from "@/lib/ai/edit-operations";
 import { stripCritiqueFallbackMarkers } from "@/lib/ai/critique-fallback-presentation";
@@ -16,6 +17,8 @@ export type EditorConversationMessage = {
   /** Present on assistant turns that applied edits. */
   operations?: AtlasAiOperation[];
   changes?: EditChangeSummary[];
+  /** User-message composer attachments (persisted without blob: URLs). */
+  attachments?: ConversationAttachment[];
 };
 
 export type EditorConversation = {
@@ -49,6 +52,9 @@ export function appendConversationMessage(
     content: message.content,
     ...(message.operations ? { operations: message.operations } : {}),
     ...(message.changes ? { changes: message.changes } : {}),
+    ...(message.attachments?.length
+      ? { attachments: message.attachments }
+      : {}),
   };
   const messages = [...conversation.messages, next].slice(
     -EDITOR_CONVERSATION_MAX_MESSAGES,

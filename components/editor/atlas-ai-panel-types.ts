@@ -8,9 +8,11 @@ import type {
   CreativeDirectorReport,
 } from "@/lib/ai/creative-director-types";
 import type { CritiqueImprovementCard } from "@/lib/ai/critique-message-presentation";
+import type { ConversationAttachment } from "@/lib/ai/conversation-attachments";
 import type { EditChangeSummary } from "@/lib/ai/edit-operations";
 import type { EditorConversationMessage } from "@/lib/ai/editor-conversation";
 import type { BusinessProject } from "@/types/business-project";
+import type { MediaAsset } from "@/types/media";
 
 export type AtlasPanelView = "conversation" | "plan" | "review" | "changes";
 
@@ -49,7 +51,12 @@ export type AtlasAiPanelProps = {
   completeWebsitePlan?: CompleteWebsitePlan | null;
   applyingRecommendationId?: string | null;
   recommendationStates?: Record<string, RecommendationApplyState>;
-  onSend: (request: string) => void;
+  onSend: (
+    request: string,
+    attachments?: ConversationAttachment[],
+  ) => void;
+  /** Merge freshly uploaded media into the project library. */
+  onMediaAssetsAdded?: (assets: MediaAsset[]) => void;
   onUndo: () => void;
   onRedo: () => void;
   onApplyRecommendation?: (recommendation: BusinessRecommendation) => void;

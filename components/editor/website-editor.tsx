@@ -49,6 +49,7 @@ import {
   type ImageEditorState,
 } from "@/lib/ai";
 import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
+import type { ConversationAttachment } from "@/lib/ai/conversation-attachments";
 import { buildSiteDesignStyle } from "@/lib/design-theme";
 import { updateMediaAssetMeta } from "@/lib/media";
 import { generateWebsiteContent } from "@/lib/website-generator";
@@ -246,21 +247,87 @@ export default function WebsiteEditor() {
     void saveNow();
   }
 
-  async function handleDesignSend(request: string) {
+  async function handleDesignSend(
+    request: string,
+    attachments?: ConversationAttachment[],
+  ) {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setUiStatus("sending");
     setStatusMessage(null);
 
+    const persistedAttachments = (attachments ?? []).filter(
+      (att) =>
+        att.status === "uploaded" &&
+        Boolean(att.assetId) &&
+        !att.previewUrl?.startsWith("blob:") &&
+        !att.localObjectUrl,
+    );
+
     const withUser = appendConversationMessage(conversation, {
       role: "user",
       content: request,
+      ...(persistedAttachments.length
+        ? { attachments: persistedAttachments }
+        : {}),
     });
     setConversation(withUser);
 
+    const attachmentContexts = persistedAttachments
+      .filter(
+        (att): att is typeof att & { assetId: string; type: "image" | "logo" } =>
+          Boolean(att.assetId) &&
+          (att.type === "image" || att.type === "logo"),
+      )
+      .map((att, position) => ({
+        attachmentId: att.id,
+        assetId: att.assetId,
+        type: att.type,
+        filename: att.filename,
+        width: att.width,
+        height: att.height,
+        position,
+      }));
+
+    // Ensure attachment assets are on the project snapshot sent to Atlas.
+    let library = project.mediaLibrary ?? [];
+    let libraryChanged = false;
+    for (const att of persistedAttachments) {
+      if (!att.assetId) continue;
+      if (library.some((asset) => asset.id === att.assetId)) continue;
+      if (!libraryChanged) {
+        library = [...library];
+        libraryChanged = true;
+      }
+      library.unshift({
+        id: att.assetId,
+        name: att.filename,
+        filename: att.filename,
+        url:
+          att.previewUrl && !att.previewUrl.startsWith("blob:")
+            ? att.previewUrl
+            : "",
+        storagePath: att.storagePath ?? null,
+        mimeType: att.mimeType,
+        size: att.sizeBytes,
+        sizeLabel: "",
+        createdAt: Date.now(),
+        title: att.altText || att.filename,
+        description: "",
+        alt: att.altText || att.filename,
+        unavailable: !att.storagePath,
+      });
+    }
+    const projectForEdit = libraryChanged
+      ? { ...project, mediaLibrary: library }
+      : project;
+    if (libraryChanged) {
+      setProject(projectForEdit);
+    }
+
     try {
       const result = await requestEditorAgentEdit({
-        project,
+        project: projectForEdit,
         projectId,
         request,
         history: withUser.messages.map((m) => ({
@@ -268,6 +335,7 @@ export default function WebsiteEditor() {
           content: m.content,
         })),
         imageEditorState,
+        attachmentContexts,
       });
       if (result.ok && result.imageEditorState) {
         setImageEditorState(result.imageEditorState);
@@ -750,6 +818,16 @@ export default function WebsiteEditor() {
       applyingRecommendationId={applyingRecommendationId}
       recommendationStates={recommendationStates}
       onSend={handleDesignSend}
+      onMediaAssetsAdded={(assets) => {
+        updateProject((current) => ({
+          mediaLibrary: [
+            ...assets,
+            ...(current.mediaLibrary ?? []).filter(
+              (existing) => !assets.some((asset) => asset.id === existing.id),
+            ),
+          ],
+        }));
+      }}
       onUndo={handleDesignUndo}
       onRedo={handleDesignRedo}
       onApplyRecommendation={handleApplyRecommendation}

@@ -96,6 +96,25 @@ export function buildDesignAssistantMeta(input: {
 }
 
 function slimMessage(message: EditorConversationMessage): EditorConversationMessage {
+  const attachments = message.attachments
+    ?.map((att) => ({
+      id: att.id,
+      type: att.type === "document" ? ("image" as const) : att.type,
+      projectId: att.projectId,
+      assetId: att.assetId,
+      storagePath: att.storagePath,
+      filename: att.filename,
+      mimeType: att.mimeType,
+      sizeBytes: att.sizeBytes,
+      width: att.width,
+      height: att.height,
+      altText: att.altText,
+      status: att.status,
+      createdAt: att.createdAt,
+      // Never persist ephemeral blob: / local object URLs.
+    }))
+    .filter((att) => att.status === "uploaded" && Boolean(att.assetId));
+
   return {
     id: message.id,
     role: message.role,
@@ -103,6 +122,7 @@ function slimMessage(message: EditorConversationMessage): EditorConversationMess
     createdAt: message.createdAt,
     ...(message.changes ? { changes: message.changes } : {}),
     ...(message.operations ? { operations: message.operations } : {}),
+    ...(attachments?.length ? { attachments } : {}),
   };
 }
 
