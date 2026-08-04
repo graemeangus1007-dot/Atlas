@@ -72,6 +72,12 @@ import {
   planSurfaceStyleOperations,
   surfaceStyleChangedProtectedPalette,
 } from "@/lib/ai/surface-styling";
+import {
+  isHeroImageVisibilityComplaint,
+  logHeroBalanceDiagnostics,
+  planHeroBalanceRepair,
+  verifyHeroBalanceRepair,
+} from "@/lib/ai/hero-visual-balance";
 import { NAMED_COLORS } from "@/lib/ai/named-colors";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
@@ -678,6 +684,7 @@ function toLastExecutionRecord(
   extras?: {
     paletteBefore?: ProtectedBrandPalette | null;
     scope?: AtlasLastExecution["scope"];
+    heroBalance?: AtlasLastExecution["heroBalance"];
   },
 ): AtlasLastExecution {
   return {
@@ -694,6 +701,7 @@ function toLastExecutionRecord(
     followUpRecommendation: result.followUpRecommendation,
     paletteBefore: extras?.paletteBefore ?? null,
     scope: extras?.scope,
+    ...(extras?.heroBalance ? { heroBalance: extras.heroBalance } : {}),
   };
 }
 
@@ -705,6 +713,7 @@ function rememberExecution(
   extras?: {
     paletteBefore?: ProtectedBrandPalette | null;
     scope?: AtlasLastExecution["scope"];
+    heroBalance?: AtlasLastExecution["heroBalance"];
   },
 ): BusinessProject {
   return withActionMemory(
@@ -852,6 +861,238 @@ function tryRestoreBrandPalette(input: {
       commandKind: "brand_restore",
     },
     followUpSuggestions: ["Strengthen the hero overlay"],
+  };
+}
+
+function tryApplyHeroBalanceRepair(input: {
+  project: BusinessProject;
+  request: string;
+  requestId?: string | null;
+}): AtlasBrainResult | null {
+  if (!isHeroImageVisibilityComplaint(input.request)) return null;
+
+  const planned = planHeroBalanceRepair({
+    project: input.project,
+    request: input.request,
+  });
+
+  if (planned.maxSafeBalance || planned.operations.length === 0) {
+    logHeroBalanceDiagnostics({
+      requestId: input.requestId,
+      intent: "hero_balance_repair",
+      repairType: "max_safe_balance",
+      overlayBefore: planned.assessmentBefore.overlayStrength,
+      overlayAfter: planned.assessmentBefore.overlayStrength,
+      readabilityBefore: planned.assessmentBefore.textReadabilityScore,
+      readabilityAfter: planned.assessmentBefore.textReadabilityScore,
+      imageVisibilityBefore: planned.assessmentBefore.imageVisibilityScore,
+      imageVisibilityAfter: planned.assessmentBefore.imageVisibilityScore,
+      gradientApplied: planned.assessmentBefore.hasDirectionalGradient,
+      scrimApplied: planned.assessmentBefore.hasTextScrim,
+      globalPaletteChanged: false,
+      verified: false,
+    });
+    const project = rememberExecution(
+      input.project,
+      input.request,
+      {
+        success: false,
+        verified: true,
+        operationType: "hero_balance_repair",
+        verificationFailures: ["max_safe_balance"],
+        createdEntities: [],
+        modifiedEntities: [],
+        warnings: [],
+        explanation: planned.explanation,
+        followUpRecommendation: "Try a different hero image",
+      },
+      [],
+      { paletteBefore: planned.paletteBefore, scope: "hero" },
+    );
+    return {
+      ok: true,
+      explanation: planned.explanation,
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.98,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: {
+          goal: "Balance hero readability and image visibility",
+          steps: [],
+          estimatedImpact: "medium",
+        },
+        explanation: planned.explanation,
+        followUpSuggestions: [
+          "Try a different hero image",
+          "Review my website",
+        ],
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
+      },
+      followUpSuggestions: [
+        "Try a different hero image",
+        "Review my website",
+      ],
+    };
+  }
+
+  const ops = validateEditOperations(
+    filterOperationsForBrandPreservation(
+      planned.operations,
+      defaultHeroPreservationContext(),
+    ),
+  );
+  const before = input.project;
+  const applied = applyEditOperations(before, ops);
+  const paletteSafe = restoreBrandPalette(
+    applied.project,
+    planned.paletteBefore,
+  );
+  const check = verifyHeroBalanceRepair({
+    before,
+    after: paletteSafe,
+    assessmentBefore: planned.assessmentBefore,
+  });
+
+  logHeroBalanceDiagnostics({
+    requestId: input.requestId,
+    intent: "hero_balance_repair",
+    repairType: "reduce_overlay_localize_contrast",
+    overlayBefore: planned.assessmentBefore.overlayStrength,
+    overlayAfter: check.assessmentAfter.overlayStrength,
+    readabilityBefore: planned.assessmentBefore.textReadabilityScore,
+    readabilityAfter: check.assessmentAfter.textReadabilityScore,
+    imageVisibilityBefore: planned.assessmentBefore.imageVisibilityScore,
+    imageVisibilityAfter: check.assessmentAfter.imageVisibilityScore,
+    gradientApplied: Boolean(paletteSafe.heroTreatment?.gradient),
+    scrimApplied: Boolean(paletteSafe.heroTreatment?.textScrim?.enabled),
+    globalPaletteChanged: check.globalPaletteChanged,
+    verified: check.verified,
+  });
+
+  if (!check.verified) {
+    const project = rememberExecution(
+      before,
+      input.request,
+      {
+        success: false,
+        verified: true,
+        operationType: "hero_balance_repair",
+        verificationFailures: check.failures,
+        createdEntities: [],
+        modifiedEntities: [],
+        warnings: [],
+        explanation:
+          "I couldn’t improve image visibility without risking the headline contrast. Replacing or cropping the hero photo would help next.",
+      },
+      ops,
+      { paletteBefore: planned.paletteBefore, scope: "hero" },
+    );
+    return {
+      ok: true,
+      explanation:
+        "I couldn’t improve image visibility without risking the headline contrast. Replacing or cropping the hero photo would help next.",
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.95,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: {
+          goal: "Balance hero readability and image visibility",
+          steps: [],
+          estimatedImpact: "medium",
+        },
+        explanation: "Hero balance repair could not verify safely.",
+        followUpSuggestions: [
+          "Try a different hero image",
+          "Review my website",
+        ],
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
+      },
+      followUpSuggestions: [
+        "Try a different hero image",
+        "Review my website",
+      ],
+    };
+  }
+
+  const project = rememberExecution(
+    paletteSafe,
+    input.request,
+    {
+      success: true,
+      verified: true,
+      operationType: "hero_balance_repair",
+      verificationFailures: [],
+      createdEntities: [],
+      modifiedEntities: ["heroOverlay", "heroTreatment"],
+      warnings: [],
+      explanation: planned.explanation,
+    },
+    ops,
+    {
+      paletteBefore: planned.paletteBefore,
+      scope: "hero",
+      heroBalance: {
+        overlayBefore: planned.assessmentBefore.overlayStrength,
+        overlayAfter: check.assessmentAfter.overlayStrength,
+        readabilityBefore: planned.assessmentBefore.textReadabilityScore,
+        readabilityAfter: check.assessmentAfter.textReadabilityScore,
+        imageVisibilityBefore: planned.assessmentBefore.imageVisibilityScore,
+        imageVisibilityAfter: check.assessmentAfter.imageVisibilityScore,
+        gradientApplied: Boolean(paletteSafe.heroTreatment?.gradient),
+        scrimApplied: Boolean(paletteSafe.heroTreatment?.textScrim?.enabled),
+        imageVisibilityComplaint: true,
+      },
+    },
+  );
+
+  return {
+    ok: true,
+    explanation: planned.explanation,
+    operations: ops,
+    changes: applied.changes,
+    project,
+    applyStatus: "applied",
+    decision: {
+      intent: "command_readability",
+      confidence: 0.98,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: {
+        goal: "Balance hero readability and image visibility",
+        steps: [
+          {
+            id: "cmd.hero-balance",
+            agent: "editor_agent",
+            label: "Localize hero contrast treatment",
+          },
+        ],
+        estimatedImpact: "high",
+      },
+      explanation: planned.explanation,
+      followUpSuggestions: [
+        "Try a different hero image",
+        "Review my website",
+      ],
+      decisionStage: "explicit_command",
+      commandKind: "hero_balance",
+      shouldExecuteEdits: true,
+    },
+    followUpSuggestions: [
+      "Try a different hero image",
+      "Review my website",
+    ],
   };
 }
 
@@ -1205,6 +1446,23 @@ export async function runAtlasBrain(
         surfaceStyled.followUpSuggestions ?? [],
       ),
       atlasMemory: surfaceStyled.project.atlasMemory,
+    };
+  }
+
+  // Hero image visibility after overlay — balance repair (never empty Action Memory).
+  const heroBalanced = tryApplyHeroBalanceRepair({
+    project: projectForTurn,
+    request,
+    requestId: input.atlasRequestId,
+  });
+  if (heroBalanced) {
+    return {
+      ...heroBalanced,
+      followUpSuggestions: followUpsForProject(
+        heroBalanced.project,
+        heroBalanced.followUpSuggestions ?? [],
+      ),
+      atlasMemory: heroBalanced.project.atlasMemory,
     };
   }
 
@@ -2365,6 +2623,7 @@ export async function runAtlasBrain(
     applyStatus === "applied" &&
     (decision.commandKind === "section_order" ||
       decision.commandKind === "hero_readability" ||
+      decision.commandKind === "hero_balance" ||
       decision.commandKind === "surface_style" ||
       decision.commandKind === "animations" ||
       decision.commandKind === "remove_animations" ||

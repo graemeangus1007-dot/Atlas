@@ -102,6 +102,26 @@ export function buildSiteDesignStyle(
     "--site-body-font": fontCssVar(project.bodyFont, BODY_FONTS),
     "--site-button-radius": buttonRadius(project.buttonStyle),
     "--site-hero-overlay": String(overlay),
+    "--site-hero-gradient-opacity": String(
+      project.heroTreatment?.gradient?.strength ?? 0,
+    ),
+    "--site-hero-gradient-coverage": `${Math.round(
+      (project.heroTreatment?.gradient?.coverage ?? 0) * 100,
+    )}%`,
+    "--site-hero-gradient-direction":
+      project.heroTreatment?.gradient?.direction === "left"
+        ? "to right"
+        : project.heroTreatment?.gradient?.direction === "right"
+          ? "to left"
+          : project.heroTreatment?.gradient?.direction === "top"
+            ? "to bottom"
+            : "to top",
+    "--site-hero-scrim-opacity": String(
+      project.heroTreatment?.textScrim?.enabled
+        ? project.heroTreatment.textScrim.opacity
+        : 0,
+    ),
+    "--site-hero-scrim-blur": `${project.heroTreatment?.textScrim?.blur ?? 0}px`,
     "--site-content-max": contentMaxWidth(project.siteWidth),
     "--site-section-pad":
       project.creativePolish?.spacing === "airy"

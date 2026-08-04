@@ -267,7 +267,9 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
       return { id, label, ok: true };
     }
     case "setHeroOverlay":
-      return { id, label: "Hero overlay strengthened", ok: true };
+      return { id, label: "Hero overlay updated", ok: true };
+    case "setHeroTreatment":
+      return { id, label: "Hero contrast localized", ok: true };
     case "setComponentSurface": {
       const label =
         op.target === "form_fields"
@@ -582,6 +584,25 @@ export function applyEditOperations(
       case "setHeroOverlay":
         next = { ...next, heroOverlay: op.value };
         break;
+      case "setHeroTreatment": {
+        const prev = { ...(next.heroTreatment ?? {}) };
+        if (op.gradient === null) {
+          delete prev.gradient;
+        } else if (op.gradient) {
+          prev.gradient = op.gradient;
+        }
+        if (op.textScrim === null) {
+          delete prev.textScrim;
+        } else if (op.textScrim) {
+          prev.textScrim = op.textScrim;
+        }
+        if (op.textPosition) {
+          prev.textPosition = op.textPosition;
+        }
+        prev.overlayOpacity = next.heroOverlay;
+        next = { ...next, heroTreatment: prev };
+        break;
+      }
       case "setComponentSurface": {
         const key =
           op.target === "form_fields"

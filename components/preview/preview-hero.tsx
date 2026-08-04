@@ -100,6 +100,11 @@ export default function PreviewHero({
             heroLayout === "bold-overlay" ? "opacity-80" : ""
           }`}
         />
+        <div className="site-hero-gradient absolute inset-0" aria-hidden="true" />
+        <div
+          className="site-hero-text-scrim absolute inset-x-0 bottom-0"
+          aria-hidden="true"
+        />
         {heroLayout !== "minimal" ? (
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,var(--site-accent-soft),transparent_55%)]" />
         ) : null}

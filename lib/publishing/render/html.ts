@@ -129,6 +129,8 @@ function renderHero(
   <div class="site-hero-media" aria-hidden="true">
     <img src="${escapeAttr(hero.imageUrl)}" alt="" />
     <div class="site-hero-overlay"${overlayExtra}></div>
+    <div class="site-hero-gradient" aria-hidden="true"></div>
+    <div class="site-hero-text-scrim" aria-hidden="true"></div>
     ${wash}
   </div>
   <div class="site-shell site-hero-content ${align}">

@@ -39,6 +39,7 @@ import {
   shouldExecuteNlEditPlan,
 } from "@/lib/ai/nl-edit-planner";
 import { isHeroReadabilityRequest } from "@/lib/ai/hero-readability";
+import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
 import { isSectionOrderRequest } from "@/lib/ai/section-order";
 import type { BusinessProject } from "@/types/business-project";
 
@@ -70,6 +71,7 @@ export const COMMAND_KINDS = [
   "typography",
   "spacing",
   "hero_readability",
+  "hero_balance",
   "readability",
   "surface_style",
   "branding",
@@ -587,6 +589,42 @@ export function stageExplicitCommand(
         }),
       };
     }
+  }
+
+  // Image visibility after overlay — balance repair before classic readability.
+  if (isHeroImageVisibilityComplaint(request)) {
+    return {
+      stage: "explicit_command",
+      commandKind: "hero_balance",
+      decision: withConfidencePolicy({
+        intent: "command_readability",
+        confidence: 0.98,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Balance hero readability and image visibility",
+          [
+            {
+              id: "cmd.hero-balance",
+              agent: "editor_agent",
+              label: "Localize hero contrast treatment",
+            },
+          ],
+          "high",
+        ),
+        explanation:
+          "I’ll rebalance the hero so more of the photo shows while the text stays readable.",
+        followUpSuggestions: [
+          "Try a different hero image",
+          "Keep the text readable but show more of the photo",
+          "Review my website",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
+        shouldExecuteEdits: true,
+      }),
+    };
   }
 
   // Hero readability beats generic typography / site-wide readability.

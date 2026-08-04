@@ -192,6 +192,36 @@ body {
   opacity: var(--site-hero-overlay, 0.5);
 }
 
+.site-canvas .site-hero-gradient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    var(--site-hero-gradient-direction, to top),
+    color-mix(
+      in srgb,
+      var(--site-bg, #07090d)
+        calc(var(--site-hero-gradient-opacity, 0) * 100%),
+      transparent
+    )
+      0%,
+    transparent var(--site-hero-gradient-coverage, 62%)
+  );
+}
+
+.site-canvas .site-hero-text-scrim {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: var(--site-hero-gradient-coverage, 62%);
+  pointer-events: none;
+  background: color-mix(
+    in srgb,
+    var(--site-bg, #07090d) calc(var(--site-hero-scrim-opacity, 0) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(var(--site-hero-scrim-blur, 0px));
+}
+
 /* Creative Director polish (Sprint 25.0A) */
 .site-canvas[data-hierarchy="on"] .site-heading {
   font-size: calc(1em * var(--site-heading-scale, 1.06));

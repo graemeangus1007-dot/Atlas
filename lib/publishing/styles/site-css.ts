@@ -184,6 +184,31 @@ h1, h2, h3, p {
   opacity: var(--site-hero-overlay, 0.5);
 }
 
+.site-hero-gradient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    var(--site-hero-gradient-direction, to top),
+    color-mix(in srgb, var(--site-bg) calc(var(--site-hero-gradient-opacity, 0) * 100%), transparent) 0%,
+    transparent var(--site-hero-gradient-coverage, 62%)
+  );
+  opacity: 1;
+}
+
+.site-hero-text-scrim {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: var(--site-hero-gradient-coverage, 62%);
+  pointer-events: none;
+  background: color-mix(
+    in srgb,
+    var(--site-bg) calc(var(--site-hero-scrim-opacity, 0) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(var(--site-hero-scrim-blur, 0px));
+}
+
 .site-card {
   background: color-mix(in srgb, var(--site-surface) 88%, var(--site-primary) 12%);
   border-color: var(--site-border);
@@ -414,6 +439,11 @@ h1, h2, h3, p {
   position: absolute;
   inset: 0;
   background: radial-gradient(circle at top, var(--site-accent-soft), transparent 55%);
+}
+
+.site-hero-media .site-hero-gradient,
+.site-hero-media .site-hero-text-scrim {
+  z-index: 1;
 }
 
 .site-hero-content {

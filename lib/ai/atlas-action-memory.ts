@@ -14,6 +14,7 @@ import {
   type AtlasLastExecution,
 } from "@/lib/ai/edit-execution-result";
 import { isHeroReadabilityRequest } from "@/lib/ai/hero-readability";
+import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
 import {
   isEditOperationKind,
   type EditOperation,
@@ -892,6 +893,11 @@ export function shouldExecuteActionMemory(
 
   // Hero readability / corrective hero contrast — never Action Memory.
   if (isHeroReadabilityRequest(request)) {
+    return false;
+  }
+
+  // “Image hard to see” after overlay — hero balance repair, not empty plan.
+  if (isHeroImageVisibilityComplaint(request)) {
     return false;
   }
 

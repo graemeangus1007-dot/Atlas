@@ -606,6 +606,91 @@ function validateOne(raw: unknown, index: number): EditOperation {
         value: value as (typeof HERO_OVERLAY_STEPS)[number],
       };
     }
+    case "setHeroTreatment": {
+      const dirs = ["left", "right", "top", "bottom"] as const;
+      let gradient:
+        | {
+            direction: (typeof dirs)[number];
+            strength: number;
+            coverage: number;
+          }
+        | null
+        | undefined;
+      if (row.gradient === null) {
+        gradient = null;
+      } else if (row.gradient !== undefined) {
+        const g = requireObject(row.gradient, `operations[${index}].gradient`);
+        const direction = g.direction;
+        if (
+          typeof direction !== "string" ||
+          !(dirs as readonly string[]).includes(direction)
+        ) {
+          throw new AiError(
+            "bad_request",
+            `setHeroTreatment.gradient.direction invalid at index ${index}.`,
+          );
+        }
+        const strength = Number(g.strength);
+        const coverage = Number(g.coverage);
+        if (
+          !Number.isFinite(strength) ||
+          strength < 0 ||
+          strength > 1 ||
+          !Number.isFinite(coverage) ||
+          coverage < 0 ||
+          coverage > 1
+        ) {
+          throw new AiError(
+            "bad_request",
+            `setHeroTreatment.gradient strength/coverage must be 0–1 at index ${index}.`,
+          );
+        }
+        gradient = {
+          direction: direction as (typeof dirs)[number],
+          strength,
+          coverage,
+        };
+      }
+      let textScrim:
+        | { enabled: boolean; opacity: number; blur?: number }
+        | null
+        | undefined;
+      if (row.textScrim === null) {
+        textScrim = null;
+      } else if (row.textScrim !== undefined) {
+        const s = requireObject(row.textScrim, `operations[${index}].textScrim`);
+        const opacity = Number(s.opacity);
+        if (typeof s.enabled !== "boolean" || !Number.isFinite(opacity)) {
+          throw new AiError(
+            "bad_request",
+            `setHeroTreatment.textScrim invalid at index ${index}.`,
+          );
+        }
+        textScrim = {
+          enabled: s.enabled,
+          opacity: Math.min(1, Math.max(0, opacity)),
+          ...(typeof s.blur === "number" ? { blur: s.blur } : {}),
+        };
+      }
+      const textPosition = row.textPosition;
+      if (
+        textPosition !== undefined &&
+        textPosition !== "left" &&
+        textPosition !== "center" &&
+        textPosition !== "right"
+      ) {
+        throw new AiError(
+          "bad_request",
+          `setHeroTreatment.textPosition invalid at index ${index}.`,
+        );
+      }
+      return {
+        operation: "setHeroTreatment",
+        ...(gradient !== undefined ? { gradient } : {}),
+        ...(textScrim !== undefined ? { textScrim } : {}),
+        ...(textPosition ? { textPosition } : {}),
+      };
+    }
     case "setComponentSurface": {
       const target = row.target;
       if (

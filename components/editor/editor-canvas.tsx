@@ -74,6 +74,8 @@ export default function EditorCanvas({
                 data-testid="editor-hero-image"
               />
               <div className="site-hero-overlay absolute inset-0" />
+              <div className="site-hero-gradient absolute inset-0" aria-hidden="true" />
+              <div className="site-hero-text-scrim absolute inset-x-0 bottom-0" aria-hidden="true" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,var(--site-accent-soft),transparent_55%)]" />
             </div>
             <div className="site-shell relative z-10">

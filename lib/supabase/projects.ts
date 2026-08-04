@@ -204,6 +204,9 @@ export function businessProjectToColumns(
     bodyFont: project.bodyFont,
     buttonStyle: project.buttonStyle,
     heroOverlay: project.heroOverlay,
+    ...(project.heroTreatment
+      ? { heroTreatment: project.heroTreatment }
+      : {}),
     siteWidth: project.siteWidth,
     theme: project.theme,
     logo: project.logo,
@@ -319,6 +322,9 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
     bodyFont: (branding.bodyFont as BodyFontId) || base.bodyFont,
     buttonStyle: (branding.buttonStyle as ButtonStyleId) || base.buttonStyle,
     heroOverlay: asNumber(branding.heroOverlay, base.heroOverlay),
+    heroTreatment: isRecord(branding.heroTreatment)
+      ? (branding.heroTreatment as BusinessProject["heroTreatment"])
+      : base.heroTreatment,
     siteWidth: (branding.siteWidth as SiteWidthId) || base.siteWidth,
     theme: (branding.theme as SiteThemeId) || base.theme,
     logo:

@@ -97,6 +97,24 @@ export type BusinessProject = {
   buttonStyle: ButtonStyleId;
   /** Hero image overlay darkness: 0–100. */
   heroOverlay: number;
+  /**
+   * Localized hero contrast treatment (directional gradient / text scrim).
+   * Complements heroOverlay — does not rewrite brand palette tokens.
+   */
+  heroTreatment?: {
+    overlayOpacity?: number;
+    gradient?: {
+      direction: "left" | "right" | "top" | "bottom";
+      strength: number;
+      coverage: number;
+    };
+    textScrim?: {
+      enabled: boolean;
+      opacity: number;
+      blur?: number;
+    };
+    textPosition?: "left" | "center" | "right";
+  };
   /** Content shell width for the generated site. */
   siteWidth: SiteWidthId;
   /** Legacy contrast preference (Brand Studio derives text from background). */
@@ -252,6 +270,17 @@ export type BusinessProject = {
         theme: string;
       } | null;
       scope?: "hero" | "global" | "unknown";
+      heroBalance?: {
+        overlayBefore: number;
+        overlayAfter: number;
+        readabilityBefore: number;
+        readabilityAfter: number;
+        imageVisibilityBefore: number;
+        imageVisibilityAfter: number;
+        gradientApplied: boolean;
+        scrimApplied: boolean;
+        imageVisibilityComplaint?: boolean;
+      } | null;
     } | null;
     heroReadabilityRepair?: {
       level: 0 | 1 | 2 | 3;

@@ -44,6 +44,18 @@ export type AtlasLastExecution = {
   /** Palette before this turn — restore if brand regression is reported. */
   paletteBefore?: AtlasPreservedPalette | null;
   scope?: "hero" | "global" | "unknown";
+  /** Hero balance repair snapshot for conversation continuity. */
+  heroBalance?: {
+    overlayBefore: number;
+    overlayAfter: number;
+    readabilityBefore: number;
+    readabilityAfter: number;
+    imageVisibilityBefore: number;
+    imageVisibilityAfter: number;
+    gradientApplied: boolean;
+    scrimApplied: boolean;
+    imageVisibilityComplaint?: boolean;
+  } | null;
 };
 
 export function emptyExecutionResult(

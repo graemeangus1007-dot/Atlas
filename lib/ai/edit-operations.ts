@@ -81,6 +81,7 @@ export const EDIT_OPERATION_KINDS = [
   "setCreativePolish",
   "moveSection",
   "setHeroOverlay",
+  "setHeroTreatment",
   "setComponentSurface",
 ] as const;
 
@@ -218,6 +219,22 @@ export type SetHeroOverlayOperation = {
   value: HeroOverlayStep;
 };
 
+/** Localized hero contrast treatment (gradient / scrim / text position). */
+export type SetHeroTreatmentOperation = {
+  operation: "setHeroTreatment";
+  gradient?: {
+    direction: "left" | "right" | "top" | "bottom";
+    strength: number;
+    coverage: number;
+  } | null;
+  textScrim?: {
+    enabled: boolean;
+    opacity: number;
+    blur?: number;
+  } | null;
+  textPosition?: "left" | "center" | "right";
+};
+
 /** Scoped surface styling — form fields / panels / cards (not global theme). */
 export type SetComponentSurfaceOperation = {
   operation: "setComponentSurface";
@@ -248,6 +265,7 @@ export type EditOperation =
   | SetCreativePolishOperation
   | MoveSectionOperation
   | SetHeroOverlayOperation
+  | SetHeroTreatmentOperation
   | SetComponentSurfaceOperation;
 
 /** Human-readable bullet for the post-edit preview list. */

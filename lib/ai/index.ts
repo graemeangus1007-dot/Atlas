@@ -631,6 +631,19 @@ export type {
   ProtectedBrandPalette,
 } from "@/lib/ai/hero-readability";
 export {
+  analyzeHeroVisualBalance,
+  isHeroImageVisibilityComplaint,
+  isHeroVisualRepairRequest,
+  planHeroBalanceRepair,
+  verifyHeroBalanceRepair,
+} from "@/lib/ai/hero-visual-balance";
+export type {
+  HeroBalanceDiagnostics,
+  HeroTreatment,
+  HeroVisualBalanceAssessment,
+  HeroVisualBalanceIssue,
+} from "@/lib/ai/hero-visual-balance";
+export {
   storeLastExecution,
   getLastExecution,
 } from "@/lib/ai/atlas-action-memory";
