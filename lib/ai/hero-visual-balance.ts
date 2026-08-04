@@ -76,7 +76,7 @@ const TEXT_READABILITY_FLOOR = 62;
 const CTA_CONTRAST_FLOOR = 3.5;
 
 const IMAGE_VISIBILITY_PHRASE =
-  /\b(image|photo|picture|hero\s+image|hero\s+photo)\b[\s\S]{0,40}\b(hard\s+to\s+see|too\s+dark|disappeared|covered|hidden|washed\s+out|lost)\b|\b(hard\s+to\s+see|too\s+dark|covered|disappeared)\b[\s\S]{0,40}\b(image|photo|picture)\b|\b(overlay\s+is\s+too\s+strong|covered\s+too\s+much|show\s+more\s+of\s+the\s+(photo|image)|keep\s+the\s+(text|words)\s+readable\s+but\s+show|i\s+can\s+read\s+the\s+text\s+now)\b/i;
+  /\b(image|photo|picture|hero\s+image|hero\s+photo)\b[\s\S]{0,48}\b(hard\s+to\s+see|too\s+dark|disappeared|covered|hidden|washed\s+out|lost|easier\s+to\s+see|clearer|more\s+visible)\b|\b(hard\s+to\s+see|too\s+dark|covered|disappeared|easier\s+to\s+see|clearer|more\s+visible)\b[\s\S]{0,48}\b(image|photo|picture)\b|\b(overlay\s+is\s+too\s+strong|covered\s+too\s+much|show\s+more\s+of\s+the\s+(photo|image)|keep\s+the\s+(text|words)\s+readable\s+but\s+show|i\s+can\s+read\s+the\s+text\s+now|make\s+the\s+image\s+clearer\s+while\s+keeping|still\s+too\s+dark|a\s+little\s+(more\s+)?(visible|easier\s+to\s+see))\b/i;
 
 /**
  * Corrective follow-up after a hero overlay/readability pass.
@@ -238,7 +238,7 @@ export function planHeroBalanceRepair(input: {
       maxSafeBalance: true,
       paletteBefore,
       explanation:
-        "I’ve balanced the overlay as far as I safely can. The remaining issue is the image crop or focal point, so repositioning or replacing the photo would be the next best fix.",
+        "The overlay is already at the safest balance. Showing the full image or changing its crop is the next best step.",
     };
   }
 

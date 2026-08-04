@@ -82,6 +82,7 @@ export const EDIT_OPERATION_KINDS = [
   "moveSection",
   "setHeroOverlay",
   "setHeroTreatment",
+  "setHeroImagePresentation",
   "setComponentSurface",
 ] as const;
 
@@ -235,6 +236,15 @@ export type SetHeroTreatmentOperation = {
   textPosition?: "left" | "center" | "right";
 };
 
+/** Hero image fit / crop / focal presentation. */
+export type SetHeroImagePresentationOperation = {
+  operation: "setHeroImagePresentation";
+  fit?: "cover" | "contain" | "full";
+  focalPoint?: { x: number; y: number };
+  zoom?: number;
+  position?: "center" | "top" | "bottom" | "left" | "right";
+};
+
 /** Scoped surface styling — form fields / panels / cards (not global theme). */
 export type SetComponentSurfaceOperation = {
   operation: "setComponentSurface";
@@ -266,6 +276,7 @@ export type EditOperation =
   | MoveSectionOperation
   | SetHeroOverlayOperation
   | SetHeroTreatmentOperation
+  | SetHeroImagePresentationOperation
   | SetComponentSurfaceOperation;
 
 /** Human-readable bullet for the post-edit preview list. */

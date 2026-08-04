@@ -39,7 +39,13 @@ import {
   shouldExecuteNlEditPlan,
 } from "@/lib/ai/nl-edit-planner";
 import { isHeroReadabilityRequest } from "@/lib/ai/hero-readability";
+import {
+  isHeroFitRequest,
+  isHeroProfessionalCompositionRequest,
+  isSoftHeroVisibilityRequest,
+} from "@/lib/ai/hero-image-presentation";
 import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
+import { shouldContinueActiveHeroTask } from "@/lib/ai/active-visual-task";
 import { isSectionOrderRequest } from "@/lib/ai/section-order";
 import type { BusinessProject } from "@/types/business-project";
 
@@ -591,8 +597,83 @@ export function stageExplicitCommand(
     }
   }
 
+  // Hero fit / full-picture / crop — before balance and readability.
+  if (isHeroFitRequest(request)) {
+    return {
+      stage: "explicit_command",
+      commandKind: "images",
+      decision: withConfidencePolicy({
+        intent: "image_edit",
+        confidence: 0.98,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Update hero image fit",
+          [
+            {
+              id: "cmd.hero-fit",
+              agent: "editor_agent",
+              label: "Show the full hero photo",
+            },
+          ],
+          "high",
+        ),
+        explanation: "I’ll update how the hero photo is cropped and fitted.",
+        followUpSuggestions: [
+          "Make the words easier to read",
+          "Review my website",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "explicit_command",
+        commandKind: "images",
+        shouldExecuteEdits: true,
+      }),
+    };
+  }
+
+  // Active hero task + “make it professional” → composition, not global redesign.
+  if (
+    isHeroProfessionalCompositionRequest(request) &&
+    shouldContinueActiveHeroTask(request, getActionMemory(input.project))
+  ) {
+    return {
+      stage: "explicit_command",
+      commandKind: "hero_balance",
+      decision: withConfidencePolicy({
+        intent: "command_readability",
+        confidence: 0.96,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Refine hero composition",
+          [
+            {
+              id: "cmd.hero-composition",
+              agent: "editor_agent",
+              label: "Professional hero composition",
+            },
+          ],
+          "high",
+        ),
+        explanation:
+          "I’ll refine the hero composition without changing your global brand system.",
+        followUpSuggestions: [
+          "Use the full picture",
+          "Review my website",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
+        shouldExecuteEdits: true,
+      }),
+    };
+  }
+
   // Image visibility after overlay — balance repair before classic readability.
-  if (isHeroImageVisibilityComplaint(request)) {
+  if (
+    isHeroImageVisibilityComplaint(request) ||
+    isSoftHeroVisibilityRequest(request)
+  ) {
     return {
       stage: "explicit_command",
       commandKind: "hero_balance",
@@ -615,7 +696,7 @@ export function stageExplicitCommand(
         explanation:
           "I’ll rebalance the hero so more of the photo shows while the text stays readable.",
         followUpSuggestions: [
-          "Try a different hero image",
+          "Use the full picture",
           "Keep the text readable but show more of the photo",
           "Review my website",
         ],

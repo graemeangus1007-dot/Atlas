@@ -70,7 +70,7 @@ export default function EditorCanvas({
               <img
                 src={content.hero.imageUrl}
                 alt=""
-                className="h-full w-full object-cover"
+                className="site-hero-image h-full w-full"
                 data-testid="editor-hero-image"
               />
               <div className="site-hero-overlay absolute inset-0" />

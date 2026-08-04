@@ -432,7 +432,10 @@ h1, h2, h3, p {
 .site-hero-media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: var(--site-hero-object-fit, cover);
+  object-position: var(--site-hero-object-position, 50% 50%);
+  transform: scale(var(--site-hero-object-zoom, 1));
+  transform-origin: var(--site-hero-object-position, 50% 50%);
 }
 
 .site-hero-wash {
@@ -509,7 +512,10 @@ h1, h2, h3, p {
 .site-hero-split-image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: var(--site-hero-object-fit, cover);
+  object-position: var(--site-hero-object-position, 50% 50%);
+  transform: scale(var(--site-hero-object-zoom, 1));
+  transform-origin: var(--site-hero-object-position, 50% 50%);
 }
 
 .site-hero-split-image .site-hero-overlay {

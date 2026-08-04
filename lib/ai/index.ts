@@ -644,6 +644,29 @@ export type {
   HeroVisualBalanceIssue,
 } from "@/lib/ai/hero-visual-balance";
 export {
+  getActiveVisualTask,
+  hasActiveHeroVisualTask,
+  shouldContinueActiveHeroTask,
+  touchActiveVisualTask,
+} from "@/lib/ai/active-visual-task";
+export type {
+  ActiveVisualTask,
+  ActiveVisualTaskKind,
+} from "@/lib/ai/active-visual-task";
+export {
+  isHeroFitRequest,
+  isHeroFullPictureRequest,
+  isHeroProfessionalCompositionRequest,
+  planHeroFitOperations,
+  planHeroProfessionalComposition,
+  readHeroImagePresentation,
+  verifyHeroFitChange,
+} from "@/lib/ai/hero-image-presentation";
+export type {
+  HeroImagePresentation,
+  HeroImageFit,
+} from "@/lib/ai/hero-image-presentation";
+export {
   storeLastExecution,
   getLastExecution,
 } from "@/lib/ai/atlas-action-memory";

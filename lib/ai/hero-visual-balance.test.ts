@@ -215,7 +215,7 @@ describe("treatment selection", () => {
     });
     expect(plan.maxSafeBalance).toBe(true);
     expect(plan.operations).toHaveLength(0);
-    expect(plan.explanation).toMatch(/crop or focal point|replacing the photo/i);
+    expect(plan.explanation).toMatch(/safest balance|full image|crop/i);
   });
 
   it("preserves brand palette through verification", () => {

@@ -270,6 +270,8 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
       return { id, label: "Hero overlay updated", ok: true };
     case "setHeroTreatment":
       return { id, label: "Hero contrast localized", ok: true };
+    case "setHeroImagePresentation":
+      return { id, label: "Hero image fit updated", ok: true };
     case "setComponentSurface": {
       const label =
         op.target === "form_fields"
@@ -601,6 +603,28 @@ export function applyEditOperations(
         }
         prev.overlayOpacity = next.heroOverlay;
         next = { ...next, heroTreatment: prev };
+        break;
+      }
+      case "setHeroImagePresentation": {
+        const prev: NonNullable<BusinessProject["heroImagePresentation"]> = {
+          fit: "cover",
+          focalPoint: { x: 0.5, y: 0.5 },
+          zoom: 1,
+          position: "center",
+          ...(next.heroImagePresentation ?? {}),
+        };
+        if (op.fit) prev.fit = op.fit;
+        if (op.focalPoint) {
+          prev.focalPoint = {
+            x: Math.min(1, Math.max(0, op.focalPoint.x)),
+            y: Math.min(1, Math.max(0, op.focalPoint.y)),
+          };
+        }
+        if (typeof op.zoom === "number" && Number.isFinite(op.zoom)) {
+          prev.zoom = Math.min(2, Math.max(1, op.zoom));
+        }
+        if (op.position) prev.position = op.position;
+        next = { ...next, heroImagePresentation: prev };
         break;
       }
       case "setComponentSurface": {

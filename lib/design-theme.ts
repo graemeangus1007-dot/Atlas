@@ -122,6 +122,26 @@ export function buildSiteDesignStyle(
         : 0,
     ),
     "--site-hero-scrim-blur": `${project.heroTreatment?.textScrim?.blur ?? 0}px`,
+    "--site-hero-object-fit":
+      project.heroImagePresentation?.fit === "contain" ||
+      project.heroImagePresentation?.fit === "full"
+        ? "contain"
+        : "cover",
+    "--site-hero-object-position": (() => {
+      const pos = project.heroImagePresentation?.position ?? "center";
+      const fp = project.heroImagePresentation?.focalPoint ?? {
+        x: 0.5,
+        y: 0.5,
+      };
+      if (pos === "top") return "50% 0%";
+      if (pos === "bottom") return "50% 100%";
+      if (pos === "left") return "0% 50%";
+      if (pos === "right") return "100% 50%";
+      return `${Math.round(fp.x * 100)}% ${Math.round(fp.y * 100)}%`;
+    })(),
+    "--site-hero-object-zoom": String(
+      project.heroImagePresentation?.zoom ?? 1,
+    ),
     "--site-content-max": contentMaxWidth(project.siteWidth),
     "--site-section-pad":
       project.creativePolish?.spacing === "airy"

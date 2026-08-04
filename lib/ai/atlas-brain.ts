@@ -78,6 +78,22 @@ import {
   planHeroBalanceRepair,
   verifyHeroBalanceRepair,
 } from "@/lib/ai/hero-visual-balance";
+import {
+  clearActiveVisualTaskPending,
+  getActiveVisualTask,
+  shouldContinueActiveHeroTask,
+  touchActiveVisualTask,
+} from "@/lib/ai/active-visual-task";
+import {
+  isHeroFitRequest,
+  isHeroProfessionalCompositionRequest,
+  isSoftHeroVisibilityRequest,
+  logHeroFitDiagnostics,
+  planHeroFitOperations,
+  planHeroProfessionalComposition,
+  readHeroImagePresentation,
+  verifyHeroFitChange,
+} from "@/lib/ai/hero-image-presentation";
 import { NAMED_COLORS } from "@/lib/ai/named-colors";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
@@ -441,6 +457,84 @@ function applyActionMemoryRecommendations(input: {
 }
 
 /**
+ * Resolve typed clarifications (color / image_target) without plan Apply All.
+ */
+async function tryResolveTypedClarification(input: {
+  project: BusinessProject;
+  request: string;
+}): Promise<AtlasBrainResult | null> {
+  const memory = getActionMemory(input.project);
+  if (!hasPendingClarification(memory) || !memory.pendingClarification) {
+    return null;
+  }
+  const pending = memory.pendingClarification;
+  if (pending.kind !== "color" && pending.kind !== "image_target") {
+    return null;
+  }
+  const matched = matchClarificationAnswer(input.request, pending);
+  if (!matched) return null;
+
+  if (
+    pending.kind === "image_target" &&
+    matched.destination !== "apply_gallery_fit"
+  ) {
+    const fit = tryApplyHeroFit({
+      project: withActionMemory(
+        input.project,
+        clearPendingClarification(memory),
+      ),
+      request: "Use the full picture.",
+      forceHero: true,
+    });
+    if (fit) {
+      return {
+        ...fit,
+        explanation:
+          fit.applyStatus === "applied"
+            ? "Done. I applied the full-image fit to the hero."
+            : fit.explanation,
+      };
+    }
+  }
+
+  if (matched.destination === "apply_gallery_fit") {
+    const cleared = withActionMemory(
+      withMemory(input.project, input.request),
+      clearPendingClarification(memory),
+    );
+    return {
+      ok: true,
+      explanation:
+        "Gallery full-photo fit isn’t available yet. I can apply it to the hero image instead — say Hero image.",
+      operations: [],
+      changes: [],
+      project: cleared,
+      applyStatus: "needs_clarification",
+      decision: {
+        intent: "clarification",
+        confidence: 0.85,
+        selectedAgents: ["editor_agent"],
+        needsClarification: true,
+        executionPlan: {
+          goal: "Choose hero for full-photo fit",
+          steps: [],
+          estimatedImpact: "low",
+        },
+        explanation: "Gallery fit not available.",
+        followUpSuggestions: ["Hero image", "Use the full picture"],
+      },
+      followUpSuggestions: ["Hero image", "Use the full picture"],
+    };
+  }
+
+  if (matched.resolvedColor && pending.kind === "color") {
+    return tryContinueActionMemory(input);
+  }
+
+  return null;
+}
+
+/**
  * Sprint 26.1 — resolve pending clarification or Apply All without re-routing.
  */
 async function tryContinueActionMemory(input: {
@@ -471,6 +565,62 @@ async function tryContinueActionMemory(input: {
       memory.pendingClarification,
     );
     const confirmation = detectActionConfirmation(input.request);
+
+    // Typed image-target clarification (e.g. user replies “Hero image”).
+    if (
+      matched &&
+      (matched.destination === "apply_hero_fit" ||
+        memory.pendingClarification.kind === "image_target") &&
+      matched.destination !== "apply_gallery_fit"
+    ) {
+      const fit = tryApplyHeroFit({
+        project: withActionMemory(
+          input.project,
+          clearPendingClarification(memory),
+        ),
+        request: "Use the full picture.",
+        forceHero: true,
+      });
+      if (fit) {
+        return {
+          ...fit,
+          explanation:
+            fit.applyStatus === "applied"
+              ? "Done. I applied the full-image fit to the hero."
+              : fit.explanation,
+        };
+      }
+    }
+
+    if (matched?.destination === "apply_gallery_fit") {
+      const cleared = withActionMemory(
+        withMemory(input.project, input.request),
+        clearPendingClarification(memory),
+      );
+      return {
+        ok: true,
+        explanation:
+          "Gallery full-photo fit isn’t available yet. I can apply it to the hero image instead — say Hero image.",
+        operations: [],
+        changes: [],
+        project: cleared,
+        applyStatus: "needs_clarification",
+        decision: {
+          intent: "clarification",
+          confidence: 0.85,
+          selectedAgents: ["editor_agent"],
+          needsClarification: true,
+          executionPlan: {
+            goal: "Choose hero for full-photo fit",
+            steps: [],
+            estimatedImpact: "low",
+          },
+          explanation: "Gallery fit not available.",
+          followUpSuggestions: ["Hero image", "Use the full picture"],
+        },
+        followUpSuggestions: ["Hero image", "Use the full picture"],
+      };
+    }
 
     // Typed color clarification (e.g. user replies “gold”).
     if (
@@ -869,7 +1019,12 @@ function tryApplyHeroBalanceRepair(input: {
   request: string;
   requestId?: string | null;
 }): AtlasBrainResult | null {
-  if (!isHeroImageVisibilityComplaint(input.request)) return null;
+  if (
+    !isHeroImageVisibilityComplaint(input.request) &&
+    !isSoftHeroVisibilityRequest(input.request)
+  ) {
+    return null;
+  }
 
   const planned = planHeroBalanceRepair({
     project: input.project,
@@ -892,8 +1047,13 @@ function tryApplyHeroBalanceRepair(input: {
       globalPaletteChanged: false,
       verified: false,
     });
-    const project = rememberExecution(
-      input.project,
+    let project = touchActiveVisualTask(input.project, {
+      kind: "hero_balance",
+      lastUserGoal: input.request,
+      pendingClarification: { kind: "fit_mode" },
+    });
+    project = rememberExecution(
+      project,
       input.request,
       {
         success: false,
@@ -904,7 +1064,7 @@ function tryApplyHeroBalanceRepair(input: {
         modifiedEntities: [],
         warnings: [],
         explanation: planned.explanation,
-        followUpRecommendation: "Try a different hero image",
+        followUpRecommendation: "Use the full picture",
       },
       [],
       { paletteBefore: planned.paletteBefore, scope: "hero" },
@@ -928,15 +1088,15 @@ function tryApplyHeroBalanceRepair(input: {
         },
         explanation: planned.explanation,
         followUpSuggestions: [
+          "Use the full picture",
           "Try a different hero image",
-          "Review my website",
         ],
         decisionStage: "explicit_command",
         commandKind: "hero_balance",
       },
       followUpSuggestions: [
+        "Use the full picture",
         "Try a different hero image",
-        "Review my website",
       ],
     };
   }
@@ -1026,8 +1186,12 @@ function tryApplyHeroBalanceRepair(input: {
     };
   }
 
-  const project = rememberExecution(
-    paletteSafe,
+  let project = touchActiveVisualTask(paletteSafe, {
+    kind: "hero_balance",
+    lastUserGoal: input.request,
+  });
+  project = rememberExecution(
+    project,
     input.request,
     {
       success: true,
@@ -1082,7 +1246,7 @@ function tryApplyHeroBalanceRepair(input: {
       },
       explanation: planned.explanation,
       followUpSuggestions: [
-        "Try a different hero image",
+        "Use the full picture",
         "Review my website",
       ],
       decisionStage: "explicit_command",
@@ -1090,9 +1254,373 @@ function tryApplyHeroBalanceRepair(input: {
       shouldExecuteEdits: true,
     },
     followUpSuggestions: [
-      "Try a different hero image",
+      "Use the full picture",
       "Review my website",
     ],
+  };
+}
+
+function tryApplyHeroFit(input: {
+  project: BusinessProject;
+  request: string;
+  requestId?: string | null;
+  forceHero?: boolean;
+}): AtlasBrainResult | null {
+  if (!isHeroFitRequest(input.request) && !input.forceHero) return null;
+
+  const planned = planHeroFitOperations({
+    project: input.project,
+    request: input.request,
+  });
+  const active = getActiveVisualTask(
+    input.project.atlasActionMemory as AtlasActionMemory | undefined,
+  );
+
+  if (planned.needsTargetClarification) {
+    const memory = storePendingClarification(
+      getActionMemory(input.project),
+      {
+        question: planned.explanation,
+        kind: "image_target",
+        destination: "apply_hero_fit",
+        allowedAnswers: ["Hero image", "Gallery image"],
+        context: { intent: "hero_full_picture" },
+      },
+    );
+    let project = withActionMemory(input.project, memory);
+    project = touchActiveVisualTask(project, {
+      kind: "hero_image_fit",
+      lastUserGoal: input.request,
+      pendingClarification: {
+        kind: "image_target",
+        allowedTargets: ["hero", "gallery"],
+      },
+    });
+    logHeroFitDiagnostics({
+      requestId: input.requestId,
+      activeVisualTaskKind: active?.kind ?? null,
+      resolvedTarget: "unknown",
+      pendingClarificationKind: "image_target",
+      continuationMatched: Boolean(active),
+      selectedOperation: "clarify_image_target",
+      heroFitBefore: planned.before.fit,
+      heroFitAfter: planned.before.fit,
+      heroZoomBefore: planned.before.zoom,
+      heroZoomAfter: planned.before.zoom,
+      globalThemeChanged: false,
+      verified: false,
+    });
+    return {
+      ok: true,
+      explanation: planned.explanation,
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "needs_clarification",
+      decision: {
+        intent: "clarification",
+        confidence: 0.9,
+        selectedAgents: ["editor_agent"],
+        needsClarification: true,
+        executionPlan: {
+          goal: "Choose which image gets the full-photo fit",
+          steps: [],
+          estimatedImpact: "medium",
+        },
+        explanation: planned.explanation,
+        followUpSuggestions: ["Hero image", "Gallery image"],
+        decisionStage: "explicit_command",
+        commandKind: "images",
+      },
+      followUpSuggestions: ["Hero image", "Gallery image"],
+    };
+  }
+
+  const ops = validateEditOperations(planned.operations);
+  const before = input.project;
+  const applied = applyEditOperations(before, ops);
+  const check = verifyHeroFitChange({
+    before,
+    after: applied.project,
+    intendedFit: planned.presentation.fit,
+  });
+  logHeroFitDiagnostics({
+    requestId: input.requestId,
+    activeVisualTaskKind: active?.kind ?? "hero_image_fit",
+    resolvedTarget: "hero",
+    pendingClarificationKind: null,
+    continuationMatched: Boolean(active),
+    selectedOperation: "setHeroImagePresentation",
+    heroFitBefore: planned.before.fit,
+    heroFitAfter: planned.presentation.fit,
+    heroZoomBefore: planned.before.zoom,
+    heroZoomAfter: planned.presentation.zoom,
+    globalThemeChanged: check.globalThemeChanged,
+    verified: check.verified,
+  });
+
+  if (!check.verified) {
+    return {
+      ok: true,
+      explanation:
+        "I couldn’t verify the hero fit change safely. Try uploading the hero image again, then ask me to show the full picture.",
+      operations: [],
+      changes: [],
+      project: rememberExecution(
+        before,
+        input.request,
+        {
+          success: false,
+          verified: true,
+          operationType: "hero_image_fit",
+          verificationFailures: check.failures,
+          createdEntities: [],
+          modifiedEntities: [],
+          warnings: [],
+          explanation: "Hero fit change could not be verified.",
+        },
+        ops,
+        { scope: "hero" },
+      ),
+      applyStatus: "no_changes",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.9,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: {
+          goal: "Show the full hero photo",
+          steps: [],
+          estimatedImpact: "medium",
+        },
+        explanation: "Hero fit could not be verified.",
+        followUpSuggestions: ["Use the full picture", "Review my website"],
+        decisionStage: "explicit_command",
+        commandKind: "images",
+      },
+      followUpSuggestions: ["Use the full picture", "Review my website"],
+    };
+  }
+
+  let project = touchActiveVisualTask(applied.project, {
+    kind: "hero_image_fit",
+    lastUserGoal: input.request,
+    pendingClarification: null,
+  });
+  project = clearActiveVisualTaskPending(project);
+  project = withActionMemory(
+    project,
+    clearPendingClarification(getActionMemory(project)),
+  );
+  project = rememberExecution(
+    project,
+    input.request,
+    {
+      success: true,
+      verified: true,
+      operationType: "hero_image_fit",
+      verificationFailures: [],
+      createdEntities: [],
+      modifiedEntities: ["heroImagePresentation"],
+      warnings: [],
+      explanation: planned.explanation,
+    },
+    ops,
+    { scope: "hero", paletteBefore: captureBrandPalette(before) },
+  );
+
+  return {
+    ok: true,
+    explanation: planned.explanation,
+    operations: ops,
+    changes: applied.changes,
+    project,
+    applyStatus: "applied",
+    decision: {
+      intent: "command_readability",
+      confidence: 0.98,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: {
+        goal: "Show the full hero photo",
+        steps: [
+          {
+            id: "cmd.hero-fit",
+            agent: "editor_agent",
+            label: "Update hero image fit",
+          },
+        ],
+        estimatedImpact: "high",
+      },
+      explanation: planned.explanation,
+      followUpSuggestions: [
+        "Make the words easier to read",
+        "Review my website",
+      ],
+      decisionStage: "explicit_command",
+      commandKind: "images",
+      shouldExecuteEdits: true,
+    },
+    followUpSuggestions: [
+      "Make the words easier to read",
+      "Review my website",
+    ],
+  };
+}
+
+function tryApplyHeroProfessionalComposition(input: {
+  project: BusinessProject;
+  request: string;
+  requestId?: string | null;
+}): AtlasBrainResult | null {
+  if (!isHeroProfessionalCompositionRequest(input.request)) return null;
+  const memory = getActionMemory(input.project);
+  const continueHero = shouldContinueActiveHeroTask(input.request, memory);
+  const heroScoped =
+    Boolean(getActiveVisualTask(memory)) ||
+    memory.lastExecution?.scope === "hero" ||
+    continueHero;
+  if (!heroScoped) return null;
+
+  const planned = planHeroProfessionalComposition({
+    project: input.project,
+    request: input.request,
+  });
+  const ops = validateEditOperations(
+    filterOperationsForBrandPreservation(
+      planned.operations,
+      defaultHeroPreservationContext(),
+    ),
+  );
+  const before = input.project;
+  const applied = applyEditOperations(before, ops);
+  const paletteSafe = restoreBrandPalette(
+    applied.project,
+    captureBrandPalette(before),
+  );
+  const fitCheck = verifyHeroFitChange({
+    before,
+    after: paletteSafe,
+    intendedFit: "full",
+  });
+  const globalThemeChanged =
+    before.primaryColor !== paletteSafe.primaryColor ||
+    before.accentColor !== paletteSafe.accentColor ||
+    before.headingFont !== paletteSafe.headingFont;
+
+  logHeroFitDiagnostics({
+    requestId: input.requestId,
+    activeVisualTaskKind: "hero_composition",
+    resolvedTarget: "hero",
+    pendingClarificationKind: null,
+    continuationMatched: continueHero,
+    selectedOperation: "hero_composition",
+    heroFitBefore: planned.before.fit,
+    heroFitAfter: readHeroImagePresentation(paletteSafe).fit,
+    heroZoomBefore: planned.before.zoom,
+    heroZoomAfter: readHeroImagePresentation(paletteSafe).zoom,
+    globalThemeChanged,
+    verified: fitCheck.verified && !globalThemeChanged,
+  });
+
+  if (globalThemeChanged || !fitCheck.verified) {
+    return {
+      ok: true,
+      explanation:
+        "I kept your brand colors and couldn’t safely refine the hero composition further. Showing the full picture or replacing the photo would help next.",
+      operations: [],
+      changes: [],
+      project: rememberExecution(
+        before,
+        input.request,
+        {
+          success: false,
+          verified: true,
+          operationType: "hero_composition",
+          verificationFailures: fitCheck.failures,
+          createdEntities: [],
+          modifiedEntities: [],
+          warnings: [],
+          explanation: "Hero composition could not be verified.",
+        },
+        ops,
+        { scope: "hero", paletteBefore: captureBrandPalette(before) },
+      ),
+      applyStatus: "no_changes",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.9,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: {
+          goal: "Refine hero composition",
+          steps: [],
+          estimatedImpact: "medium",
+        },
+        explanation: "Hero composition blocked.",
+        followUpSuggestions: ["Use the full picture", "Review my website"],
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
+      },
+      followUpSuggestions: ["Use the full picture", "Review my website"],
+    };
+  }
+
+  let project = touchActiveVisualTask(paletteSafe, {
+    kind: "hero_composition",
+    lastUserGoal: input.request,
+    pendingClarification: null,
+  });
+  project = rememberExecution(
+    project,
+    input.request,
+    {
+      success: true,
+      verified: true,
+      operationType: "hero_composition",
+      verificationFailures: [],
+      createdEntities: [],
+      modifiedEntities: ["heroImagePresentation", "heroTreatment"],
+      warnings: [],
+      explanation: planned.explanation,
+    },
+    ops,
+    { scope: "hero", paletteBefore: captureBrandPalette(before) },
+  );
+
+  return {
+    ok: true,
+    explanation: planned.explanation,
+    operations: ops,
+    changes: applied.changes,
+    project,
+    applyStatus: "applied",
+    decision: {
+      intent: "command_readability",
+      confidence: 0.97,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: {
+        goal: "Refine hero composition",
+        steps: [
+          {
+            id: "cmd.hero-composition",
+            agent: "editor_agent",
+            label: "Professional hero composition",
+          },
+        ],
+        estimatedImpact: "high",
+      },
+      explanation: planned.explanation,
+      followUpSuggestions: [
+        "Use the full picture",
+        "Review my website",
+      ],
+      decisionStage: "explicit_command",
+      commandKind: "hero_balance",
+      shouldExecuteEdits: true,
+    },
+    followUpSuggestions: ["Use the full picture", "Review my website"],
   };
 }
 
@@ -1433,6 +1961,15 @@ export async function runAtlasBrain(
     };
   }
 
+  // 1) Typed pending clarification (color / image_target) before hero edits.
+  const typedResolved = await tryResolveTypedClarification({
+    project: projectForTurn,
+    request,
+  });
+  if (typedResolved) {
+    return typedResolved;
+  }
+
   // Scoped surface styling (text boxes / form fields) — never global theme.
   const surfaceStyled = tryApplySurfaceStyle({
     project: projectForTurn,
@@ -1446,6 +1983,39 @@ export async function runAtlasBrain(
         surfaceStyled.followUpSuggestions ?? [],
       ),
       atlasMemory: surfaceStyled.project.atlasMemory,
+    };
+  }
+
+  // 3–4) Active hero visual task + explicit hero edits.
+  const heroProfessional = tryApplyHeroProfessionalComposition({
+    project: projectForTurn,
+    request,
+    requestId: input.atlasRequestId,
+  });
+  if (heroProfessional) {
+    return {
+      ...heroProfessional,
+      followUpSuggestions: followUpsForProject(
+        heroProfessional.project,
+        heroProfessional.followUpSuggestions ?? [],
+      ),
+      atlasMemory: heroProfessional.project.atlasMemory,
+    };
+  }
+
+  const heroFit = tryApplyHeroFit({
+    project: projectForTurn,
+    request,
+    requestId: input.atlasRequestId,
+  });
+  if (heroFit) {
+    return {
+      ...heroFit,
+      followUpSuggestions: followUpsForProject(
+        heroFit.project,
+        heroFit.followUpSuggestions ?? [],
+      ),
+      atlasMemory: heroFit.project.atlasMemory,
     };
   }
 
@@ -1466,7 +2036,7 @@ export async function runAtlasBrain(
     };
   }
 
-  // Sprint 26.1 — Action Memory short-circuit (Apply All / Yes / clarification)
+  // 5) Action Memory — explicit recommendation-plan continuation only.
   const continued = await tryContinueActionMemory({
     project: projectForTurn,
     request,
@@ -1475,11 +2045,12 @@ export async function runAtlasBrain(
     return continued;
   }
 
-  // v1.1 — Complete my website: strategy → prioritize → apply every supported improvement.
-  if (
-    isCompleteWebsiteRequest(request) &&
-    !hasActiveRecommendations(getActionMemory(projectForTurn))
-  ) {
+  // Complete my website with no applyable plan → fresh strategy/critique pipeline.
+  const completeMemory = getActionMemory(projectForTurn);
+  const hasApplyable = (completeMemory.recommendations ?? []).some(
+    (r) => r.applyable,
+  );
+  if (isCompleteWebsiteRequest(request) && !hasApplyable) {
     const critiqueResult = await runAtlasCritiquePipeline({
       project: projectForTurn,
       request:
@@ -2317,8 +2888,16 @@ export async function runAtlasBrain(
         paletteSafe,
         planned.repairLevelAfter,
       );
-      project = rememberExecution(
+      const withTask = touchActiveVisualTask(
         withMemory(withLevel, request, decision.memoryPatch),
+        {
+          kind: "hero_readability",
+          lastUserGoal: request,
+          repairLevel: planned.repairLevelAfter,
+        },
+      );
+      project = rememberExecution(
+        withTask,
         request,
         {
           success: true,
@@ -2343,7 +2922,7 @@ export async function runAtlasBrain(
         decision,
         followUpSuggestions:
           planned.repairLevelAfter >= 2
-            ? ["Try a different hero image"]
+            ? ["Use the full picture", "Try a different hero image"]
             : ["Review my website"],
         executionPlan: decision.executionPlan,
         atlasMemory: project.atlasMemory,

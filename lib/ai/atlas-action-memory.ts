@@ -13,7 +13,16 @@ import {
   isExecutionDisputeRequest,
   type AtlasLastExecution,
 } from "@/lib/ai/edit-execution-result";
+import {
+  shouldContinueActiveHeroTask,
+  type ActiveVisualTask,
+} from "@/lib/ai/active-visual-task";
 import { isHeroReadabilityRequest } from "@/lib/ai/hero-readability";
+import {
+  isHeroFitRequest,
+  isHeroProfessionalCompositionRequest,
+  isSoftHeroVisibilityRequest,
+} from "@/lib/ai/hero-image-presentation";
 import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
 import {
   isEditOperationKind,
@@ -49,13 +58,18 @@ export type ClarificationDestination =
   | "apply_all"
   | "apply_selected"
   | "restore_accent"
-  | "restore_palette";
+  | "restore_palette"
+  | "apply_hero_fit"
+  | "apply_gallery_fit";
 
 export type ClarificationKind =
   | "color"
   | "section"
   | "attachment"
   | "recommendation"
+  | "image_target"
+  | "fit_mode"
+  | "crop_position"
   | "general";
 
 export type AtlasPendingClarification = {
@@ -101,6 +115,8 @@ export type AtlasActionMemory = {
     heroImageId: string | null;
     updatedAt: string;
   } | null;
+  /** Continuous hero / visual editing task (v1.3). */
+  activeVisualTask?: ActiveVisualTask | null;
   updatedAt: string;
 };
 
@@ -534,6 +550,22 @@ export function matchClarificationAnswer(
     }
   }
 
+  // Typed image-target clarification — “Hero image” / “Gallery image”.
+  if (pending.kind === "image_target") {
+    if (/\bhero(\s+image)?\b/i.test(normalized)) {
+      return {
+        answer: "Hero image",
+        destination: "apply_hero_fit",
+      };
+    }
+    if (/\bgallery(\s+image)?\b/i.test(normalized)) {
+      return {
+        answer: "Gallery image",
+        destination: "apply_gallery_fit",
+      };
+    }
+  }
+
   for (const answer of pending.allowedAnswers) {
     const a = answer.toLowerCase();
     if (
@@ -643,11 +675,18 @@ export function storePendingClarification(
     clarification.allowedAnswers ??
     (kind === "color"
       ? ["gold", "green", "navy", "cream", "white"]
-      : [...ATLAS_BRAIN_CLARIFICATION_OPTIONS]);
+      : kind === "image_target"
+        ? ["Hero image", "Gallery image"]
+        : [...ATLAS_BRAIN_CLARIFICATION_OPTIONS]);
   const answerDestinations =
     clarification.answerDestinations ??
-    (kind === "color"
-      ? undefined
+    (kind === "color" || kind === "image_target"
+      ? kind === "image_target"
+        ? {
+            "Hero image": "apply_hero_fit" as ClarificationDestination,
+            "Gallery image": "apply_gallery_fit",
+          }
+        : undefined
       : {
           "Richer photos": "visuals" as ClarificationDestination,
           "Sharper writing": "copy",
@@ -878,6 +917,39 @@ export function toAdvisorRecommendations(
  * True when the request should short-circuit routing and execute action memory.
  * Critique / redesign asks never short-circuit sticky clarification — they re-route.
  */
+function hasApplyableRecommendations(
+  memory: AtlasActionMemory | null | undefined,
+): boolean {
+  return (memory?.recommendations ?? []).some((r) => r.applyable);
+}
+
+/** Explicit plan continuation only — not short hero replies. */
+function isExplicitPlanContinuation(request: string): boolean {
+  const text = request.trim();
+  if (!text) return false;
+  if (APPLY_ALL_PHRASES.test(text)) return true;
+  if (APPLY_ONE_PHRASES.test(text)) return true;
+  if (looksLikePlanReference(text)) return true;
+  if (
+    /\b(do\s+those\s+improvements|apply\s+the\s+(second|first|third|top)\s+one)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  // Short affirmations only count as plan continuation when a plan is applyable.
+  if (APPLY_ALL_SHORT_AFFIRMATIONS.test(text)) return true;
+  const confirmation = detectActionConfirmation(text);
+  // kind_filter (“visuals”) is clarification-chip territory, not Apply All.
+  return (
+    confirmation.kind === "apply_all" ||
+    confirmation.kind === "apply_one" ||
+    confirmation.kind === "affirm" ||
+    confirmation.kind === "ordinal" ||
+    confirmation.kind === "named"
+  );
+}
+
 export function shouldExecuteActionMemory(
   request: string,
   memory: AtlasActionMemory | null | undefined,
@@ -901,23 +973,41 @@ export function shouldExecuteActionMemory(
     return false;
   }
 
+  if (isSoftHeroVisibilityRequest(request)) {
+    return false;
+  }
+
+  if (isHeroFitRequest(request) || isHeroProfessionalCompositionRequest(request)) {
+    return false;
+  }
+
+  // Active hero visual-task continuations never hit Apply All / empty plan.
+  if (shouldContinueActiveHeroTask(request, memory)) {
+    return false;
+  }
+
   // Scoped surface styling — never Apply All / generic clarification chips.
   if (isSurfaceStyleRequest(request)) {
     return false;
   }
 
-  // Ordinal / named plan references beat sticky clarification chips.
-  if (hasActiveRecommendations(memory) && looksLikePlanReference(request)) {
-    return true;
-  }
-
-  // Typed pending clarifications (e.g. color “gold”) resolve before edit short-circuit.
+  // Typed pending clarifications (e.g. color “gold”, “Hero image”) resolve first.
   if (hasPendingClarification(memory) && memory?.pendingClarification) {
     const matched = matchClarificationAnswer(
       request,
       memory.pendingClarification,
     );
     if (matched) return true;
+  }
+
+  // Bare “Hero image” without a matching image_target clarification — never Apply All.
+  if (/^hero(\s+image)?[.!]?$/i.test(request.trim())) {
+    return false;
+  }
+
+  // Ordinal / named plan references beat sticky clarification chips.
+  if (hasApplyableRecommendations(memory) && looksLikePlanReference(request)) {
+    return true;
   }
 
   // Explicit layout / edit commands never depend on an active plan.
@@ -928,17 +1018,10 @@ export function shouldExecuteActionMemory(
     return false;
   }
 
-  if (hasPendingClarification(memory)) {
-    // Only short-circuit when the reply looks like a clarification answer / confirm.
-    const matched = memory?.pendingClarification
-      ? matchClarificationAnswer(request, memory.pendingClarification)
-      : null;
-    const confirmation = detectActionConfirmation(request);
-    return Boolean(matched) || confirmation.kind !== "none";
-  }
-  if (!hasActiveRecommendations(memory) && !memory?.applyAllPending) {
+  // Action Memory only for explicit recommendation-plan continuation.
+  if (!hasApplyableRecommendations(memory)) {
     return false;
   }
-  const confirmation = detectActionConfirmation(request);
-  return confirmation.kind !== "none";
+
+  return isExplicitPlanContinuation(request);
 }

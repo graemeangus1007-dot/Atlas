@@ -115,6 +115,16 @@ export type BusinessProject = {
     };
     textPosition?: "left" | "center" | "right";
   };
+  /**
+   * Hero image fit / crop presentation (object-fit, focal point, zoom).
+   * Complements heroTreatment — does not rewrite brand palette tokens.
+   */
+  heroImagePresentation?: {
+    fit: "cover" | "contain" | "full";
+    focalPoint: { x: number; y: number };
+    zoom: number;
+    position: "center" | "top" | "bottom" | "left" | "right";
+  };
   /** Content shell width for the generated site. */
   siteWidth: SiteWidthId;
   /** Legacy contrast preference (Brand Studio derives text from background). */
@@ -247,6 +257,27 @@ export type BusinessProject = {
       destination: string;
       answerDestinations?: Record<string, string>;
       askedAt: string;
+      kind?: string;
+      resolveTo?: string;
+      context?: Record<string, unknown>;
+    } | null;
+    /** Continuous hero / visual editing task across short follow-ups. */
+    activeVisualTask?: {
+      kind:
+        | "hero_readability"
+        | "hero_balance"
+        | "hero_image_fit"
+        | "hero_crop"
+        | "hero_composition";
+      target: "hero";
+      assetId?: string;
+      lastUserGoal?: string;
+      repairLevel?: number;
+      pendingClarification?: {
+        kind: "image_target" | "fit_mode" | "crop_position";
+        allowedTargets?: string[];
+      };
+      updatedAt: string;
     } | null;
     lastRecommendationSelected?: string | null;
     /** Last edit attempt for conversation repair / truthfulness. */

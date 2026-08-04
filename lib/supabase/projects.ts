@@ -207,6 +207,9 @@ export function businessProjectToColumns(
     ...(project.heroTreatment
       ? { heroTreatment: project.heroTreatment }
       : {}),
+    ...(project.heroImagePresentation
+      ? { heroImagePresentation: project.heroImagePresentation }
+      : {}),
     siteWidth: project.siteWidth,
     theme: project.theme,
     logo: project.logo,
@@ -325,6 +328,9 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
     heroTreatment: isRecord(branding.heroTreatment)
       ? (branding.heroTreatment as BusinessProject["heroTreatment"])
       : base.heroTreatment,
+    heroImagePresentation: isRecord(branding.heroImagePresentation)
+      ? (branding.heroImagePresentation as BusinessProject["heroImagePresentation"])
+      : base.heroImagePresentation,
     siteWidth: (branding.siteWidth as SiteWidthId) || base.siteWidth,
     theme: (branding.theme as SiteThemeId) || base.theme,
     logo:

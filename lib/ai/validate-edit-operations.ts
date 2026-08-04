@@ -691,6 +691,73 @@ function validateOne(raw: unknown, index: number): EditOperation {
         ...(textPosition ? { textPosition } : {}),
       };
     }
+    case "setHeroImagePresentation": {
+      const fits = ["cover", "contain", "full"] as const;
+      const positions = ["center", "top", "bottom", "left", "right"] as const;
+      let fit: (typeof fits)[number] | undefined;
+      if (row.fit !== undefined) {
+        if (
+          typeof row.fit !== "string" ||
+          !(fits as readonly string[]).includes(row.fit)
+        ) {
+          throw new AiError(
+            "bad_request",
+            `setHeroImagePresentation.fit invalid at index ${index}.`,
+          );
+        }
+        fit = row.fit as (typeof fits)[number];
+      }
+      let focalPoint: { x: number; y: number } | undefined;
+      if (row.focalPoint !== undefined) {
+        const fp = requireObject(
+          row.focalPoint,
+          `operations[${index}].focalPoint`,
+        );
+        const x = Number(fp.x);
+        const y = Number(fp.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          throw new AiError(
+            "bad_request",
+            `setHeroImagePresentation.focalPoint invalid at index ${index}.`,
+          );
+        }
+        focalPoint = {
+          x: Math.min(1, Math.max(0, x)),
+          y: Math.min(1, Math.max(0, y)),
+        };
+      }
+      let zoom: number | undefined;
+      if (row.zoom !== undefined) {
+        const z = Number(row.zoom);
+        if (!Number.isFinite(z) || z < 1 || z > 2) {
+          throw new AiError(
+            "bad_request",
+            `setHeroImagePresentation.zoom must be 1–2 at index ${index}.`,
+          );
+        }
+        zoom = z;
+      }
+      let position: (typeof positions)[number] | undefined;
+      if (row.position !== undefined) {
+        if (
+          typeof row.position !== "string" ||
+          !(positions as readonly string[]).includes(row.position)
+        ) {
+          throw new AiError(
+            "bad_request",
+            `setHeroImagePresentation.position invalid at index ${index}.`,
+          );
+        }
+        position = row.position as (typeof positions)[number];
+      }
+      return {
+        operation: "setHeroImagePresentation",
+        ...(fit ? { fit } : {}),
+        ...(focalPoint ? { focalPoint } : {}),
+        ...(zoom !== undefined ? { zoom } : {}),
+        ...(position ? { position } : {}),
+      };
+    }
     case "setComponentSurface": {
       const target = row.target;
       if (

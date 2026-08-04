@@ -192,6 +192,13 @@ body {
   opacity: var(--site-hero-overlay, 0.5);
 }
 
+.site-canvas .site-hero-image {
+  object-fit: var(--site-hero-object-fit, cover);
+  object-position: var(--site-hero-object-position, 50% 50%);
+  transform: scale(var(--site-hero-object-zoom, 1));
+  transform-origin: var(--site-hero-object-position, 50% 50%);
+}
+
 .site-canvas .site-hero-gradient {
   position: absolute;
   inset: 0;

@@ -65,7 +65,7 @@ export default function PreviewHero({
             <img
               src={content.imageUrl}
               alt=""
-              className="h-full w-full object-cover"
+              className="site-hero-image h-full w-full"
             />
             <div className="site-hero-overlay absolute inset-0 opacity-30" />
           </div>
@@ -93,7 +93,7 @@ export default function PreviewHero({
         <img
           src={content.imageUrl}
           alt=""
-          className="h-full w-full object-cover"
+          className="site-hero-image h-full w-full"
         />
         <div
           className={`site-hero-overlay absolute inset-0 ${
