@@ -212,12 +212,189 @@ describe("typed clarifications", () => {
   });
 });
 
+describe("production hero placement → entire picture", () => {
+  function photoAsset(id = "photo-1"): BusinessProject["mediaLibrary"][number] {
+    return {
+      id,
+      name: "Photo 1.jpg",
+      filename: "Photo 1.jpg",
+      url: `https://example.com/${id}.jpg`,
+      storagePath: `user/proj/${id}.jpg`,
+      mimeType: "image/jpeg",
+      size: 2048,
+      sizeLabel: "2 KB",
+      createdAt: Date.now(),
+      title: "Photo 1",
+      description: "",
+      alt: "Photo 1",
+    };
+  }
+
+  it("Use this as the hero image → Use the entire picture (no clarification)", async () => {
+    const asset = photoAsset("photo-1");
+    let project = greenGoldProject({
+      heroImageId: null,
+      mediaLibrary: [asset],
+      galleryImageIds: [],
+      heroImagePresentation: {
+        fit: "cover",
+        focalPoint: { x: 0.5, y: 0.5 },
+        zoom: 1.2,
+        position: "center",
+      },
+    });
+
+    const placed = await runAtlasBrain({
+      project,
+      request: "Use this as the hero image.",
+      attachmentContexts: [
+        {
+          attachmentId: "att1",
+          assetId: "photo-1",
+          type: "image",
+          filename: "Photo 1.jpg",
+          position: 0,
+        },
+      ],
+    });
+    expect(placed.applyStatus).toBe("applied");
+    expect(placed.project.heroImageId).toBe("photo-1");
+    expect(getActiveVisualTask(getActionMemory(placed.project))?.kind).toBe(
+      "hero_image_fit",
+    );
+    expect(getActiveVisualTask(getActionMemory(placed.project))?.assetId).toBe(
+      "photo-1",
+    );
+    project = placed.project;
+
+    const fit = await runAtlasBrain({
+      project,
+      request: "Use the entire picture.",
+    });
+    expect(fit.applyStatus).toBe("applied");
+    expect(fit.explanation).not.toMatch(/which image|tell me which image/i);
+    expect(fit.project.heroImageId).toBe("photo-1");
+    const pres = readHeroImagePresentation(fit.project);
+    expect(pres.fit).toBe("full");
+    expect(pres.zoom).toBe(1);
+    expect(pres.focalPoint).toEqual({ x: 0.5, y: 0.5 });
+    expect(pres.position).toBe("center");
+  });
+
+  it("survives refresh: hero placement → reload memory → entire picture", async () => {
+    const asset = photoAsset("photo-2");
+    const placed = await runAtlasBrain({
+      project: greenGoldProject({
+        heroImageId: null,
+        mediaLibrary: [asset],
+        galleryImageIds: [],
+      }),
+      request: "Use this as the hero image.",
+      attachmentContexts: [
+        {
+          attachmentId: "att1",
+          assetId: "photo-2",
+          type: "image",
+          filename: "Photo 1.jpg",
+          position: 0,
+        },
+      ],
+    });
+    expect(placed.project.heroImageId).toBe("photo-2");
+
+    // Simulate refresh: project JSON round-trip keeps atlasActionMemory + heroImageId.
+    const refreshed = JSON.parse(
+      JSON.stringify(placed.project),
+    ) as BusinessProject;
+
+    const fit = await runAtlasBrain({
+      project: refreshed,
+      request: "Use the entire picture.",
+    });
+    expect(fit.applyStatus).toBe("applied");
+    expect(fit.explanation).not.toMatch(/which image|tell me which image/i);
+    expect(fit.project.heroImageId).toBe("photo-2");
+    expect(readHeroImagePresentation(fit.project).fit).toBe("full");
+  });
+
+  it("hero image resolves image_target without re-asking", async () => {
+    const project = greenGoldProject({
+      heroImageId: "hero-busy",
+      atlasActionMemory: storePendingClarification(undefined, {
+        question:
+          "Tell me which image to change — for example, “Replace the hero image” or “Move the gallery above Testimonials.”",
+        kind: "image_target",
+        destination: "apply_hero_fit",
+        allowedAnswers: ["Hero image", "Gallery image"],
+        context: { intent: "hero_full_picture" },
+      }),
+    });
+    const withTask = {
+      ...project,
+      atlasActionMemory: {
+        ...getActionMemory(project),
+        activeVisualTask: {
+          kind: "hero_image_fit" as const,
+          target: "hero" as const,
+          assetId: "hero-busy",
+          pendingClarification: {
+            kind: "image_target" as const,
+            allowedTargets: ["hero", "gallery"],
+          },
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    };
+
+    const resolve = await runAtlasBrain({
+      project: withTask,
+      request: "hero image",
+    });
+    expect(resolve.applyStatus).toBe("applied");
+    expect(resolve.explanation).not.toMatch(/which image|tell me which image/i);
+    expect(readHeroImagePresentation(resolve.project).fit).toBe("full");
+    expect(
+      getActionMemory(resolve.project).pendingClarification,
+    ).toBeFalsy();
+  });
+
+  it("cut-off / entire hero phrases map to full fit", async () => {
+    for (const request of [
+      "Use the entire picture.",
+      "Use the whole picture.",
+      "Show the whole image.",
+      "Don't crop it.",
+      "It's being cut off.",
+      "The hero image is cropped.",
+      "Use the entire hero image. It's being cut off.",
+      "Show more of the photo.",
+    ]) {
+      expect(isHeroFitRequest(request), request).toBe(true);
+      const result = await runAtlasBrain({
+        project: greenGoldProject({ heroImageId: "hero-busy" }),
+        request,
+      });
+      expect(result.applyStatus, request).toBe("applied");
+      expect(result.explanation, request).not.toMatch(
+        /which image|tell me which image/i,
+      );
+      expect(readHeroImagePresentation(result.project).fit, request).toBe(
+        "full",
+      );
+    }
+  });
+});
+
 describe("hero fit model", () => {
   it("detects full-picture phrases", () => {
     expect(isHeroFitRequest("Use the full picture.")).toBe(true);
+    expect(isHeroFitRequest("Use the entire picture.")).toBe(true);
     expect(isHeroFitRequest("Show the whole photo.")).toBe(true);
     expect(isHeroFitRequest("Don't crop it.")).toBe(true);
     expect(isHeroFitRequest("Fit the entire image.")).toBe(true);
+    expect(isHeroFitRequest("It's being cut off.")).toBe(true);
+    expect(isHeroFitRequest("The hero image is cropped.")).toBe(true);
+    expect(isHeroFitRequest("Show more of the photo.")).toBe(true);
   });
 
   it("applies and verifies fit with preview/publish parity", async () => {

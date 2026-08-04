@@ -15,6 +15,7 @@ import {
 import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import type { AttachmentContext } from "@/lib/ai/conversation-attachments";
 import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
+import { isHeroFitRequest } from "@/lib/ai/hero-image-presentation";
 import type {
   ImageChangeSummary,
   ImageOperation,
@@ -89,6 +90,9 @@ const IMAGE_ACTION =
 export function isImageEditRequest(request: string): boolean {
   const text = request.trim();
   if (!text) return false;
+
+  // Hero fit / crop presentation — handled before Image Agent routing.
+  if (isHeroFitRequest(text)) return false;
 
   // Copy / text edits — never Visual Designer (even if they mention “hero”).
   if (

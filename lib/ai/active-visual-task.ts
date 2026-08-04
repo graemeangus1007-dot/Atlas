@@ -29,7 +29,7 @@ export type ActiveVisualTask = {
 };
 
 const HERO_CONTINUATION =
-  /\b(make\s+it\s+clearer|a\s+little\s+(more\s+)?(visible|easier|lighter|clearer)|still\s+(too\s+dark|bad|hard)|use\s+the\s+full\s+picture|show\s+(more\s+of\s+)?the\s+(photo|image|picture)|don'?t\s+crop|fit\s+the\s+entire|show\s+the\s+whole|make\s+it\s+(look\s+)?professional|fill\s+the\s+hero|crop\s+it\s+tighter|zoom\s+in|hero\s+image)\b/i;
+  /\b(make\s+it\s+clearer|a\s+little\s+(more\s+)?(visible|easier|lighter|clearer)|still\s+(too\s+dark|bad|hard)|use\s+the\s+(full|entire|whole)\s+(hero\s+)?(picture|photo|image)|show\s+(more\s+of\s+)?the\s+(full\s+|entire\s+|whole\s+)?(hero\s+)?(photo|image|picture)|don'?t\s+crop|stop\s+cropping|fit\s+the\s+entire|show\s+the\s+whole|make\s+it\s+(look\s+)?professional|fill\s+the\s+hero|crop\s+it\s+tighter|zoom\s+in|hero\s+image|(being\s+)?cut\s+off|is\s+cropped)\b/i;
 
 const TOPIC_SWITCH =
   /\b(complete\s+my\s+website|finish\s+my\s+website|review\s+my\s+(website|site)|apply\s+all|change\s+the\s+(colors?|fonts?|typography)|redesign\s+(the\s+)?(whole\s+)?(site|website)|about\s+section|services\s+section|contact\s+section|gallery)\b/i;

@@ -42,7 +42,7 @@ export type HeroFitDiagnostics = {
 };
 
 const FULL_PICTURE =
-  /\b(use\s+the\s+full\s+picture|show\s+the\s+whole\s+(photo|image|picture)|don'?t\s+crop(\s+it)?|fit\s+the\s+entire\s+(image|photo|picture)|show\s+the\s+full\s+(photo|image|picture)|full[- ]?photo\s+fit)\b/i;
+  /\b(?:use\s+the\s+(?:full|entire|whole)\s+(?:hero\s+)?(?:picture|photo|image)|show\s+(?:me\s+)?(?:more\s+of\s+)?the\s+(?:full\s+|entire\s+|whole\s+)?(?:hero\s+)?(?:picture|photo|image)|show\s+more\s+of\s+the\s+(?:photo|image|picture)|don'?t\s+crop(?:\s+it)?|stop\s+cropping|fit\s+the\s+entire\s+(?:image|photo|picture)|full[- ]?photo\s+fit|(?:it'?s|is)\s+being\s+cut\s+off|(?:hero\s+)?(?:image|photo|picture)\s+is\s+(?:being\s+)?(?:cut\s+off|cropped)|(?:being\s+)?cut\s+off)\b/i;
 
 const FILL_CROP =
   /\b(fill\s+the\s+hero|crop\s+it\s+tighter|zoom\s+in|tighter\s+crop)\b/i;
@@ -159,6 +159,8 @@ export function planHeroFillCropPresentation(
 export function planHeroFitOperations(input: {
   project: BusinessProject;
   request: string;
+  /** Skip target clarification (typed “Hero image” answer or forced hero). */
+  forceHero?: boolean;
 }): {
   operations: EditOperation[];
   presentation: HeroImagePresentation;
@@ -174,8 +176,13 @@ export function planHeroFitOperations(input: {
   const hasHeroAsset = Boolean(input.project.heroImageId);
   const continuation = hasActiveHeroVisualTask(memory);
 
-  // Prefer hero when an active hero task exists or a hero asset is assigned.
-  const canTargetHero = continuation || hasHeroAsset || Boolean(active);
+  // Prefer hero when an active hero task exists, a hero asset is assigned,
+  // or the caller already resolved the target (forceHero / clarification).
+  const canTargetHero =
+    input.forceHero ||
+    continuation ||
+    hasHeroAsset ||
+    Boolean(active?.target === "hero");
 
   if (!canTargetHero && (input.project.mediaLibrary?.length ?? 0) > 0) {
     return {

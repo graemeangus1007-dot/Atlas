@@ -466,13 +466,38 @@ function applyActionMemoryRecommendations(input: {
 }
 
 /**
+ * Restore image_target pending from ActiveVisualTask when Action Memory lost it
+ * (e.g. recommendation store cleared sticky clarification).
+ */
+function restoreImageTargetPendingFromVisualTask(
+  project: BusinessProject,
+): BusinessProject {
+  const memory = getActionMemory(project);
+  if (hasPendingClarification(memory)) return project;
+  const active = getActiveVisualTask(memory);
+  if (active?.pendingClarification?.kind !== "image_target") return project;
+  return withActionMemory(
+    project,
+    storePendingClarification(memory, {
+      question:
+        "Which image should use the full-photo fit: the hero image or a gallery image?",
+      kind: "image_target",
+      destination: "apply_hero_fit",
+      allowedAnswers: ["Hero image", "Gallery image"],
+      context: { intent: "hero_full_picture", restoredFrom: "activeVisualTask" },
+    }),
+  );
+}
+
+/**
  * Resolve typed clarifications (color / image_target) without plan Apply All.
  */
 async function tryResolveTypedClarification(input: {
   project: BusinessProject;
   request: string;
 }): Promise<AtlasBrainResult | null> {
-  const memory = getActionMemory(input.project);
+  const project = restoreImageTargetPendingFromVisualTask(input.project);
+  const memory = getActionMemory(project);
   if (!hasPendingClarification(memory) || !memory.pendingClarification) {
     return null;
   }
@@ -487,11 +512,12 @@ async function tryResolveTypedClarification(input: {
     pending.kind === "image_target" &&
     matched.destination !== "apply_gallery_fit"
   ) {
+    const cleared = withActionMemory(
+      project,
+      clearPendingClarification(memory),
+    );
     const fit = tryApplyHeroFit({
-      project: withActionMemory(
-        input.project,
-        clearPendingClarification(memory),
-      ),
+      project: clearActiveVisualTaskPending(cleared),
       request: "Use the full picture.",
       forceHero: true,
     });
@@ -508,7 +534,7 @@ async function tryResolveTypedClarification(input: {
 
   if (matched.destination === "apply_gallery_fit") {
     const cleared = withActionMemory(
-      withMemory(input.project, input.request),
+      withMemory(project, input.request),
       clearPendingClarification(memory),
     );
     return {
@@ -582,11 +608,14 @@ async function tryContinueActionMemory(input: {
         memory.pendingClarification.kind === "image_target") &&
       matched.destination !== "apply_gallery_fit"
     ) {
-      const fit = tryApplyHeroFit({
-        project: withActionMemory(
+      const cleared = clearActiveVisualTaskPending(
+        withActionMemory(
           input.project,
           clearPendingClarification(memory),
         ),
+      );
+      const fit = tryApplyHeroFit({
+        project: cleared,
         request: "Use the full picture.",
         forceHero: true,
       });
@@ -1280,12 +1309,14 @@ function tryApplyHeroFit(input: {
   const planned = planHeroFitOperations({
     project: input.project,
     request: input.request,
+    forceHero: input.forceHero,
   });
   const active = getActiveVisualTask(
     input.project.atlasActionMemory as AtlasActionMemory | undefined,
   );
 
-  if (planned.needsTargetClarification) {
+  // Never re-ask after the user already answered “Hero image”.
+  if (planned.needsTargetClarification && !input.forceHero) {
     const memory = storePendingClarification(
       getActionMemory(input.project),
       {
@@ -2149,6 +2180,9 @@ export async function runAtlasBrain(
       input.project,
       clearPendingClarification(getActionMemory(input.project)),
     );
+  } else {
+    // Restore image_target pending from ActiveVisualTask before any routing.
+    projectForTurn = restoreImageTargetPendingFromVisualTask(projectForTurn);
   }
 
   // v1.2 — user disputes prior edit → verify/repair (never restart with plan chips)
@@ -3340,11 +3374,59 @@ export async function runAtlasBrain(
       );
       applyStatus = "applied";
       explanation = appendExplanation(explanation, imageResult.explanation);
+
+      // Hero placement creates continuous fit/crop context for follow-ups.
+      const placedHero = imageResult.operations.some(
+        (op) =>
+          op.operation === "replaceHeroImage" ||
+          (op.operation === "replaceSectionImage" && op.section === "hero") ||
+          (op.operation === "setSectionImage" && op.section === "hero") ||
+          (op.operation === "replacePlaceholder" &&
+            op.placeholder === "hero"),
+      );
+      if (placedHero && project.heroImageId) {
+        project = touchActiveVisualTask(project, {
+          kind: "hero_image_fit",
+          assetId: project.heroImageId,
+          lastUserGoal: request,
+          pendingClarification: null,
+        });
+      }
     } else if (
       imageResult.applyStatus === "needs_clarification" &&
       agents.size === 1
     ) {
       project = withMemory(project, request, decision.memoryPatch);
+      const asksImageTarget =
+        imageResult.explanation === ATLAS_VOICE.imageHint ||
+        imageResult.explanation === ATLAS_VOICE.imageAmbiguous ||
+        /which image/i.test(imageResult.explanation ?? "");
+      if (asksImageTarget) {
+        const fitFollowUp =
+          isHeroFitRequest(request) ||
+          /\b(entire|full|whole|cut\s+off|crop)/i.test(request) ||
+          getActiveVisualTask(getActionMemory(project))?.kind ===
+            "hero_image_fit";
+        const memory = storePendingClarification(getActionMemory(project), {
+          question: imageResult.explanation,
+          kind: "image_target",
+          destination: "apply_hero_fit",
+          allowedAnswers: ["Hero image", "Gallery image"],
+          context: {
+            intent: fitFollowUp ? "hero_full_picture" : "image_select",
+            priorRequest: request,
+          },
+        });
+        project = withActionMemory(project, memory);
+        project = touchActiveVisualTask(project, {
+          kind: "hero_image_fit",
+          lastUserGoal: request,
+          pendingClarification: {
+            kind: "image_target",
+            allowedTargets: ["hero", "gallery"],
+          },
+        });
+      }
       return {
         ok: true,
         explanation: imageResult.explanation,
@@ -3352,8 +3434,14 @@ export async function runAtlasBrain(
         changes: [],
         project,
         applyStatus: "needs_clarification",
-        decision,
-        followUpSuggestions: decision.followUpSuggestions,
+        decision: {
+          ...decision,
+          needsClarification: true,
+          clarificationQuestion: imageResult.explanation,
+        },
+        followUpSuggestions: asksImageTarget
+          ? ["Hero image", "Gallery image"]
+          : decision.followUpSuggestions,
         executionPlan: decision.executionPlan,
         atlasMemory: project.atlasMemory,
         imageEditorState: imageResult.editorState,

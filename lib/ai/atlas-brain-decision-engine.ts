@@ -481,6 +481,40 @@ export function stageExplicitCommand(
 ): AtlasDecisionEngineResult | null {
   const request = input.request.trim();
 
+  // Hero fit / full-picture / crop — before Image Agent (use+picture would steal it).
+  if (isHeroFitRequest(request)) {
+    return {
+      stage: "explicit_command",
+      commandKind: "images",
+      decision: withConfidencePolicy({
+        intent: "image_edit",
+        confidence: 0.98,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Update hero image fit",
+          [
+            {
+              id: "cmd.hero-fit",
+              agent: "editor_agent",
+              label: "Show the full hero photo",
+            },
+          ],
+          "high",
+        ),
+        explanation: "I’ll update how the hero photo is cropped and fitted.",
+        followUpSuggestions: [
+          "Make the words easier to read",
+          "Review my website",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "explicit_command",
+        commandKind: "images",
+        shouldExecuteEdits: true,
+      }),
+    };
+  }
+
   // Image agent short-circuit when clearly image-only and not a feel request
   const attachmentPlacement =
     (input.attachmentContexts?.length ?? 0) > 0 &&
@@ -629,40 +663,6 @@ export function stageExplicitCommand(
           : "I’ll update the gallery photo details.",
         followUpSuggestions: [
           "Remove the titles from the gallery",
-          "Review my website",
-        ],
-        memoryPatch: inferMemoryFromMessage(request),
-        decisionStage: "explicit_command",
-        commandKind: "images",
-        shouldExecuteEdits: true,
-      }),
-    };
-  }
-
-  // Hero fit / full-picture / crop — before balance and readability.
-  if (isHeroFitRequest(request)) {
-    return {
-      stage: "explicit_command",
-      commandKind: "images",
-      decision: withConfidencePolicy({
-        intent: "image_edit",
-        confidence: 0.98,
-        selectedAgents: ["editor_agent"],
-        needsClarification: false,
-        executionPlan: plan(
-          "Update hero image fit",
-          [
-            {
-              id: "cmd.hero-fit",
-              agent: "editor_agent",
-              label: "Show the full hero photo",
-            },
-          ],
-          "high",
-        ),
-        explanation: "I’ll update how the hero photo is cropped and fitted.",
-        followUpSuggestions: [
-          "Make the words easier to read",
           "Review my website",
         ],
         memoryPatch: inferMemoryFromMessage(request),
