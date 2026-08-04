@@ -667,6 +667,28 @@ export type {
   HeroImageFit,
 } from "@/lib/ai/hero-image-presentation";
 export {
+  DEFAULT_GALLERY_INTERACTION,
+  isGalleryLightboxRequest,
+  normalizeGalleryInteraction,
+  planGalleryLightboxOperations,
+  readGalleryInteraction,
+  verifyGalleryLightbox,
+} from "@/lib/ai/gallery-interaction";
+export type {
+  GalleryInteraction,
+  GalleryInteractionMode,
+} from "@/lib/ai/gallery-interaction";
+export {
+  isGalleryMetadataRequest,
+  planGalleryMetadataOperations,
+} from "@/lib/ai/gallery-metadata";
+export {
+  deriveDisplayTitle,
+  isOpaqueMediaLabel,
+  normalizeOpaqueMediaMetadata,
+  publicGalleryTitle,
+} from "@/lib/media-titles";
+export {
   storeLastExecution,
   getLastExecution,
 } from "@/lib/ai/atlas-action-memory";

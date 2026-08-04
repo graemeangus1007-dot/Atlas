@@ -67,7 +67,15 @@ export function useComposerAttachments({
       });
 
       try {
-        const result = await uploadProjectMedia(pid, file);
+        let titleIndex = 0;
+        setAttachments((prev) => {
+          titleIndex = Math.max(
+            0,
+            prev.findIndex((item) => item.id === attachmentId),
+          );
+          return prev;
+        });
+        const result = await uploadProjectMedia(pid, file, { titleIndex });
         if (!result.ok) {
           updateAttachment(attachmentId, {
             status: "failed",
@@ -88,6 +96,7 @@ export function useComposerAttachments({
               storagePath: asset.storagePath ?? undefined,
               previewUrl: asset.url,
               localObjectUrl: undefined,
+              altText: asset.title || asset.alt,
               errorMessage: undefined,
             };
           }),
@@ -129,6 +138,7 @@ export function useComposerAttachments({
       }
 
       const created: ConversationAttachment[] = [];
+      const baseIndex = type === "logo" ? 0 : attachments.length;
       for (const file of selected) {
         const validated = validateComposerImageFile(file);
         if (!validated.ok) {
@@ -145,6 +155,7 @@ export function useComposerAttachments({
           file,
           projectId: pid,
           type,
+          titleIndex: baseIndex + created.length,
         });
         if (dims?.ok) {
           attachment.width = dims.width;

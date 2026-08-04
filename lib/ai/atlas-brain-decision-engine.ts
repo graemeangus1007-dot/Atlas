@@ -46,6 +46,8 @@ import {
 } from "@/lib/ai/hero-image-presentation";
 import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
 import { shouldContinueActiveHeroTask } from "@/lib/ai/active-visual-task";
+import { isGalleryLightboxRequest } from "@/lib/ai/gallery-interaction";
+import { isGalleryMetadataRequest } from "@/lib/ai/gallery-metadata";
 import { isSectionOrderRequest } from "@/lib/ai/section-order";
 import type { BusinessProject } from "@/types/business-project";
 
@@ -595,6 +597,46 @@ export function stageExplicitCommand(
         }),
       };
     }
+  }
+
+  // Gallery lightbox / metadata — first-class interaction.
+  if (isGalleryLightboxRequest(request) || isGalleryMetadataRequest(request)) {
+    return {
+      stage: "explicit_command",
+      commandKind: "images",
+      decision: withConfidencePolicy({
+        intent: "image_edit",
+        confidence: 0.98,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          isGalleryLightboxRequest(request)
+            ? "Enable gallery lightbox"
+            : "Update gallery metadata",
+          [
+            {
+              id: "cmd.gallery-interaction",
+              agent: "editor_agent",
+              label: isGalleryLightboxRequest(request)
+                ? "Fullscreen gallery viewer"
+                : "Gallery photo details",
+            },
+          ],
+          "high",
+        ),
+        explanation: isGalleryLightboxRequest(request)
+          ? "I’ll make the gallery images open in a full-screen viewer so visitors can see each complete photo and move through the gallery."
+          : "I’ll update the gallery photo details.",
+        followUpSuggestions: [
+          "Remove the titles from the gallery",
+          "Review my website",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "explicit_command",
+        commandKind: "images",
+        shouldExecuteEdits: true,
+      }),
+    };
   }
 
   // Hero fit / full-picture / crop — before balance and readability.

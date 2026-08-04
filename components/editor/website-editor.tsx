@@ -17,6 +17,7 @@ import {
   EDITOR_PANEL_HINTS,
   type EditorSidebarId,
 } from "@/data/editor";
+import { deriveAltText, deriveDisplayTitle } from "@/lib/media-titles";
 import {
   appendConversationMessage,
   applyAdvisorRecommendation,
@@ -299,6 +300,7 @@ export default function WebsiteEditor() {
         library = [...library];
         libraryChanged = true;
       }
+      const cleanTitle = deriveDisplayTitle(att.filename, 0);
       library.unshift({
         id: att.assetId,
         name: att.filename,
@@ -312,9 +314,9 @@ export default function WebsiteEditor() {
         size: att.sizeBytes,
         sizeLabel: "",
         createdAt: Date.now(),
-        title: att.altText || att.filename,
+        title: cleanTitle,
         description: "",
-        alt: att.altText || att.filename,
+        alt: deriveAltText(cleanTitle, att.filename, 0),
         unavailable: !att.storagePath,
       });
     }

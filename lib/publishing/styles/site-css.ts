@@ -625,7 +625,8 @@ h1, h2, h3, p {
   aspect-ratio: 3 / 4;
 }
 
-.site-gallery-frame img {
+.site-gallery-frame img,
+.site-gallery-trigger img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -634,8 +635,117 @@ h1, h2, h3, p {
   transition: transform 500ms ease;
 }
 
+.site-gallery-trigger {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.site-gallery-trigger:focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
+}
+
 .site-gallery-item:hover img {
   transform: scale(1.03);
+}
+
+/* Fullscreen gallery lightbox — published runtime */
+.atlas-lightbox-root {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  background: rgba(0, 0, 0, 0.88);
+}
+
+.atlas-lightbox-root[hidden],
+.atlas-lightbox-dialog[hidden] {
+  display: none !important;
+}
+
+.atlas-lightbox-dialog {
+  position: relative;
+  width: min(100%, 64rem);
+  max-height: 100%;
+}
+
+.atlas-lightbox-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  color: #fff;
+  font-size: 0.875rem;
+}
+
+.atlas-lightbox-close {
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: #fff;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+
+.atlas-lightbox-close:focus-visible,
+.atlas-lightbox-nav:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.atlas-lightbox-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 12rem;
+}
+
+.atlas-lightbox-image {
+  max-width: 100%;
+  max-height: min(78vh, 900px);
+  object-fit: contain;
+}
+
+.atlas-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  padding: 0.5rem 0.85rem;
+  cursor: pointer;
+}
+
+.atlas-lightbox-prev { left: 0.25rem; }
+.atlas-lightbox-next { right: 0.25rem; }
+
+.atlas-lightbox-caption {
+  margin-top: 0.75rem;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.875rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-gallery-frame img,
+  .site-gallery-trigger img {
+    transition: none;
+  }
 }
 
 .site-gallery-frame::after {

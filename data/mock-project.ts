@@ -4,6 +4,7 @@ import { BUSINESS_TYPE_TEMPLATES } from "@/data/website-templates";
 import { defaultProjectContact } from "@/lib/contact";
 import type { BusinessProject } from "@/types/business-project";
 import { DEFAULT_PROJECT_PAGES } from "@/types/business-project";
+import { DEFAULT_GALLERY_INTERACTION } from "@/types/gallery";
 import type { MediaAsset } from "@/types/media";
 
 const coffeeTemplate = BUSINESS_TYPE_TEMPLATES["Coffee Shop"];
@@ -43,6 +44,7 @@ export const MOCK_BUSINESS_PROJECT: BusinessProject = {
   mediaLibrary: [] as MediaAsset[],
   heroImageId: DEFAULT_MEDIA.heroImageId,
   galleryImageIds: [...DEFAULT_MEDIA.galleryImageIds],
+  galleryInteraction: { ...DEFAULT_GALLERY_INTERACTION },
   status: "draft",
   publish: null,
 };

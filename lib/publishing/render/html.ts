@@ -1,4 +1,8 @@
 import { escapeAttr, escapeHtml } from "@/lib/publishing/escape";
+import {
+  renderGalleryLightboxScript,
+  renderGalleryLightboxShell,
+} from "@/lib/publishing/gallery-lightbox-script";
 import type {
   CardStyle,
   FooterLayout,
@@ -224,20 +228,35 @@ function galleryLayoutClass(layout: GalleryLayout): string {
 function renderGallery(
   items: GeneratedWebsiteContent["gallery"],
   layout: GalleryLayout,
+  interaction?: GeneratedWebsiteContent["galleryInteraction"],
 ): string {
+  const lightbox = interaction?.mode === "lightbox";
+  const showCaptions = interaction?.captions === true;
   const tiles = items
     .map((item) => {
-      const description = item.description
-        ? `<span>${escapeHtml(item.description)}</span>`
-        : "";
+      const showTitle =
+        item.showTitle !== false && Boolean(item.title?.trim());
+      const description =
+        showCaptions && item.description
+          ? `<span>${escapeHtml(item.description)}</span>`
+          : "";
+      const caption =
+        showTitle || description
+          ? `<div class="site-gallery-caption">
+        ${showTitle ? `<strong>${escapeHtml(item.title)}</strong>` : ""}
+        ${description}
+      </div>`
+          : "";
+      const frameInner = lightbox
+        ? `<button type="button" class="site-gallery-trigger" data-gallery-lightbox-trigger data-full-src="${escapeAttr(item.imageUrl)}" data-alt="${escapeAttr(item.alt)}" data-title="${escapeAttr(item.title)}" data-caption="${escapeAttr(item.description)}" aria-label="View ${escapeAttr(item.alt || item.title || "gallery photo")} fullscreen">
+        <img src="${escapeAttr(item.imageUrl)}" alt="" />
+      </button>`
+        : `<img src="${escapeAttr(item.imageUrl)}" alt="${escapeAttr(item.alt)}" />`;
       return `<li class="site-gallery-item">
       <div class="site-gallery-frame">
-        <img src="${escapeAttr(item.imageUrl)}" alt="${escapeAttr(item.alt)}" />
+        ${frameInner}
       </div>
-      <div class="site-gallery-caption">
-        <strong>${escapeHtml(item.title)}</strong>
-        ${description}
-      </div>
+      ${caption}
     </li>`;
     })
     .join("");
@@ -457,7 +476,11 @@ function renderSection(
     case "features":
       return renderFeatures(content.features, template.cardStyle);
     case "gallery":
-      return renderGallery(content.gallery, template.galleryLayout);
+      return renderGallery(
+        content.gallery,
+        template.galleryLayout,
+        content.galleryInteraction,
+      );
     case "contact":
       return renderContact(
         content.contact,
@@ -645,12 +668,20 @@ export function renderStaticSiteBody(
   const sectionReveal = content.creativePolish?.sectionReveal ?? motionOn;
   const hoverEffects = content.creativePolish?.hoverEffects ?? motionOn;
 
-  return `<div class="site-canvas" data-template="${escapeAttr(template.id)}" data-card-style="${escapeAttr(template.cardStyle)}" data-hero-layout="${escapeAttr(template.heroLayout)}" data-nav-style="${escapeAttr(template.navStyle)}" data-gallery-layout="${escapeAttr(template.galleryLayout)}" data-footer-layout="${escapeAttr(template.footerLayout)}" data-motion="${motionOn ? "on" : "off"}" data-motion-preset="${escapeAttr(motionPreset)}" data-section-reveal="${sectionReveal ? "on" : "off"}" data-hover-effects="${hoverEffects ? "on" : "off"}" data-hierarchy="${content.creativePolish?.visualHierarchy ? "on" : "off"}" data-spacing="${escapeAttr(content.creativePolish?.spacing ?? "default")}">
+  const lightboxOn = content.galleryInteraction?.mode === "lightbox";
+  const lightboxShell = lightboxOn
+    ? renderGalleryLightboxShell({
+        navigation: content.galleryInteraction?.navigation !== false,
+      })
+    : "";
+
+  return `<div class="site-canvas" data-template="${escapeAttr(template.id)}" data-card-style="${escapeAttr(template.cardStyle)}" data-hero-layout="${escapeAttr(template.heroLayout)}" data-nav-style="${escapeAttr(template.navStyle)}" data-gallery-layout="${escapeAttr(template.galleryLayout)}" data-footer-layout="${escapeAttr(template.footerLayout)}" data-motion="${motionOn ? "on" : "off"}" data-motion-preset="${escapeAttr(motionPreset)}" data-section-reveal="${sectionReveal ? "on" : "off"}" data-hover-effects="${hoverEffects ? "on" : "off"}" data-hierarchy="${content.creativePolish?.visualHierarchy ? "on" : "off"}" data-spacing="${escapeAttr(content.creativePolish?.spacing ?? "default")}"${lightboxOn ? ' data-gallery-lightbox="on"' : ""}>
 ${renderNav(content.businessName, template.navStyle, content.logoUrl)}
 <main>
 ${sections}
 ${remainingDesign}
 </main>
+${lightboxShell}
 </div>`;
 }
 
@@ -666,6 +697,8 @@ export function renderStaticSiteDocument(input: {
   jsonLdHtml?: string;
   /** Pre-rendered Atlas analytics beacon (before </body>). */
   analyticsScriptHtml?: string;
+  /** Gallery lightbox runtime (before </body>). */
+  galleryLightboxScriptHtml?: string;
   /** Free-plan "Built with Atlas" badge HTML. */
   brandingHtml?: string;
 }): string {
@@ -679,6 +712,9 @@ export function renderStaticSiteDocument(input: {
     : "";
   const analytics = input.analyticsScriptHtml?.trim()
     ? `\n${input.analyticsScriptHtml.trim()}`
+    : "";
+  const galleryLightbox = input.galleryLightboxScriptHtml?.trim()
+    ? `\n${input.galleryLightboxScriptHtml.trim()}`
     : "";
   const branding = input.brandingHtml?.trim()
     ? `\n${input.brandingHtml.trim()}`
@@ -696,8 +732,10 @@ ${seoHead}
   <link rel="stylesheet" href="${escapeAttr(styles)}" />${jsonLd}
 </head>
 <body>
-${input.bodyHtml}${branding}${analytics}
+${input.bodyHtml}${branding}${analytics}${galleryLightbox}
 </body>
 </html>
 `;
 }
+
+export { renderGalleryLightboxScript };

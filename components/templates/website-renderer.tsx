@@ -69,6 +69,9 @@ function renderCoreSection(
           items={content.gallery}
           galleryLayout={template.galleryLayout}
           onTitleChange={onGalleryTitleChange}
+          lightboxEnabled={content.galleryInteraction?.mode === "lightbox"}
+          lightboxNavigation={content.galleryInteraction?.navigation !== false}
+          lightboxCaptions={content.galleryInteraction?.captions === true}
         />
       );
     case "contact":

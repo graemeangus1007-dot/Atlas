@@ -5,6 +5,7 @@ import {
 import { planStaticSiteAssets } from "@/lib/publishing/assets";
 import { createPublishSnapshot } from "@/lib/publishing/create-publish-snapshot";
 import { fingerprintFiles } from "@/lib/publishing/fingerprint";
+import { renderGalleryLightboxScript } from "@/lib/publishing/gallery-lightbox-script";
 import {
   renderStaticSiteBody,
   renderStaticSiteDocument,
@@ -148,6 +149,11 @@ export function buildStaticSite(
     ? renderBuiltWithAtlasBadge({ atlasOrigin })
     : "";
 
+  const galleryLightboxScriptHtml =
+    generated.galleryInteraction?.mode === "lightbox"
+      ? renderGalleryLightboxScript()
+      : "";
+
   const indexHtml = renderStaticSiteDocument({
     title: metaWithSite.title,
     description: metaWithSite.description,
@@ -156,6 +162,7 @@ export function buildStaticSite(
     seoHeadHtml,
     jsonLdHtml,
     analyticsScriptHtml,
+    galleryLightboxScriptHtml,
     brandingHtml,
   });
   const stylesCss =

@@ -1,7 +1,13 @@
 import { ACCEPTED_IMAGE_TYPES } from "@/data/media";
 import { createClient } from "@/lib/supabase/client";
 import { getAuthErrorMessage } from "@/lib/supabase/errors";
-import { fileStem, formatFileSize, isAcceptedImageFile } from "@/lib/media";
+import {
+  deriveAltText,
+  deriveDisplayTitle,
+  fileStem,
+  formatFileSize,
+  isAcceptedImageFile,
+} from "@/lib/media";
 import type { MediaAsset } from "@/types/media";
 import { MAX_PROJECT_MEDIA_BYTES } from "@/types/media";
 
@@ -259,6 +265,7 @@ export async function hydrateMediaLibrary(
 export async function uploadProjectMedia(
   projectId: string,
   file: File,
+  options?: { titleIndex?: number },
 ): Promise<StorageResult<MediaAsset>> {
   try {
     const validated = validateProjectMediaFile(file);
@@ -305,7 +312,9 @@ export async function uploadProjectMedia(
     const signed = await getProjectMediaUrl(storagePath);
     if (!signed.ok) return signed;
 
-    const title = fileStem(file.name);
+    const titleIndex = options?.titleIndex ?? 0;
+    const title = deriveDisplayTitle(file.name, titleIndex);
+    const alt = deriveAltText(title, file.name, titleIndex);
 
     return ok({
       id: createId(),
@@ -320,7 +329,7 @@ export async function uploadProjectMedia(
       urlExpiresAt: signedUrlExpiresAtMs(),
       title,
       description: "",
-      alt: title,
+      alt,
       unavailable: false,
     });
   } catch (error) {
@@ -349,7 +358,9 @@ export async function uploadProjectMediaFiles(
     const span = 100 / accepted.length;
     onProgress?.(Math.round(base + span * 0.15));
 
-    const result = await uploadProjectMedia(projectId, file);
+    const result = await uploadProjectMedia(projectId, file, {
+      titleIndex: index,
+    });
     if (!result.ok) {
       return { ok: false, error: result.error };
     }

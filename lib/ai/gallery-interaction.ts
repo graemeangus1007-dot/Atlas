@@ -4,20 +4,15 @@
 
 import type { EditOperation } from "@/lib/ai/edit-operations";
 import type { BusinessProject } from "@/types/business-project";
+import {
+  DEFAULT_GALLERY_INTERACTION,
+  normalizeGalleryInteraction,
+  type GalleryInteraction,
+  type GalleryInteractionMode,
+} from "@/types/gallery";
 
-export type GalleryInteractionMode = "none" | "lightbox";
-
-export type GalleryInteraction = {
-  mode: GalleryInteractionMode;
-  navigation: boolean;
-  captions: boolean;
-};
-
-export const DEFAULT_GALLERY_INTERACTION: GalleryInteraction = {
-  mode: "none",
-  navigation: true,
-  captions: true,
-};
+export type { GalleryInteraction, GalleryInteractionMode };
+export { DEFAULT_GALLERY_INTERACTION, normalizeGalleryInteraction };
 
 const LIGHTBOX_REQUEST =
   /\b((click|tap|open|view|see)\b[\s\S]{0,40}\b(full|entire|whole|larger|bigger|fullscreen|full[- ]?screen|lightbox)\b|\b(full|entire|whole)\s+(picture|photo|image)s?\b[\s\S]{0,40}\b(click|tap|open)\b|\b(lightbox|photo\s+viewer|image\s+viewer)\b|\b(gallery\s+images?\s+fullscreen|fullscreen\s+gallery|swipe\s+through\s+(the\s+)?photos?|open\s+gallery\s+photos?\s+larger|make\s+the\s+gallery\s+images?\s+fullscreen|let\s+(people|visitors)\s+(click|swipe))\b)/i;
@@ -29,13 +24,7 @@ export function isGalleryLightboxRequest(request: string): boolean {
 export function readGalleryInteraction(
   project: BusinessProject,
 ): GalleryInteraction {
-  const raw = project.galleryInteraction;
-  if (!raw) return { ...DEFAULT_GALLERY_INTERACTION };
-  return {
-    mode: raw.mode === "lightbox" ? "lightbox" : "none",
-    navigation: raw.navigation !== false,
-    captions: raw.captions !== false,
-  };
+  return normalizeGalleryInteraction(project.galleryInteraction);
 }
 
 export function planGalleryLightboxOperations(): {

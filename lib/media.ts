@@ -1,4 +1,9 @@
 import { ACCEPTED_IMAGE_TYPES } from "@/data/media";
+import {
+  deriveAltText,
+  deriveDisplayTitle,
+  normalizeOpaqueMediaMetadata,
+} from "@/lib/media-titles";
 import type { MediaAsset } from "@/types/media";
 import { MAX_PROJECT_MEDIA_BYTES } from "@/types/media";
 
@@ -13,7 +18,10 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Human-readable title stem from a file name (used as default title/alt). */
+/**
+ * Human-readable title stem from a file name.
+ * Prefer `deriveDisplayTitle` for gallery-visible labels.
+ */
 export function fileStem(fileName: string): string {
   const stem = fileName
     .replace(/\.[^.]+$/, "")
@@ -22,6 +30,15 @@ export function fileStem(fileName: string): string {
     .trim();
   return stem || fileName;
 }
+
+export {
+  deriveAltText,
+  deriveDisplayTitle,
+  isOpaqueMediaLabel,
+  normalizeOpaqueMediaMetadata,
+  publicGalleryTitle,
+  photoIndexTitle,
+} from "@/lib/media-titles";
 
 /**
  * Decorative SVG placeholder when no custom image is assigned.
@@ -74,12 +91,16 @@ export function isFileWithinMediaLimit(file: File): boolean {
  * Legacy / temporary local preview asset (blob URL).
  * Do not persist blob-only assets as permanent library items.
  */
-export function createTemporaryPreviewAsset(file: File): MediaAsset {
+export function createTemporaryPreviewAsset(
+  file: File,
+  index = 0,
+): MediaAsset {
   if (!isAcceptedImageFile(file)) {
     throw new Error("Please upload a JPEG, PNG, WebP, or GIF image.");
   }
 
-  const title = fileStem(file.name);
+  const title = deriveDisplayTitle(file.name, index);
+  const alt = deriveAltText(title, file.name, index);
 
   return {
     id: createId(),
@@ -93,7 +114,7 @@ export function createTemporaryPreviewAsset(file: File): MediaAsset {
     createdAt: Date.now(),
     title,
     description: "",
-    alt: title,
+    alt,
     unavailable: false,
   };
 }
@@ -163,9 +184,19 @@ export function normalizeMediaAsset(raw: unknown): MediaAsset | null {
         ? item.sizeLabel
         : formatFileSize(size),
     createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
-    title: typeof item.title === "string" ? item.title : fileStem(name),
+    title:
+      typeof item.title === "string"
+        ? item.title
+        : deriveDisplayTitle(name, 0),
     description: typeof item.description === "string" ? item.description : "",
-    alt: typeof item.alt === "string" ? item.alt : fileStem(name),
+    alt:
+      typeof item.alt === "string"
+        ? item.alt
+        : deriveAltText(
+            typeof item.title === "string" ? item.title : null,
+            name,
+            0,
+          ),
     urlExpiresAt:
       typeof item.urlExpiresAt === "number" && Number.isFinite(item.urlExpiresAt)
         ? item.urlExpiresAt
@@ -174,11 +205,15 @@ export function normalizeMediaAsset(raw: unknown): MediaAsset | null {
   };
 }
 
-export function normalizeMediaLibrary(raw: unknown): MediaAsset[] {
+export function normalizeMediaLibrary(
+  raw: unknown,
+  galleryImageIds: Array<string | null | undefined> = [],
+): MediaAsset[] {
   if (!Array.isArray(raw)) return [];
-  return raw
+  const library = raw
     .map((item) => normalizeMediaAsset(item))
     .filter((item): item is MediaAsset => item !== null);
+  return normalizeOpaqueMediaMetadata(library, galleryImageIds);
 }
 
 /** Patch metadata on one library asset; returns a new array. */

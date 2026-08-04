@@ -27,6 +27,7 @@ import {
 } from "@/types/business";
 import type { BusinessProject } from "@/types/business-project";
 import { DEFAULT_PROJECT_PAGES } from "@/types/business-project";
+import { DEFAULT_GALLERY_INTERACTION } from "@/types/gallery";
 
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
 
@@ -394,6 +395,7 @@ export function mapDraftToBusinessProject(
     mediaLibrary: [],
     heroImageId: DEFAULT_MEDIA.heroImageId,
     galleryImageIds: [...DEFAULT_MEDIA.galleryImageIds],
+    galleryInteraction: { ...DEFAULT_GALLERY_INTERACTION },
     status: "ready",
     publish: null,
   };

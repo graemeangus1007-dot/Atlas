@@ -3,6 +3,7 @@
  * Images/logos only this phase; model is extensible for documents later.
  */
 
+import { deriveDisplayTitle } from "@/lib/media-titles";
 import { MAX_PROJECT_MEDIA_BYTES } from "@/types/media";
 
 export type ConversationAttachmentType = "image" | "logo" | "document";
@@ -98,9 +99,12 @@ export function createQueuedAttachment(input: {
   file: File;
   projectId: string;
   type: "image" | "logo";
+  /** 0-based index within a multi-file attach batch (Photo 1, Photo 2, …). */
+  titleIndex?: number;
 }): ConversationAttachment {
   const localObjectUrl =
     typeof URL !== "undefined" ? URL.createObjectURL(input.file) : undefined;
+  const titleIndex = input.titleIndex ?? 0;
   return {
     id: createAttachmentId(),
     type: input.type,
@@ -112,7 +116,7 @@ export function createQueuedAttachment(input: {
     createdAt: new Date().toISOString(),
     previewUrl: localObjectUrl,
     localObjectUrl,
-    altText: input.file.name,
+    altText: deriveDisplayTitle(input.file.name || "photo.jpg", titleIndex),
   };
 }
 

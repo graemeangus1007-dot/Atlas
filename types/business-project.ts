@@ -8,6 +8,7 @@ import type {
 } from "@/data/design-options";
 import type { TemplateId } from "@/lib/templates/types";
 import type { GalleryImageIds, MediaAsset } from "@/types/media";
+import type { GalleryInteraction } from "@/types/gallery";
 import type { ProjectSeo } from "@/lib/seo/types";
 import type { PublishRecord } from "@/types/publishing";
 import type { DesignAssistantPersistedMeta } from "@/lib/ai/editor-assistant-types";
@@ -125,6 +126,12 @@ export type BusinessProject = {
     zoom: number;
     position: "center" | "top" | "bottom" | "left" | "right";
   };
+  /**
+   * Gallery visitor interaction (lightbox / none).
+   * Persisted in branding JSON with other presentation tokens.
+   * Older projects may omit this — use DEFAULT_GALLERY_INTERACTION.
+   */
+  galleryInteraction?: GalleryInteraction;
   /** Content shell width for the generated site. */
   siteWidth: SiteWidthId;
   /** Legacy contrast preference (Brand Studio derives text from background). */

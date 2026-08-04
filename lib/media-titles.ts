@@ -13,6 +13,8 @@ export function isOpaqueMediaLabel(value: string | null | undefined): boolean {
   const text = (value ?? "").trim();
   if (!text) return true;
   if (UUID_LIKE.test(text)) return true;
+  // Pure numeric labels (camera dumps, epoch ids) — never public titles.
+  if (/^\d+$/.test(text.replace(/[\s_-]/g, ""))) return true;
   if (LONG_NUMERIC.test(text.replace(/\s+/g, ""))) return true;
   if (/^[0-9a-f]{16,}$/i.test(text.replace(/[\s_-]/g, ""))) return true;
   if (CAMERA_NOISE.test(text)) return true;

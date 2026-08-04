@@ -23,6 +23,8 @@ import {
   isHeroProfessionalCompositionRequest,
   isSoftHeroVisibilityRequest,
 } from "@/lib/ai/hero-image-presentation";
+import { isGalleryLightboxRequest } from "@/lib/ai/gallery-interaction";
+import { isGalleryMetadataRequest } from "@/lib/ai/gallery-metadata";
 import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
 import {
   isEditOperationKind,
@@ -978,6 +980,10 @@ export function shouldExecuteActionMemory(
   }
 
   if (isHeroFitRequest(request) || isHeroProfessionalCompositionRequest(request)) {
+    return false;
+  }
+
+  if (isGalleryLightboxRequest(request) || isGalleryMetadataRequest(request)) {
     return false;
   }
 

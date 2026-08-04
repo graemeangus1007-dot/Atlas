@@ -758,6 +758,58 @@ function validateOne(raw: unknown, index: number): EditOperation {
         ...(position ? { position } : {}),
       };
     }
+    case "setGalleryInteraction": {
+      if (row.mode !== "none" && row.mode !== "lightbox") {
+        throw new AiError(
+          "bad_request",
+          `setGalleryInteraction.mode must be none or lightbox at index ${index}.`,
+        );
+      }
+      return {
+        operation: "setGalleryInteraction",
+        mode: row.mode,
+        ...(typeof row.navigation === "boolean"
+          ? { navigation: row.navigation }
+          : {}),
+        ...(typeof row.captions === "boolean"
+          ? { captions: row.captions }
+          : {}),
+      };
+    }
+    case "updateGalleryItemMetadata": {
+      const galleryIndex =
+        row.galleryIndex === undefined ? undefined : Number(row.galleryIndex);
+      if (
+        galleryIndex !== undefined &&
+        (!Number.isInteger(galleryIndex) ||
+          galleryIndex < 0 ||
+          galleryIndex > 3)
+      ) {
+        throw new AiError(
+          "bad_request",
+          `updateGalleryItemMetadata.galleryIndex must be 0–3 at index ${index}.`,
+        );
+      }
+      const assetId =
+        typeof row.assetId === "string" && row.assetId.trim()
+          ? row.assetId.trim()
+          : undefined;
+      if (galleryIndex === undefined && !assetId) {
+        throw new AiError(
+          "bad_request",
+          `updateGalleryItemMetadata requires galleryIndex or assetId at index ${index}.`,
+        );
+      }
+      return {
+        operation: "updateGalleryItemMetadata",
+        ...(galleryIndex !== undefined ? { galleryIndex } : {}),
+        ...(assetId ? { assetId } : {}),
+        ...(typeof row.title === "string" ? { title: row.title } : {}),
+        ...(typeof row.caption === "string" ? { caption: row.caption } : {}),
+        ...(typeof row.altText === "string" ? { altText: row.altText } : {}),
+        ...(row.hideTitle === true ? { hideTitle: true } : {}),
+      };
+    }
     case "setComponentSurface": {
       const target = row.target;
       if (

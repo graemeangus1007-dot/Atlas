@@ -1,4 +1,5 @@
 import type { BusinessType } from "@/types/business";
+import type { GalleryInteraction } from "@/types/gallery";
 
 /** A service card shown on the generated site. */
 export type WebsiteService = {
@@ -17,7 +18,7 @@ export type WebsiteGalleryItem = {
   id: string;
   /** Media library asset id when this slot uses an upload; null for placeholders. */
   assetId: string | null;
-  /** Display title shown beneath the image. */
+  /** Display title shown beneath the image (empty = image-only tile). */
   title: string;
   description: string;
   alt: string;
@@ -27,6 +28,8 @@ export type WebsiteGalleryItem = {
   imageUrl: string;
   /** True when using the generated placeholder instead of a library upload. */
   isPlaceholder: boolean;
+  /** When false, public surfaces hide the title row. */
+  showTitle?: boolean;
 };
 
 /** Contact row on the generated site. */
@@ -108,6 +111,8 @@ export type GeneratedWebsiteContent = {
     visualHierarchy?: boolean;
     spacing?: "default" | "comfortable" | "airy";
   };
+  /** Gallery visitor interaction (fullscreen lightbox). */
+  galleryInteraction?: GalleryInteraction;
 };
 
 /** Type-specific template pieces before business name / description are applied. */

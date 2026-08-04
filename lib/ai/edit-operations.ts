@@ -83,6 +83,8 @@ export const EDIT_OPERATION_KINDS = [
   "setHeroOverlay",
   "setHeroTreatment",
   "setHeroImagePresentation",
+  "setGalleryInteraction",
+  "updateGalleryItemMetadata",
   "setComponentSurface",
 ] as const;
 
@@ -245,6 +247,26 @@ export type SetHeroImagePresentationOperation = {
   position?: "center" | "top" | "bottom" | "left" | "right";
 };
 
+/** Gallery visitor interaction (lightbox). */
+export type SetGalleryInteractionOperation = {
+  operation: "setGalleryInteraction";
+  mode: "none" | "lightbox";
+  navigation?: boolean;
+  captions?: boolean;
+};
+
+/** Update title / caption / alt for a gallery slot asset. */
+export type UpdateGalleryItemMetadataOperation = {
+  operation: "updateGalleryItemMetadata";
+  galleryIndex?: number;
+  assetId?: string;
+  title?: string;
+  caption?: string;
+  altText?: string;
+  /** When true, clear the visible title (image-only tile). */
+  hideTitle?: boolean;
+};
+
 /** Scoped surface styling — form fields / panels / cards (not global theme). */
 export type SetComponentSurfaceOperation = {
   operation: "setComponentSurface";
@@ -277,6 +299,8 @@ export type EditOperation =
   | SetHeroOverlayOperation
   | SetHeroTreatmentOperation
   | SetHeroImagePresentationOperation
+  | SetGalleryInteractionOperation
+  | UpdateGalleryItemMetadataOperation
   | SetComponentSurfaceOperation;
 
 /** Human-readable bullet for the post-edit preview list. */

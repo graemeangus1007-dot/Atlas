@@ -94,6 +94,15 @@ import {
   readHeroImagePresentation,
   verifyHeroFitChange,
 } from "@/lib/ai/hero-image-presentation";
+import {
+  isGalleryLightboxRequest,
+  planGalleryLightboxOperations,
+  verifyGalleryLightbox,
+} from "@/lib/ai/gallery-interaction";
+import {
+  isGalleryMetadataRequest,
+  planGalleryMetadataOperations,
+} from "@/lib/ai/gallery-metadata";
 import { NAMED_COLORS } from "@/lib/ai/named-colors";
 import { updateAtlasMemory } from "@/lib/ai/atlas-brain-memory";
 import {
@@ -1624,6 +1633,224 @@ function tryApplyHeroProfessionalComposition(input: {
   };
 }
 
+function tryApplyGalleryLightbox(input: {
+  project: BusinessProject;
+  request: string;
+}): AtlasBrainResult | null {
+  if (!isGalleryLightboxRequest(input.request)) return null;
+  const planned = planGalleryLightboxOperations();
+  const ops = validateEditOperations(planned.operations);
+  const before = input.project;
+  const applied = applyEditOperations(before, ops);
+  const check = verifyGalleryLightbox({
+    before,
+    after: applied.project,
+    galleryAssetIds: applied.project.galleryImageIds ?? [],
+  });
+
+  if (!check.verified) {
+    const project = rememberExecution(
+      before,
+      input.request,
+      {
+        success: false,
+        verified: true,
+        operationType: "setGalleryInteraction",
+        verificationFailures: check.failures,
+        createdEntities: [],
+        modifiedEntities: [],
+        warnings: [],
+        explanation:
+          "I couldn’t enable full-image viewing yet because a gallery photo is missing its full-size file. Re-upload the photos, then ask again.",
+      },
+      ops,
+      { scope: "unknown" },
+    );
+    return {
+      ok: true,
+      explanation:
+        "I couldn’t enable full-image viewing yet because a gallery photo is missing its full-size file. Re-upload the photos, then ask again.",
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: {
+        intent: "image_edit",
+        confidence: 0.95,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: {
+          goal: "Enable gallery lightbox",
+          steps: [],
+          estimatedImpact: "high",
+        },
+        explanation: "Gallery lightbox verification failed.",
+        followUpSuggestions: ["Add photos to the gallery", "Review my website"],
+        decisionStage: "explicit_command",
+        commandKind: "images",
+      },
+      followUpSuggestions: ["Add photos to the gallery", "Review my website"],
+    };
+  }
+
+  const project = rememberExecution(
+    applied.project,
+    input.request,
+    {
+      success: true,
+      verified: true,
+      operationType: "setGalleryInteraction",
+      verificationFailures: [],
+      createdEntities: [],
+      modifiedEntities: ["galleryInteraction"],
+      warnings: [],
+      explanation: planned.explanation,
+    },
+    ops,
+    { scope: "unknown" },
+  );
+
+  return {
+    ok: true,
+    explanation: planned.explanation,
+    operations: ops,
+    changes: applied.changes,
+    project,
+    applyStatus: "applied",
+    decision: {
+      intent: "image_edit",
+      confidence: 0.98,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: {
+        goal: "Enable gallery lightbox",
+        steps: [
+          {
+            id: "cmd.gallery-lightbox",
+            agent: "editor_agent",
+            label: "Open gallery photos fullscreen",
+          },
+        ],
+        estimatedImpact: "high",
+      },
+      explanation: planned.explanation,
+      followUpSuggestions: [
+        "Remove the titles from the gallery",
+        "Review my website",
+      ],
+      decisionStage: "explicit_command",
+      commandKind: "images",
+      shouldExecuteEdits: true,
+    },
+    followUpSuggestions: [
+      "Remove the titles from the gallery",
+      "Review my website",
+    ],
+  };
+}
+
+function tryApplyGalleryMetadata(input: {
+  project: BusinessProject;
+  request: string;
+}): AtlasBrainResult | null {
+  if (!isGalleryMetadataRequest(input.request)) return null;
+  const planned = planGalleryMetadataOperations({
+    project: input.project,
+    request: input.request,
+  });
+  if (planned.needsClarification || planned.operations.length === 0) {
+    return {
+      ok: true,
+      explanation: planned.explanation,
+      operations: [],
+      changes: [],
+      project: withMemory(input.project, input.request),
+      applyStatus: planned.needsClarification
+        ? "needs_clarification"
+        : "no_changes",
+      decision: {
+        intent: "image_edit",
+        confidence: 0.9,
+        selectedAgents: ["editor_agent"],
+        needsClarification: planned.needsClarification,
+        executionPlan: {
+          goal: "Update gallery metadata",
+          steps: [],
+          estimatedImpact: "medium",
+        },
+        explanation: planned.explanation,
+        followUpSuggestions: [
+          "Rename the first gallery image to Front Yard",
+          "Remove the titles from the gallery",
+        ],
+        decisionStage: "explicit_command",
+        commandKind: "images",
+      },
+      followUpSuggestions: [
+        "Rename the first gallery image to Front Yard",
+        "Remove the titles from the gallery",
+      ],
+    };
+  }
+
+  const ops = validateEditOperations(planned.operations);
+  const applied = applyEditOperations(input.project, ops);
+  const project = rememberExecution(
+    applied.project,
+    input.request,
+    {
+      success: true,
+      verified: true,
+      operationType: "updateGalleryItemMetadata",
+      verificationFailures: [],
+      createdEntities: [],
+      modifiedEntities: ["mediaLibrary"],
+      warnings: [],
+      explanation: planned.explanation,
+    },
+    ops,
+    { scope: "unknown" },
+  );
+
+  return {
+    ok: true,
+    explanation: planned.explanation,
+    operations: ops,
+    changes: applied.changes,
+    project,
+    applyStatus: "applied",
+    decision: {
+      intent: "image_edit",
+      confidence: 0.97,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: {
+        goal: "Update gallery metadata",
+        steps: [
+          {
+            id: "cmd.gallery-meta",
+            agent: "editor_agent",
+            label: "Update gallery photo details",
+          },
+        ],
+        estimatedImpact: "medium",
+      },
+      explanation: planned.explanation,
+      followUpSuggestions: [
+        "Let people click photos to see the full image",
+        "Review my website",
+      ],
+      decisionStage: "explicit_command",
+      commandKind: "images",
+      shouldExecuteEdits: true,
+    },
+    followUpSuggestions: [
+      "Let people click photos to see the full image",
+      "Review my website",
+    ],
+  };
+}
+
 function tryApplySurfaceStyle(input: {
   project: BusinessProject;
   request: string;
@@ -1968,6 +2195,37 @@ export async function runAtlasBrain(
   });
   if (typedResolved) {
     return typedResolved;
+  }
+
+  // Gallery lightbox / metadata — first-class, never Action Memory.
+  const galleryLightbox = tryApplyGalleryLightbox({
+    project: projectForTurn,
+    request,
+  });
+  if (galleryLightbox) {
+    return {
+      ...galleryLightbox,
+      followUpSuggestions: followUpsForProject(
+        galleryLightbox.project,
+        galleryLightbox.followUpSuggestions ?? [],
+      ),
+      atlasMemory: galleryLightbox.project.atlasMemory,
+    };
+  }
+
+  const galleryMeta = tryApplyGalleryMetadata({
+    project: projectForTurn,
+    request,
+  });
+  if (galleryMeta) {
+    return {
+      ...galleryMeta,
+      followUpSuggestions: followUpsForProject(
+        galleryMeta.project,
+        galleryMeta.followUpSuggestions ?? [],
+      ),
+      atlasMemory: galleryMeta.project.atlasMemory,
+    };
   }
 
   // Scoped surface styling (text boxes / form fields) — never global theme.

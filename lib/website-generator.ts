@@ -6,8 +6,13 @@ import {
 } from "@/lib/contact";
 import { getPublishableAtlasOrigin } from "@/lib/app-url";
 import { placeholderImageUrl, resolveMediaUrl } from "@/lib/media";
+import {
+  deriveAltText,
+  publicGalleryTitle,
+} from "@/lib/media-titles";
 import type { BusinessType } from "@/types/business";
 import type { BusinessProject } from "@/types/business-project";
+import { normalizeGalleryInteraction } from "@/types/gallery";
 import type { GeneratedWebsiteContent } from "@/types/website-content";
 import { GALLERY_SLOT_COUNT } from "@/types/media";
 
@@ -92,20 +97,32 @@ export function generateWebsiteContent(
           ? project.mediaLibrary.find((item) => item.id === assetId)
           : undefined;
         const uploaded = asset?.url ?? null;
-        const title = asset?.title?.trim() || label;
-        const description = asset?.description?.trim() || "";
-        const alt = asset?.alt?.trim() || title;
+        // Uploads: never fall back to template labels or opaque storage names.
+        const publicTitle = uploaded
+          ? publicGalleryTitle(asset?.title)
+          : label;
+        const description = uploaded
+          ? (asset?.description?.trim() || "")
+          : "";
+        const alt = uploaded
+          ? deriveAltText(
+              asset?.title,
+              asset?.name || "photo",
+              index,
+            )
+          : label;
 
         return {
           id: String(index + 1),
           assetId: asset?.id ?? null,
-          title,
+          title: publicTitle,
           description,
           alt,
-          label: title,
+          label: publicTitle || label,
           tone: GALLERY_TONES[index] ?? GALLERY_TONES[0],
           imageUrl: uploaded || placeholderImageUrl(label, 800, 600),
           isPlaceholder: !uploaded,
+          showTitle: Boolean(publicTitle),
         };
       }),
     contact: (() => {
@@ -163,6 +180,9 @@ export function generateWebsiteContent(
     creativePolish: project.creativePolish
       ? { ...project.creativePolish }
       : undefined,
+    galleryInteraction: normalizeGalleryInteraction(
+      project.galleryInteraction,
+    ),
   };
 }
 

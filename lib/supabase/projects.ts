@@ -15,6 +15,7 @@ import type {
 } from "@/lib/supabase/types";
 import type { BusinessProject, ProjectStatus } from "@/types/business-project";
 import type { WebsiteGoal } from "@/types/business";
+import { normalizeGalleryInteraction } from "@/types/gallery";
 import type { MediaAsset } from "@/types/media";
 import type { PublishRecord } from "@/types/publishing";
 import { sanitizePublishRecord } from "@/lib/deployment/preview-url";
@@ -107,8 +108,13 @@ function mediaForPersistence(library: MediaAsset[]): MediaAsset[] {
  * Re-issue signed display URLs for private project-media objects on a row.
  */
 export async function hydrateProjectRow(row: ProjectRow): Promise<ProjectRow> {
-  const media = await hydrateMediaLibrary(normalizeMediaLibrary(row.media));
   const contentRaw = isRecord(row.content) ? { ...row.content } : {};
+  const galleryIds = Array.isArray(contentRaw.galleryImageIds)
+    ? (contentRaw.galleryImageIds as string[])
+    : [];
+  const media = await hydrateMediaLibrary(
+    normalizeMediaLibrary(row.media, galleryIds),
+  );
 
   const heroImageId =
     typeof contentRaw.heroImageId === "string" ? contentRaw.heroImageId : null;
@@ -210,6 +216,9 @@ export function businessProjectToColumns(
     ...(project.heroImagePresentation
       ? { heroImagePresentation: project.heroImagePresentation }
       : {}),
+    galleryInteraction: normalizeGalleryInteraction(
+      project.galleryInteraction,
+    ),
     siteWidth: project.siteWidth,
     theme: project.theme,
     logo: project.logo,
@@ -238,7 +247,10 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
   const content = isRecord(row.content) ? row.content : {};
   const branding = isRecord(row.branding) ? row.branding : {};
   const goals = Array.isArray(row.goals) ? (row.goals as WebsiteGoal[]) : [];
-  const media = normalizeMediaLibrary(row.media);
+  const galleryImageIdsEarly = Array.isArray(content.galleryImageIds)
+    ? (content.galleryImageIds as string[])
+    : [];
+  const media = normalizeMediaLibrary(row.media, galleryImageIdsEarly);
 
   const publishRaw = content.publish;
   const publishParsed: PublishRecord | null =
@@ -331,6 +343,11 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
     heroImagePresentation: isRecord(branding.heroImagePresentation)
       ? (branding.heroImagePresentation as BusinessProject["heroImagePresentation"])
       : base.heroImagePresentation,
+    galleryInteraction: normalizeGalleryInteraction(
+      isRecord(branding.galleryInteraction)
+        ? (branding.galleryInteraction as BusinessProject["galleryInteraction"])
+        : base.galleryInteraction,
+    ),
     siteWidth: (branding.siteWidth as SiteWidthId) || base.siteWidth,
     theme: (branding.theme as SiteThemeId) || base.theme,
     logo:

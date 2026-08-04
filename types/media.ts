@@ -1,16 +1,22 @@
-/** Editable display metadata for a media asset (gallery / accessibility). */
+/**
+ * Editable display metadata for a media asset (gallery / accessibility).
+ * Never use storage filenames or asset IDs as visible titles.
+ */
 export type MediaAssetMeta = {
+  /** Human-readable label (may be empty for image-only gallery). */
   title: string;
+  /** Optional visible caption (description). */
   description: string;
+  /** Accessibility text — never opaque IDs. */
   alt: string;
 };
 
 /** A single uploaded asset in the project media library. */
 export type MediaAsset = MediaAssetMeta & {
   id: string;
-  /** Original upload file name (display). */
+  /** Original upload file name (user-facing identity for title derivation). */
   name: string;
-  /** Stored object file name (unique). */
+  /** Stored object file name (unique, machine-safe — never show publicly). */
   filename: string;
   /**
    * Display URL — ephemeral signed URL for private project-media (or brief blob: during upload).

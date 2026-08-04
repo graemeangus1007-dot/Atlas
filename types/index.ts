@@ -36,4 +36,14 @@ export type {
 
 export { GALLERY_SLOT_COUNT } from "@/types/media";
 
+export type {
+  GalleryInteraction,
+  GalleryInteractionMode,
+} from "@/types/gallery";
+
+export {
+  DEFAULT_GALLERY_INTERACTION,
+  normalizeGalleryInteraction,
+} from "@/types/gallery";
+
 export type { TemplateId, WebsiteTemplate } from "@/lib/templates/types";

@@ -256,6 +256,10 @@ export function hasMeaningfulProjectDiff(
     creativePolish: p.creativePolish ?? null,
     // Sprint 27.0A — Design System Intelligence
     designSystem: p.designSystem ?? null,
+    // v1.3 — Gallery lightbox / interaction
+    galleryInteraction: p.galleryInteraction ?? null,
+    heroImagePresentation: p.heroImagePresentation ?? null,
+    heroTreatment: p.heroTreatment ?? null,
   });
 
   return JSON.stringify(pick(before)) !== JSON.stringify(pick(after));

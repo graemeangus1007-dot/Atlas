@@ -272,6 +272,17 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
       return { id, label: "Hero contrast localized", ok: true };
     case "setHeroImagePresentation":
       return { id, label: "Hero image fit updated", ok: true };
+    case "setGalleryInteraction":
+      return {
+        id,
+        label:
+          op.mode === "lightbox"
+            ? "Gallery lightbox enabled"
+            : "Gallery lightbox disabled",
+        ok: true,
+      };
+    case "updateGalleryItemMetadata":
+      return { id, label: "Gallery photo details updated", ok: true };
     case "setComponentSurface": {
       const label =
         op.target === "form_fields"
@@ -625,6 +636,49 @@ export function applyEditOperations(
         }
         if (op.position) prev.position = op.position;
         next = { ...next, heroImagePresentation: prev };
+        break;
+      }
+      case "setGalleryInteraction": {
+        next = {
+          ...next,
+          galleryInteraction: {
+            mode: op.mode,
+            navigation: op.navigation !== false,
+            // Explicit op may enable captions; omitted stays false (safe default).
+            captions: op.captions === true,
+          },
+        };
+        break;
+      }
+      case "updateGalleryItemMetadata": {
+        let assetId = op.assetId;
+        if (
+          !assetId &&
+          typeof op.galleryIndex === "number" &&
+          op.galleryIndex >= 0
+        ) {
+          assetId = next.galleryImageIds[op.galleryIndex] || undefined;
+        }
+        if (!assetId) break;
+        next = {
+          ...next,
+          mediaLibrary: next.mediaLibrary.map((asset) => {
+            if (asset.id !== assetId) return asset;
+            const title = op.hideTitle
+              ? ""
+              : op.title !== undefined
+                ? op.title
+                : asset.title;
+            return {
+              ...asset,
+              title,
+              ...(op.caption !== undefined
+                ? { description: op.caption }
+                : {}),
+              ...(op.altText !== undefined ? { alt: op.altText } : {}),
+            };
+          }),
+        };
         break;
       }
       case "setComponentSurface": {
