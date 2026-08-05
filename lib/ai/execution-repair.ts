@@ -1,13 +1,16 @@
 /**
  * Conversation repair when the user disputes a prior edit (v1.2 truthfulness).
+ *
+ * Sprint 29.1 — `lastExecution` writes via `setInteractionState`.
+ * See docs/atlas-interaction-ownership.md.
  */
 
 import {
   getActionMemory,
   getLastExecution,
   storeLastExecution,
-  withActionMemory,
 } from "@/lib/ai/atlas-action-memory";
+import { setInteractionState } from "@/lib/ai/interaction-state";
 import type { AtlasBrainDecision } from "@/lib/ai/atlas-brain-types";
 import {
   isExecutionDisputeRequest,
@@ -146,7 +149,7 @@ export function tryRepairDisputedExecution(input: {
         ? [verified.followUpRecommendation]
         : [];
       let project = applied.project;
-      project = withActionMemory(
+      project = setInteractionState(
         project,
         storeLastExecution(
           getActionMemory(project),
@@ -175,7 +178,7 @@ export function tryRepairDisputedExecution(input: {
         }`,
         operations: [],
         changes: [],
-        project: withActionMemory(
+        project: setInteractionState(
           input.project,
           storeLastExecution(
             memory,
@@ -234,7 +237,7 @@ export function tryRepairDisputedExecution(input: {
         const applied = applyEditOperations(before, ops);
         const verified = verifyEditExecution(before, applied.project, ops);
         if (verified.success && verified.verified) {
-          const project = withActionMemory(
+          const project = setInteractionState(
             applied.project,
             storeLastExecution(
               getActionMemory(applied.project),

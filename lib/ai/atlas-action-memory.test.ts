@@ -121,8 +121,8 @@ describe("Apply All", () => {
     expect(result.applyStatus).toBe("applied");
     expect(result.explanation.toLowerCase()).toMatch(/applied|done/);
     expect(result.project.creativePolish?.serviceIcons).toBe(true);
-    expect(result.project.atlasActionMemory?.applyAllPending).toBe(false);
-    expect(result.project.atlasActionMemory?.recommendations?.length ?? 0).toBe(0);
+    expect(result.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(false);
+    expect(result.project.atlasActionMemory?.activePlan?.recommendations?.length ?? 0).toBe(0);
   });
 
   it("stores recommendations after a review so Apply All can follow", async () => {
@@ -132,9 +132,9 @@ describe("Apply All", () => {
     });
     expect(reviewed.ok).toBe(true);
     if (!reviewed.ok) return;
-    expect(reviewed.project.atlasActionMemory?.applyAllPending).toBe(true);
+    expect(reviewed.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(true);
     expect(
-      (reviewed.project.atlasActionMemory?.recommendations?.length ?? 0) > 0,
+      (reviewed.project.atlasActionMemory?.activePlan?.recommendations?.length ?? 0) > 0,
     ).toBe(true);
 
     const applied = await runAtlasBrain({

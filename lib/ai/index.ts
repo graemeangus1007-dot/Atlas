@@ -654,6 +654,23 @@ export type {
   ActiveVisualTaskKind,
 } from "@/lib/ai/active-visual-task";
 export {
+  activeTaskBlocksPlanContinuation,
+  canContinueActiveTask,
+  clearActiveTask,
+  classifyTaskTransition,
+  detectFreshTaskIntent,
+  getActiveTaskPolicy,
+  isExplicitTopicSwitch,
+  shouldClearActiveTask,
+  shouldReplaceActiveTask,
+  touchActiveTask,
+} from "@/lib/ai/active-task-policy";
+export type {
+  ActiveTaskIntent,
+  ActiveTaskPolicy,
+  TouchActiveTaskInput,
+} from "@/lib/ai/active-task-policy";
+export {
   isHeroFitRequest,
   isHeroFullPictureRequest,
   isHeroProfessionalCompositionRequest,
@@ -692,6 +709,106 @@ export {
   storeLastExecution,
   getLastExecution,
 } from "@/lib/ai/atlas-action-memory";
+export {
+  INTERACTION_ADAPTER_PHASE,
+  INTERACTION_STATE_VERSION,
+  cloneInteractionState,
+  countProjectPendingClarifications,
+  getInteractionState,
+  getInteractionWriteLedger,
+  hasInteractionState,
+  normalizeClarificationState,
+  normalizeInteractionState,
+  recordActiveTaskDiagnostics,
+  recordClarificationClearReason,
+  resetInteractionWriteLedger,
+  roundTripProjectJson,
+  setInteractionState,
+  updateInteractionState,
+} from "@/lib/ai/interaction-state";
+export type {
+  InteractionState,
+  InteractionStateVersion,
+  InteractionWriteMeta,
+  PendingClarificationSource,
+  TaskTransitionKind,
+} from "@/lib/ai/interaction-state";
+export {
+  ATLAS_INTERACTION_STATE_VERSION,
+  emptyAtlasInteractionState,
+} from "@/lib/ai/atlas-interaction-types";
+export type {
+  ActiveInteractionPlan,
+  AtlasActiveTask,
+  AtlasInteractionState,
+  InteractionPreservation,
+  InteractionRepairState,
+  InteractionSource,
+  LastVerifiedExecution,
+  PendingClarification,
+} from "@/lib/ai/atlas-interaction-types";
+export {
+  INTERACTION_STATE_SOFT_MAX_BYTES,
+  RETIRED_MIRROR_KEYS,
+  canonicalStatesEquivalent,
+  findRetiredMirrorKeys,
+  measureInteractionSerializedBytes,
+  migrateToAtlasInteractionState,
+  serializeCanonicalInteractionState,
+  serializeInteractionPayload,
+  validateCanonicalInteractionSafety,
+} from "@/lib/ai/atlas-interaction-migrate";
+export {
+  imageEditorStateFromActiveTask,
+  resolveImageReference,
+} from "@/lib/ai/image-reference-resolver";
+export type {
+  ImageContextSource,
+  ResolvedImageReference,
+} from "@/lib/ai/image-reference-resolver";
+export {
+  countPendingClarifications,
+} from "@/lib/ai/atlas-action-memory";
+export type { ClarificationClearReason } from "@/lib/ai/atlas-action-memory";
+export {
+  formatInteractionDiagnostics,
+  getInteractionDiagnostics,
+  logInteractionDiagnostics,
+} from "@/lib/ai/interaction-diagnostics";
+export type { InteractionDiagnosticsSnapshot } from "@/lib/ai/interaction-diagnostics";
+export {
+  ALLOWED_INTERACTION_WRITE_MODULES,
+  INTERACTION_ADAPTER_MODULE,
+  assertCanonicalSerialization,
+  assertCanonicalWinsOverMirrors,
+  assertHeroPlacementTask,
+  assertImageContinuationFromActiveTask,
+  assertInteractionInvariant,
+  assertInteractionWritesGoThroughAdapter,
+  assertLegacyRoundTripPreserves,
+  assertNoClarificationAsked,
+  assertNoDirectLegacyMirrorWrites,
+  assertNoProductionMirrorReads,
+  assertActiveTaskBlocksUnrelatedPlan,
+  assertNoIndependentContinuationStore,
+  assertNoTransientInteractionData,
+  assertNormalizeIdempotent,
+  assertPersistenceRoundTrip,
+  assertPlacementStoresCanonicalAsset,
+  assertPrefsUntouched,
+  assertScopedMutation,
+  assertSingleActiveTask,
+  assertSingleClarification,
+  assertTaskAfterVerifiedScoped,
+  assertTaskRefsAgreeWithTruth,
+  assertTopicSwitchDeterministic,
+  assertVerifiedExecution,
+  listChangedRootKeys,
+} from "@/lib/ai/interaction-invariants";
+export type {
+  InteractionInvariantId,
+  MutationScope,
+} from "@/lib/ai/interaction-invariants";
 export {
   readMotionState,
   motionFieldsForPreset,

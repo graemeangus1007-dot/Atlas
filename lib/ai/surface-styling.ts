@@ -71,6 +71,16 @@ export function isSurfaceStyleRequest(request: string): boolean {
   );
 }
 
+/** Soft follow-ups while a surface_style active task is sticky. */
+export function isSurfaceStyleSoftContinuation(request: string): boolean {
+  const text = request.trim();
+  if (!text) return false;
+  if (isSurfaceStyleRequest(text)) return true;
+  return /\b((a\s+little\s+)?(lighter|darker|brighter)|darker\s+borders?|make\s+the\s+text\s+black|undo\s+(that\s+)?color|more\s+contrast|softer)\b/i.test(
+    text,
+  );
+}
+
 export function resolveSurfaceTarget(
   request: string,
 ): SurfaceTarget | "ambiguous" | null {
@@ -156,12 +166,21 @@ function mixToward(hex: string, toward: string, amount: number): string {
 
 /**
  * Plan a scoped surface style operation. Never emits changeTheme.
+ * When `continueFromTask` is set, soft follow-ups (lighter / darker borders)
+ * adjust the current surface without requiring the user to restate the target.
  */
 export function planSurfaceStyleOperations(input: {
   request: string;
   project: BusinessProject;
+  /** Active surface target from canonical activeTask (Sprint 29.5). */
+  continueFromTask?: SurfaceTarget | null;
 }): SurfaceStylePlan {
-  if (!isSurfaceStyleRequest(input.request)) {
+  const continuing =
+    Boolean(input.continueFromTask) &&
+    isSurfaceStyleSoftContinuation(input.request) &&
+    !isSurfaceStyleRequest(input.request);
+
+  if (!isSurfaceStyleRequest(input.request) && !continuing) {
     return {
       ok: false,
       needsClarification: false,
@@ -169,7 +188,9 @@ export function planSurfaceStyleOperations(input: {
     };
   }
 
-  const target = resolveSurfaceTarget(input.request);
+  const target = continuing
+    ? (input.continueFromTask as SurfaceTarget)
+    : resolveSurfaceTarget(input.request);
   if (target === "ambiguous") {
     return {
       ok: false,
@@ -187,7 +208,59 @@ export function planSurfaceStyleOperations(input: {
     };
   }
 
-  const resolved = resolveSurfaceColor(input.request);
+  const current = input.project.componentSurfaces?.[
+    target === "form_fields"
+      ? "formFields"
+      : target === "text_panels"
+        ? "textPanels"
+        : "cards"
+  ];
+
+  let resolved = resolveSurfaceColor(input.request);
+  if (!resolved && continuing && current?.backgroundColor) {
+    const bg = current.backgroundColor;
+    if (/\blighter\b/i.test(input.request)) {
+      resolved = {
+        backgroundColor: mixToward(bg, "#ffffff", 0.35),
+        textColor: current.textColor ?? LIGHT_GREEN_TEXT,
+        borderColor: mixToward(
+          current.borderColor ?? bg,
+          "#ffffff",
+          0.2,
+        ),
+        label: "lighter",
+      };
+    } else if (/\bdarker\s+borders?\b/i.test(input.request)) {
+      resolved = {
+        backgroundColor: bg,
+        textColor: current.textColor ?? LIGHT_GREEN_TEXT,
+        borderColor: mixToward(current.borderColor ?? bg, "#000000", 0.35),
+        label: "darker borders",
+      };
+    } else if (/\bdarker\b/i.test(input.request)) {
+      resolved = {
+        backgroundColor: mixToward(bg, "#000000", 0.2),
+        textColor: current.textColor ?? LIGHT_GREEN_TEXT,
+        borderColor: mixToward(current.borderColor ?? bg, "#000000", 0.25),
+        label: "darker",
+      };
+    } else if (/\bmake\s+the\s+text\s+black\b/i.test(input.request)) {
+      resolved = {
+        backgroundColor: bg,
+        textColor: "#101828",
+        borderColor: current.borderColor ?? LIGHT_GREEN_BORDER,
+        label: "black text",
+      };
+    } else if (/\bundo\s+(that\s+)?color\b/i.test(input.request)) {
+      return {
+        ok: false,
+        needsClarification: false,
+        explanation:
+          "I can clear the local surface styling — tell me if you want the form fields back to the default, or restore a brand accent instead.",
+      };
+    }
+  }
+
   if (!resolved) {
     return {
       ok: false,

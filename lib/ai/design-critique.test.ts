@@ -519,11 +519,11 @@ describe("Atlas Brain routing — sprint prompts", () => {
     expect(result.operations).toHaveLength(0);
     expect(result.explanation).not.toMatch(/I reviewed your website\.\s*I reviewed/i);
     expect(result.explanation).toMatch(/Strengths:|Top improvements:|emotional|premium/i);
-    const titles = (result.project.atlasActionMemory?.recommendations ?? []).map(
+    const titles = (result.project.atlasActionMemory?.activePlan?.recommendations ?? []).map(
       (r) => r.title,
     );
     expect(new Set(titles).size).toBe(titles.length);
-    expect(result.project.atlasActionMemory?.applyAllPending).toBe(true);
+    expect(result.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(true);
   });
 
   it("routes premium agency redesign to coordinated execute path", async () => {
@@ -584,7 +584,7 @@ describe("Atlas Brain routing — sprint prompts", () => {
       project,
       request: "Review my website",
     });
-    expect(reviewed.project.atlasActionMemory?.applyAllPending).toBe(true);
+    expect(reviewed.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(true);
 
     const applied = await runAtlasBrain({
       project: reviewed.project,

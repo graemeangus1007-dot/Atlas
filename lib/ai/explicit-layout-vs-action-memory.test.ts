@@ -125,7 +125,7 @@ describe("Action Memory must not gate explicit layout edits", () => {
     ).toBe(true);
     expect(getEffectiveSectionOrder(result.project).at(-1)).toBe("contact");
     // Unrelated plan remains available — we did not consume Apply All
-    expect(result.project.atlasActionMemory?.applyAllPending).toBe(true);
+    expect(result.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(true);
   });
 
   it("puts testimonials above services with or without an active plan", async () => {

@@ -2,6 +2,10 @@
  * Atlas Brain Action Memory (Sprint 26.1).
  * Keeps conversational continuity — Apply All / Yes / clarification answers
  * continue the active plan instead of restarting intent routing.
+ *
+ * Sprint 29.1 — pure Action Memory transforms live here. Project writes must use
+ * `lib/ai/interaction-state.ts` (`setInteractionState` / `updateInteractionState`).
+ * `withActionMemory` is retired. See docs/atlas-interaction-ownership.md.
  */
 
 import type { AtlasExecutionPlan } from "@/lib/ai/atlas-brain-types";
@@ -14,26 +18,21 @@ import {
   type AtlasLastExecution,
 } from "@/lib/ai/edit-execution-result";
 import {
-  shouldContinueActiveHeroTask,
   type ActiveVisualTask,
 } from "@/lib/ai/active-visual-task";
-import { isHeroReadabilityRequest } from "@/lib/ai/hero-readability";
-import {
-  isHeroFitRequest,
-  isHeroProfessionalCompositionRequest,
-  isSoftHeroVisibilityRequest,
-} from "@/lib/ai/hero-image-presentation";
-import { isGalleryLightboxRequest } from "@/lib/ai/gallery-interaction";
-import { isGalleryMetadataRequest } from "@/lib/ai/gallery-metadata";
-import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
+import { activeTaskBlocksPlanContinuation } from "@/lib/ai/active-task-policy";
+import type { AtlasActiveTask } from "@/lib/ai/atlas-interaction-types";
 import {
   isEditOperationKind,
   type EditOperation,
 } from "@/lib/ai/edit-operations";
 import type { ImageOperation } from "@/lib/ai/image-operations";
 import { resolveNamedColor } from "@/lib/ai/named-colors";
-import { isSurfaceStyleRequest } from "@/lib/ai/surface-styling";
 import type { BusinessProject } from "@/types/business-project";
+import {
+  migrateToAtlasInteractionState,
+  serializeCanonicalInteractionState,
+} from "@/lib/ai/atlas-interaction-migrate";
 
 export type AtlasStoredRecommendationSource =
   | "creative_director"
@@ -88,38 +87,101 @@ export type AtlasPendingClarification = {
   context?: Record<string, unknown>;
 };
 
+/** Explicit reasons for clearing top-level pending clarification (Sprint 29.2). */
+export type ClarificationClearReason =
+  | "critique_override"
+  | "resolved"
+  | "cancelled"
+  | "explicit";
+
+/**
+ * Wire shape for interaction state.
+ * Sprint 29.4: production readers use canonical fields only.
+ * Legacy mirror fields remain optional for inbound migration of old projects.
+ */
 export type AtlasActionMemory = {
-  /** Last recommendations shown to the user. */
+  version?: number;
+  updatedAt: string;
+
+  // --- Canonical v1 (authoritative) ---
+  activeTask?: {
+    kind: string;
+    target: { type: string; [key: string]: unknown };
+    assetId?: string;
+    userGoal?: string;
+    repairLevel?: number;
+    updatedAt: string;
+  } | null;
+  pendingClarification?: AtlasPendingClarification | null;
+  lastVerifiedExecution?: AtlasLastExecution | null;
+  preservation?: {
+    brandPalette?: {
+      primaryColor: string;
+      secondaryColor: string;
+      accentColor: string;
+      backgroundColor: string;
+      headingFont?: string;
+      bodyFont?: string;
+      theme?: "light" | "dark" | "auto";
+    };
+    heroAssetId?: string | null;
+  } | null;
+  activePlan?: {
+    recommendations: AtlasStoredRecommendation[];
+    recommendationIds: string[];
+    executionPlan?: AtlasExecutionPlan;
+    creativeReport?: {
+      overallCompleteness: number;
+      maturityLevel: string;
+      fingerprint: string;
+      reviewedAt: string;
+    };
+    source?: "creative_director" | "business_advisor" | "design_critique" | "mixed";
+    applyAllPending: boolean;
+    lastSelectedId?: string | null;
+  } | null;
+  repair?: {
+    heroReadability?: {
+      level: 0 | 1 | 2 | 3;
+      heroImageId: string | null;
+      updatedAt: string;
+    } | null;
+  } | null;
+  lastClarificationClear?: {
+    reason: ClarificationClearReason;
+    at: string;
+  } | null;
+
+  // --- Inbound migration only (never written after 29.4) ---
+  /** @deprecated migration-only */
   recommendations?: AtlasStoredRecommendation[];
+  /** @deprecated migration-only */
   recommendationIds?: string[];
+  /** @deprecated migration-only */
   source?: "creative_director" | "business_advisor" | "design_critique" | "mixed";
-  /** Slim Creative Director report context. */
+  /** @deprecated migration-only */
   creativeReport?: {
     overallCompleteness: number;
     maturityLevel: string;
     fingerprint: string;
     reviewedAt: string;
   };
-  /** Active execution plan awaiting confirmation / continuation. */
+  /** @deprecated migration-only */
   executionPlan?: AtlasExecutionPlan;
-  /** True when Atlas offered recommendations and is ready for Apply All. */
+  /** @deprecated migration-only */
   applyAllPending?: boolean;
-  pendingClarification?: AtlasPendingClarification | null;
+  /** @deprecated migration-only */
   lastRecommendationSelected?: string | null;
-  /** Last edit attempt — used for “I don’t see it” conversation repair. */
+  /** @deprecated migration-only */
   lastExecution?: AtlasLastExecution | null;
-  /**
-   * Bounded hero-readability repair escalation (0–3).
-   * Resets when heroImageId changes.
-   */
+  /** @deprecated migration-only */
   heroReadabilityRepair?: {
     level: 0 | 1 | 2 | 3;
     heroImageId: string | null;
     updatedAt: string;
   } | null;
-  /** Continuous hero / visual editing task (v1.3). */
+  /** @deprecated migration-only */
   activeVisualTask?: ActiveVisualTask | null;
-  updatedAt: string;
 };
 
 export type ActionConfirmationKind =
@@ -169,12 +231,19 @@ const ORDINAL_WORD_TO_1_BASED: Record<string, number> = {
  * Detect ordinal / named references to the active recommendation list.
  * Ordinals are 1-based in user language. Does not mutate memory.
  */
+/** Canonical plan recommendations (Sprint 29.4). */
+export function getPlanRecommendations(
+  memory: AtlasActionMemory | null | undefined,
+): AtlasStoredRecommendation[] {
+  return memory?.activePlan?.recommendations ?? [];
+}
+
 export function resolvePlanReference(
   message: string,
   atlasActionMemory: AtlasActionMemory | null | undefined,
 ): PlanReferenceResult {
   const text = message.trim();
-  const recs = atlasActionMemory?.recommendations ?? [];
+  const recs = getPlanRecommendations(atlasActionMemory);
   if (!text || recs.length === 0) return { matched: false };
 
   const named = text.match(
@@ -345,20 +414,37 @@ function nowIso(): string {
 }
 
 export function emptyActionMemory(): AtlasActionMemory {
-  return { updatedAt: nowIso() };
+  return serializeCanonicalInteractionState({
+    version: 1,
+    updatedAt: nowIso(),
+    activeTask: null,
+    pendingClarification: null,
+    lastVerifiedExecution: null,
+    preservation: null,
+    activePlan: null,
+    repair: null,
+    lastClarificationClear: null,
+  });
 }
 
+/**
+ * Read interaction memory with lazy v1 migration.
+ * Returns canonical v1 fields only (Sprint 29.4 — no mirror rehydration).
+ */
 export function getActionMemory(
   project: BusinessProject,
 ): AtlasActionMemory {
   const raw = project.atlasActionMemory as AtlasActionMemory | undefined;
-  return raw ?? emptyActionMemory();
+  if (!raw || typeof raw !== "object") return emptyActionMemory();
+  return serializeCanonicalInteractionState(
+    migrateToAtlasInteractionState(raw).state,
+  );
 }
 
 export function hasActiveRecommendations(
   memory: AtlasActionMemory | null | undefined,
 ): boolean {
-  return Boolean(memory?.recommendations && memory.recommendations.length > 0);
+  return getPlanRecommendations(memory).length > 0;
 }
 
 export function hasPendingClarification(
@@ -646,17 +732,36 @@ export function storeRecommendations(
           ? "business_advisor"
           : undefined;
 
+  const applyAllPending = recommendations.some((r) => r.applyable);
+  const creativeReport =
+    input.creativeReport ?? memory?.activePlan?.creativeReport;
+  const executionPlan =
+    input.executionPlan ?? memory?.activePlan?.executionPlan;
+  const hasPlan =
+    recommendations.length > 0 || Boolean(executionPlan) || Boolean(creativeReport);
+  const activePlan = hasPlan
+    ? {
+        recommendations,
+        recommendationIds: recommendations.map((r) => r.id),
+        executionPlan,
+        creativeReport,
+        source,
+        applyAllPending,
+        lastSelectedId: null as string | null,
+      }
+    : null;
+
+  const base = memory ?? emptyActionMemory();
   return {
-    ...(memory ?? {}),
-    recommendations,
-    recommendationIds: recommendations.map((r) => r.id),
-    source,
-    creativeReport: input.creativeReport ?? memory?.creativeReport,
-    executionPlan: input.executionPlan ?? memory?.executionPlan,
-    applyAllPending: recommendations.some((r) => r.applyable),
-    pendingClarification: null,
-    lastRecommendationSelected: null,
+    version: 1,
     updatedAt: nowIso(),
+    activeTask: base.activeTask ?? null,
+    pendingClarification: base.pendingClarification ?? null,
+    lastVerifiedExecution: base.lastVerifiedExecution ?? null,
+    preservation: base.preservation ?? null,
+    activePlan,
+    repair: base.repair ?? null,
+    lastClarificationClear: base.lastClarificationClear ?? null,
   };
 }
 
@@ -717,24 +822,41 @@ export function storePendingClarification(
 
 export function clearPendingClarification(
   memory: AtlasActionMemory | null | undefined,
+  options?: { reason?: ClarificationClearReason },
 ): AtlasActionMemory {
+  const reason = options?.reason ?? "explicit";
   return {
     ...(memory ?? emptyActionMemory()),
     pendingClarification: null,
+    lastClarificationClear: {
+      reason,
+      at: nowIso(),
+    },
     updatedAt: nowIso(),
   };
+}
+
+/** Count authoritative pending clarifications (must be 0 or 1). */
+export function countPendingClarifications(
+  memory: AtlasActionMemory | null | undefined,
+): number {
+  return memory?.pendingClarification?.pendingQuestion ? 1 : 0;
 }
 
 export function clearRecommendations(
   memory: AtlasActionMemory | null | undefined,
 ): AtlasActionMemory {
+  const base = memory ?? emptyActionMemory();
   return {
-    ...(memory ?? emptyActionMemory()),
-    recommendations: [],
-    recommendationIds: [],
-    applyAllPending: false,
-    lastRecommendationSelected: null,
+    version: 1,
     updatedAt: nowIso(),
+    activeTask: base.activeTask ?? null,
+    pendingClarification: base.pendingClarification ?? null,
+    lastVerifiedExecution: base.lastVerifiedExecution ?? null,
+    preservation: base.preservation ?? null,
+    activePlan: null,
+    repair: base.repair ?? null,
+    lastClarificationClear: base.lastClarificationClear ?? null,
   };
 }
 
@@ -746,23 +868,55 @@ export function storeLastExecution(
   memory: AtlasActionMemory | null | undefined,
   execution: AtlasLastExecution,
 ): AtlasActionMemory {
+  const base = memory ?? emptyActionMemory();
+  const brandPalette = execution.paletteBefore
+    ? {
+        primaryColor: execution.paletteBefore.primaryColor,
+        secondaryColor: execution.paletteBefore.secondaryColor,
+        accentColor: execution.paletteBefore.accentColor,
+        backgroundColor: execution.paletteBefore.backgroundColor,
+        theme: execution.paletteBefore.theme,
+      }
+    : base.preservation?.brandPalette;
   return {
-    ...(memory ?? emptyActionMemory()),
-    lastExecution: execution,
+    version: 1,
     updatedAt: nowIso(),
+    activeTask: base.activeTask ?? null,
+    pendingClarification: base.pendingClarification ?? null,
+    lastVerifiedExecution: execution,
+    preservation: {
+      ...(base.preservation ?? {}),
+      ...(brandPalette ? { brandPalette } : {}),
+      heroAssetId:
+        base.preservation?.heroAssetId ?? base.activeTask?.assetId ?? null,
+    },
+    activePlan: base.activePlan ?? null,
+    repair: base.repair ?? null,
+    lastClarificationClear: base.lastClarificationClear ?? null,
   };
 }
 
 export function getLastExecution(
   memory: AtlasActionMemory | null | undefined,
 ): AtlasLastExecution | null {
-  return memory?.lastExecution ?? null;
+  return memory?.lastVerifiedExecution ?? null;
 }
 
+/**
+ * @deprecated Sprint 29.1 — project writes must use
+ * `setInteractionState` / `updateInteractionState` from
+ * `@/lib/ai/interaction-state`. This helper throws outside production so
+ * accidental direct writes fail in tests/dev.
+ */
 export function withActionMemory(
   project: BusinessProject,
   memory: AtlasActionMemory | null | undefined,
 ): BusinessProject {
+  if (process.env.NODE_ENV !== "production") {
+    throw new Error(
+      "withActionMemory is retired for interaction writes. Use setInteractionState / updateInteractionState from @/lib/ai/interaction-state.",
+    );
+  }
   return {
     ...project,
     atlasActionMemory: (memory ?? undefined) as BusinessProject["atlasActionMemory"],
@@ -779,7 +933,7 @@ export function selectRecommendationsToApply(
   confirmation: ActionConfirmation,
   destination?: ClarificationDestination | null,
 ): AtlasStoredRecommendation[] {
-  const ordered = memory.recommendations ?? [];
+  const ordered = getPlanRecommendations(memory);
   const applyable = ordered.filter((r) => r.applyable);
   if (applyable.length === 0 && confirmation.kind !== "ordinal") return [];
 
@@ -844,17 +998,32 @@ export function removeAppliedRecommendations(
   appliedIds: string[],
 ): AtlasActionMemory {
   const idSet = new Set(appliedIds);
-  const remaining = (memory?.recommendations ?? []).filter(
+  const remaining = getPlanRecommendations(memory).filter(
     (r) => !idSet.has(r.id),
   );
+  const applyAllPending = remaining.some((r) => r.applyable);
+  const lastSelected =
+    appliedIds[0] ?? memory?.activePlan?.lastSelectedId ?? null;
+  const base = memory ?? emptyActionMemory();
   return {
-    ...(memory ?? emptyActionMemory()),
-    recommendations: remaining,
-    recommendationIds: remaining.map((r) => r.id),
-    applyAllPending: remaining.some((r) => r.applyable),
-    pendingClarification: null,
-    lastRecommendationSelected: appliedIds[0] ?? memory?.lastRecommendationSelected ?? null,
+    version: 1,
     updatedAt: nowIso(),
+    activeTask: base.activeTask ?? null,
+    // Preserve unanswered clarification — clear only via clearPendingClarification.
+    pendingClarification: base.pendingClarification ?? null,
+    lastVerifiedExecution: base.lastVerifiedExecution ?? null,
+    preservation: base.preservation ?? null,
+    activePlan: {
+      recommendations: remaining,
+      recommendationIds: remaining.map((r) => r.id),
+      executionPlan: base.activePlan?.executionPlan,
+      creativeReport: base.activePlan?.creativeReport,
+      source: base.activePlan?.source,
+      applyAllPending,
+      lastSelectedId: lastSelected,
+    },
+    repair: base.repair ?? null,
+    lastClarificationClear: base.lastClarificationClear ?? null,
   };
 }
 
@@ -922,7 +1091,7 @@ export function toAdvisorRecommendations(
 function hasApplyableRecommendations(
   memory: AtlasActionMemory | null | undefined,
 ): boolean {
-  return (memory?.recommendations ?? []).some((r) => r.applyable);
+  return getPlanRecommendations(memory).some((r) => r.applyable);
 }
 
 /** Explicit plan continuation only — not short hero replies. */
@@ -965,35 +1134,13 @@ export function shouldExecuteActionMemory(
     return false;
   }
 
-  // Hero readability / corrective hero contrast — never Action Memory.
-  if (isHeroReadabilityRequest(request)) {
-    return false;
-  }
-
-  // “Image hard to see” after overlay — hero balance repair, not empty plan.
-  if (isHeroImageVisibilityComplaint(request)) {
-    return false;
-  }
-
-  if (isSoftHeroVisibilityRequest(request)) {
-    return false;
-  }
-
-  if (isHeroFitRequest(request) || isHeroProfessionalCompositionRequest(request)) {
-    return false;
-  }
-
-  if (isGalleryLightboxRequest(request) || isGalleryMetadataRequest(request)) {
-    return false;
-  }
-
-  // Active hero visual-task continuations never hit Apply All / empty plan.
-  if (shouldContinueActiveHeroTask(request, memory)) {
-    return false;
-  }
-
-  // Scoped surface styling — never Apply All / generic clarification chips.
-  if (isSurfaceStyleRequest(request)) {
+  // Sprint 29.5 — active-task policy owns scoped continuation vs plan hijack.
+  if (
+    activeTaskBlocksPlanContinuation(
+      memory as { activeTask?: AtlasActiveTask | null } | null | undefined,
+      request,
+    )
+  ) {
     return false;
   }
 

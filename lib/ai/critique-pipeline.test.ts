@@ -179,7 +179,7 @@ describe("Brain routes agency prompt through unified pipeline", () => {
     expect(a.applyStatus).toBe("no_changes");
     expect(b.applyStatus).toBe("no_changes");
     expect(a.explanation).toMatch(/Plan:|Strengths|Top improvements/i);
-    expect(a.project.atlasActionMemory?.recommendations?.length ?? 0).toBeGreaterThan(
+    expect(a.project.atlasActionMemory?.activePlan?.recommendations?.length ?? 0).toBeGreaterThan(
       0,
     );
   });

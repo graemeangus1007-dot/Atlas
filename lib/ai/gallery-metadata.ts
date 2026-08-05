@@ -47,6 +47,16 @@ export function isGalleryMetadataRequest(request: string): boolean {
   );
 }
 
+/** Soft follow-ups while a gallery_metadata active task is sticky. */
+export function isGalleryMetadataSoftContinuation(request: string): boolean {
+  const text = request.trim();
+  if (!text) return false;
+  if (isGalleryMetadataRequest(text)) return true;
+  return /\b(remove|hide|clear)\b[\s\S]{0,24}\b(titles?|captions?|labels?)\b|\b(the\s+)?(other|rest|second|third)\b[\s\S]{0,24}\b(title|caption|name)\b|\bgive\s+(the\s+)?(second|third|first)\b/i.test(
+    text,
+  );
+}
+
 function filledGalleryIndexes(project: BusinessProject): number[] {
   const ids = project.galleryImageIds ?? [];
   const out: number[] = [];

@@ -337,10 +337,6 @@ describe("production hero placement → entire picture", () => {
           kind: "hero_image_fit" as const,
           target: "hero" as const,
           assetId: "hero-busy",
-          pendingClarification: {
-            kind: "image_target" as const,
-            allowedTargets: ["hero", "gallery"],
-          },
           updatedAt: new Date().toISOString(),
         },
       },

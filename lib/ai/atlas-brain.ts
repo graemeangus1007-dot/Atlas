@@ -2,6 +2,10 @@
  * Atlas Brain — orchestration layer (Sprint 26.0A / 26.1).
  * Every conversation turn flows through Brain before specialists run.
  * Users only ever talk to “Atlas”.
+ *
+ * Sprint 29.1 — interaction writes go through `setInteractionState` /
+ * `updateInteractionState` / active-visual-task helpers (adapter-backed).
+ * Do not assign `atlasActionMemory` directly. See docs/atlas-interaction-ownership.md.
  */
 
 import {
@@ -23,10 +27,15 @@ import {
   storeRecommendations,
   toAdvisorRecommendations,
   toCreativeRecommendations,
-  withActionMemory,
   type AtlasActionMemory,
   type ClarificationDestination,
 } from "@/lib/ai/atlas-action-memory";
+import {
+  getInteractionState,
+  normalizeInteractionState,
+  recordActiveTaskDiagnostics,
+  setInteractionState,
+} from "@/lib/ai/interaction-state";
 import {
   desiredMotionPresetFromRequest,
   isMotionStateActive,
@@ -69,8 +78,10 @@ import {
 } from "@/lib/ai/hero-readability";
 import {
   isSurfaceStyleRequest,
+  isSurfaceStyleSoftContinuation,
   planSurfaceStyleOperations,
   surfaceStyleChangedProtectedPalette,
+  type SurfaceTarget,
 } from "@/lib/ai/surface-styling";
 import {
   isHeroImageVisibilityComplaint,
@@ -79,11 +90,18 @@ import {
   verifyHeroBalanceRepair,
 } from "@/lib/ai/hero-visual-balance";
 import {
-  clearActiveVisualTaskPending,
   getActiveVisualTask,
   shouldContinueActiveHeroTask,
   touchActiveVisualTask,
 } from "@/lib/ai/active-visual-task";
+import {
+  canContinueActiveTask,
+  clearActiveTask,
+  detectFreshTaskIntent,
+  isExplicitTopicSwitch,
+  shouldClearActiveTask,
+  touchActiveTask,
+} from "@/lib/ai/active-task-policy";
 import {
   isHeroFitRequest,
   isHeroProfessionalCompositionRequest,
@@ -96,11 +114,14 @@ import {
 } from "@/lib/ai/hero-image-presentation";
 import {
   isGalleryLightboxRequest,
+  isGalleryLightboxSoftContinuation,
+  planGalleryInteractionContinuation,
   planGalleryLightboxOperations,
   verifyGalleryLightbox,
 } from "@/lib/ai/gallery-interaction";
 import {
   isGalleryMetadataRequest,
+  isGalleryMetadataSoftContinuation,
   planGalleryMetadataOperations,
 } from "@/lib/ai/gallery-metadata";
 import { NAMED_COLORS } from "@/lib/ai/named-colors";
@@ -276,9 +297,9 @@ function applyActionMemoryRecommendations(input: {
 }): AtlasBrainResult {
   const planRef = resolvePlanReference(input.request, input.memory);
   if (planRef.kind === "out_of_range" || (planRef.reason && !planRef.matched)) {
-    const project = withActionMemory(
+    const project = setInteractionState(
       withMemory(input.project, input.request),
-      clearPendingClarification(input.memory),
+      clearPendingClarification(input.memory, { reason: "cancelled" }),
     );
     return {
       ok: true,
@@ -299,14 +320,14 @@ function applyActionMemoryRecommendations(input: {
         "Review my website",
       ],
       atlasMemory: project.atlasMemory,
-      executionPlan: input.memory.executionPlan,
+      executionPlan: input.memory.activePlan?.executionPlan,
     };
   }
 
   if (planRef.kind === "unsupported" && planRef.reason) {
-    const project = withActionMemory(
+    const project = setInteractionState(
       withMemory(input.project, input.request),
-      clearPendingClarification(input.memory),
+      clearPendingClarification(input.memory, { reason: "cancelled" }),
     );
     return {
       ok: true,
@@ -325,7 +346,7 @@ function applyActionMemoryRecommendations(input: {
         "Review my website",
       ],
       atlasMemory: project.atlasMemory,
-      executionPlan: input.memory.executionPlan,
+      executionPlan: input.memory.activePlan?.executionPlan,
     };
   }
 
@@ -339,7 +360,7 @@ function applyActionMemoryRecommendations(input: {
   }
 
   const selected = input.recommendationIds?.length
-    ? (input.memory.recommendations ?? []).filter(
+    ? (input.memory.activePlan?.recommendations ?? []).filter(
         (r) => input.recommendationIds!.includes(r.id) && r.applyable,
       )
     : selectRecommendationsToApply(
@@ -349,9 +370,9 @@ function applyActionMemoryRecommendations(input: {
       );
 
   if (selected.length === 0) {
-    const project = withActionMemory(
+    const project = setInteractionState(
       withMemory(input.project, input.request),
-      clearPendingClarification(input.memory),
+      clearPendingClarification(input.memory, { reason: "cancelled" }),
     );
     return {
       ok: true,
@@ -423,12 +444,19 @@ function applyActionMemoryRecommendations(input: {
   // Drop selected recommendations from the active plan (applied or already satisfied).
   const idsToRemove = selected.map((r) => r.id);
   const nextMemory = removeAppliedRecommendations(
-    clearPendingClarification(input.memory),
+    clearPendingClarification(input.memory, { reason: "resolved" }),
     idsToRemove,
   );
-  project = withActionMemory(withMemory(project, input.request), nextMemory);
+  project = setInteractionState(withMemory(project, input.request), nextMemory);
 
   const applied = appliedTitles.length > 0;
+  if (applied) {
+    project = touchActiveTask(project, {
+      kind: "plan_execution",
+      target: { type: "plan" },
+      userGoal: input.request,
+    });
+  }
   const explanation = [
     applied
       ? [
@@ -460,33 +488,9 @@ function applyActionMemoryRecommendations(input: {
       "Improve SEO",
       "Add subtle animations",
     ],
-    executionPlan: input.memory.executionPlan,
+    executionPlan: input.memory.activePlan?.executionPlan,
     atlasMemory: project.atlasMemory,
   };
-}
-
-/**
- * Restore image_target pending from ActiveVisualTask when Action Memory lost it
- * (e.g. recommendation store cleared sticky clarification).
- */
-function restoreImageTargetPendingFromVisualTask(
-  project: BusinessProject,
-): BusinessProject {
-  const memory = getActionMemory(project);
-  if (hasPendingClarification(memory)) return project;
-  const active = getActiveVisualTask(memory);
-  if (active?.pendingClarification?.kind !== "image_target") return project;
-  return withActionMemory(
-    project,
-    storePendingClarification(memory, {
-      question:
-        "Which image should use the full-photo fit: the hero image or a gallery image?",
-      kind: "image_target",
-      destination: "apply_hero_fit",
-      allowedAnswers: ["Hero image", "Gallery image"],
-      context: { intent: "hero_full_picture", restoredFrom: "activeVisualTask" },
-    }),
-  );
 }
 
 /**
@@ -496,7 +500,7 @@ async function tryResolveTypedClarification(input: {
   project: BusinessProject;
   request: string;
 }): Promise<AtlasBrainResult | null> {
-  const project = restoreImageTargetPendingFromVisualTask(input.project);
+  const project = input.project;
   const memory = getActionMemory(project);
   if (!hasPendingClarification(memory) || !memory.pendingClarification) {
     return null;
@@ -512,12 +516,12 @@ async function tryResolveTypedClarification(input: {
     pending.kind === "image_target" &&
     matched.destination !== "apply_gallery_fit"
   ) {
-    const cleared = withActionMemory(
+    const cleared = setInteractionState(
       project,
-      clearPendingClarification(memory),
+      clearPendingClarification(memory, { reason: "resolved" }),
     );
     const fit = tryApplyHeroFit({
-      project: clearActiveVisualTaskPending(cleared),
+      project: cleared,
       request: "Use the full picture.",
       forceHero: true,
     });
@@ -533,9 +537,9 @@ async function tryResolveTypedClarification(input: {
   }
 
   if (matched.destination === "apply_gallery_fit") {
-    const cleared = withActionMemory(
+    const cleared = setInteractionState(
       withMemory(project, input.request),
-      clearPendingClarification(memory),
+      clearPendingClarification(memory, { reason: "resolved" }),
     );
     return {
       ok: true,
@@ -577,9 +581,11 @@ async function tryContinueActionMemory(input: {
   request: string;
 }): Promise<AtlasBrainResult | null> {
   const memory = getActionMemory(input.project);
+  recordActiveTaskDiagnostics({ activePlanConsidered: true });
   if (!shouldExecuteActionMemory(input.request, memory)) {
     return null;
   }
+  recordActiveTaskDiagnostics({ activePlanExecuted: true });
 
   // Ordinal / named plan references run before clarification chips.
   if (
@@ -608,11 +614,9 @@ async function tryContinueActionMemory(input: {
         memory.pendingClarification.kind === "image_target") &&
       matched.destination !== "apply_gallery_fit"
     ) {
-      const cleared = clearActiveVisualTaskPending(
-        withActionMemory(
-          input.project,
-          clearPendingClarification(memory),
-        ),
+      const cleared = setInteractionState(
+        input.project,
+        clearPendingClarification(memory, { reason: "resolved" }),
       );
       const fit = tryApplyHeroFit({
         project: cleared,
@@ -631,9 +635,9 @@ async function tryContinueActionMemory(input: {
     }
 
     if (matched?.destination === "apply_gallery_fit") {
-      const cleared = withActionMemory(
+      const cleared = setInteractionState(
         withMemory(input.project, input.request),
-        clearPendingClarification(memory),
+        clearPendingClarification(memory, { reason: "resolved" }),
       );
       return {
         ok: true,
@@ -680,9 +684,9 @@ async function tryContinueActionMemory(input: {
         },
       ]);
       const applied = applyEditOperations(before, ops);
-      const cleared = withActionMemory(
+      const cleared = setInteractionState(
         applied.project,
-        clearPendingClarification(memory),
+        clearPendingClarification(memory, { reason: "resolved" }),
       );
       const project = rememberExecution(
         cleared,
@@ -743,9 +747,9 @@ async function tryContinueActionMemory(input: {
     }
 
     if (matched?.destination === "other") {
-      const cleared = withActionMemory(
+      const cleared = setInteractionState(
         withMemory(input.project, input.request),
-        clearPendingClarification(memory),
+        clearPendingClarification(memory, { reason: "resolved" }),
       );
       return {
         ok: true,
@@ -795,9 +799,9 @@ async function tryContinueActionMemory(input: {
       }
 
       // Clarification answered with no queued recommendations → continue with intent.
-      const clearedProject = withActionMemory(
+      const clearedProject = setInteractionState(
         withMemory(input.project, input.request),
-        clearPendingClarification(memory),
+        clearPendingClarification(memory, { reason: "resolved" }),
       );
       const mapped =
         matched?.destination === "visuals"
@@ -827,9 +831,9 @@ async function tryContinueActionMemory(input: {
       });
     }
 
-    const cleared = withActionMemory(
+    const cleared = setInteractionState(
       withMemory(input.project, input.request),
-      clearPendingClarification(memory),
+      clearPendingClarification(memory, { reason: "cancelled" }),
     );
     return {
       ok: true,
@@ -904,7 +908,7 @@ function rememberExecution(
     heroBalance?: AtlasLastExecution["heroBalance"];
   },
 ): BusinessProject {
-  return withActionMemory(
+  return setInteractionState(
     project,
     storeLastExecution(
       getActionMemory(project),
@@ -920,10 +924,11 @@ function tryRestoreBrandPalette(input: {
   if (!isBrandRegressionComplaint(input.request)) return null;
 
   const memory = getActionMemory(input.project);
-  const last = memory.lastExecution;
-  const palette = last?.paletteBefore;
+  const last = memory.lastVerifiedExecution;
+  const palette =
+    memory.preservation?.brandPalette ?? last?.paletteBefore ?? null;
   if (!palette) {
-    const withPending = withActionMemory(
+    const withPending = setInteractionState(
       input.project,
       storePendingClarification(memory, {
         question:
@@ -971,13 +976,14 @@ function tryRestoreBrandPalette(input: {
     };
   }
 
-  const restored = restoreBrandPalette(input.project, {
+  const protectedPalette = {
     primaryColor: palette.primaryColor,
     accentColor: palette.accentColor,
     secondaryColor: palette.secondaryColor,
     backgroundColor: palette.backgroundColor,
-    theme: palette.theme,
-  });
+    theme: palette.theme ?? ("light" as const),
+  };
+  const restored = restoreBrandPalette(input.project, protectedPalette);
   const changed =
     restored.accentColor !== input.project.accentColor ||
     restored.primaryColor !== input.project.primaryColor ||
@@ -988,7 +994,7 @@ function tryRestoreBrandPalette(input: {
     ? "You’re right—the text-box update should not have changed the gold accent. I restored it and kept the light-green styling local to the form fields."
     : "You’re right—that update should not have changed your brand colors. I restored your previous palette and will keep local styling scoped.";
 
-  const project = rememberExecution(
+  let project = rememberExecution(
     restored,
     input.request,
     {
@@ -1004,8 +1010,15 @@ function tryRestoreBrandPalette(input: {
       explanation,
     },
     [],
-    { paletteBefore: palette, scope: "hero" },
+    { paletteBefore: protectedPalette, scope: "hero" },
   );
+  if (changed) {
+    project = touchActiveTask(project, {
+      kind: "brand_restore",
+      target: { type: "unknown" },
+      userGoal: input.request,
+    });
+  }
 
   return {
     ok: true,
@@ -1014,11 +1027,11 @@ function tryRestoreBrandPalette(input: {
       ? validateEditOperations([
           {
             operation: "changeTheme",
-            primary: palette.primaryColor,
-            accent: palette.accentColor,
-            secondary: palette.secondaryColor,
-            background: palette.backgroundColor,
-            theme: palette.theme,
+            primary: protectedPalette.primaryColor,
+            accent: protectedPalette.accentColor,
+            secondary: protectedPalette.secondaryColor,
+            background: protectedPalette.backgroundColor,
+            theme: protectedPalette.theme,
           },
         ])
       : [],
@@ -1088,7 +1101,6 @@ function tryApplyHeroBalanceRepair(input: {
     let project = touchActiveVisualTask(input.project, {
       kind: "hero_balance",
       lastUserGoal: input.request,
-      pendingClarification: { kind: "fit_mode" },
     });
     project = rememberExecution(
       project,
@@ -1327,15 +1339,13 @@ function tryApplyHeroFit(input: {
         context: { intent: "hero_full_picture" },
       },
     );
-    let project = withActionMemory(input.project, memory);
-    project = touchActiveVisualTask(project, {
-      kind: "hero_image_fit",
-      lastUserGoal: input.request,
-      pendingClarification: {
-        kind: "image_target",
-        allowedTargets: ["hero", "gallery"],
+    const project = touchActiveVisualTask(
+      setInteractionState(input.project, memory),
+      {
+        kind: "hero_image_fit",
+        lastUserGoal: input.request,
       },
-    });
+    );
     logHeroFitDiagnostics({
       requestId: input.requestId,
       activeVisualTaskKind: active?.kind ?? null,
@@ -1445,12 +1455,10 @@ function tryApplyHeroFit(input: {
   let project = touchActiveVisualTask(applied.project, {
     kind: "hero_image_fit",
     lastUserGoal: input.request,
-    pendingClarification: null,
   });
-  project = clearActiveVisualTaskPending(project);
-  project = withActionMemory(
+  project = setInteractionState(
     project,
-    clearPendingClarification(getActionMemory(project)),
+    clearPendingClarification(getActionMemory(project), { reason: "resolved" }),
   );
   project = rememberExecution(
     project,
@@ -1518,7 +1526,7 @@ function tryApplyHeroProfessionalComposition(input: {
   const continueHero = shouldContinueActiveHeroTask(input.request, memory);
   const heroScoped =
     Boolean(getActiveVisualTask(memory)) ||
-    memory.lastExecution?.scope === "hero" ||
+    memory.lastVerifiedExecution?.scope === "hero" ||
     continueHero;
   if (!heroScoped) return null;
 
@@ -1609,7 +1617,6 @@ function tryApplyHeroProfessionalComposition(input: {
   let project = touchActiveVisualTask(paletteSafe, {
     kind: "hero_composition",
     lastUserGoal: input.request,
-    pendingClarification: null,
   });
   project = rememberExecution(
     project,
@@ -1668,16 +1675,34 @@ function tryApplyGalleryLightbox(input: {
   project: BusinessProject;
   request: string;
 }): AtlasBrainResult | null {
-  if (!isGalleryLightboxRequest(input.request)) return null;
-  const planned = planGalleryLightboxOperations();
+  const activeTask = getInteractionState(input.project).activeTask;
+  const continuing =
+    activeTask?.kind === "gallery_interaction" &&
+    canContinueActiveTask(activeTask, input.request) &&
+    isGalleryLightboxSoftContinuation(input.request);
+  if (!isGalleryLightboxRequest(input.request) && !continuing) return null;
+  if (continuing) {
+    recordActiveTaskDiagnostics({
+      continuationOwner: "gallery_interaction",
+      continuationMatched: true,
+    });
+  }
+
+  const planned = continuing
+    ? planGalleryInteractionContinuation(input.request) ??
+      planGalleryLightboxOperations()
+    : planGalleryLightboxOperations();
   const ops = validateEditOperations(planned.operations);
   const before = input.project;
   const applied = applyEditOperations(before, ops);
-  const check = verifyGalleryLightbox({
-    before,
-    after: applied.project,
-    galleryAssetIds: applied.project.galleryImageIds ?? [],
-  });
+  const disablingLightbox = planned.interaction.mode === "none";
+  const check = disablingLightbox
+    ? { verified: true, failures: [] as string[] }
+    : verifyGalleryLightbox({
+        before,
+        after: applied.project,
+        galleryAssetIds: applied.project.galleryImageIds ?? [],
+      });
 
   if (!check.verified) {
     const project = rememberExecution(
@@ -1724,7 +1749,7 @@ function tryApplyGalleryLightbox(input: {
     };
   }
 
-  const project = rememberExecution(
+  let project = rememberExecution(
     applied.project,
     input.request,
     {
@@ -1740,6 +1765,11 @@ function tryApplyGalleryLightbox(input: {
     ops,
     { scope: "unknown" },
   );
+  project = touchActiveTask(project, {
+    kind: "gallery_interaction",
+    target: { type: "gallery" },
+    userGoal: input.request,
+  });
 
   return {
     ok: true,
@@ -1784,10 +1814,32 @@ function tryApplyGalleryMetadata(input: {
   project: BusinessProject;
   request: string;
 }): AtlasBrainResult | null {
-  if (!isGalleryMetadataRequest(input.request)) return null;
+  const activeTask = getInteractionState(input.project).activeTask;
+  const continuing =
+    activeTask?.kind === "gallery_metadata" &&
+    canContinueActiveTask(activeTask, input.request) &&
+    isGalleryMetadataSoftContinuation(input.request);
+  if (!isGalleryMetadataRequest(input.request) && !continuing) return null;
+  if (continuing) {
+    recordActiveTaskDiagnostics({
+      continuationOwner: "gallery_metadata",
+      continuationMatched: true,
+    });
+  }
+  // Soft phrases → planner-friendly wording when continuing an active task.
+  const metadataRequest =
+    continuing && !isGalleryMetadataRequest(input.request)
+      ? /\b(give|add|write)\b[\s\S]{0,40}\bcaptions?\b/i.test(input.request)
+        ? "Add captions to the gallery photos"
+        : /\b(hide|remove|clear)\b[\s\S]{0,24}\b(titles?|captions?|labels?)\b/i.test(
+              input.request,
+            ) || /\bother\s+titles?\b/i.test(input.request)
+          ? "Remove the titles from the gallery"
+          : input.request
+      : input.request;
   const planned = planGalleryMetadataOperations({
     project: input.project,
-    request: input.request,
+    request: metadataRequest,
   });
   if (planned.needsClarification || planned.operations.length === 0) {
     return {
@@ -1826,7 +1878,7 @@ function tryApplyGalleryMetadata(input: {
 
   const ops = validateEditOperations(planned.operations);
   const applied = applyEditOperations(input.project, ops);
-  const project = rememberExecution(
+  let project = rememberExecution(
     applied.project,
     input.request,
     {
@@ -1842,6 +1894,11 @@ function tryApplyGalleryMetadata(input: {
     ops,
     { scope: "unknown" },
   );
+  project = touchActiveTask(project, {
+    kind: "gallery_metadata",
+    target: { type: "gallery" },
+    userGoal: input.request,
+  });
 
   return {
     ok: true,
@@ -1886,11 +1943,31 @@ function tryApplySurfaceStyle(input: {
   project: BusinessProject;
   request: string;
 }): AtlasBrainResult | null {
-  if (!isSurfaceStyleRequest(input.request)) return null;
+  const activeTask = getInteractionState(input.project).activeTask;
+  const continueSurface =
+    activeTask?.kind === "surface_style" &&
+    activeTask.target.type === "surface"
+      ? (activeTask.target.surface as SurfaceTarget)
+      : activeTask?.kind === "surface_style"
+        ? ("form_fields" as SurfaceTarget)
+        : null;
+  const continuing =
+    Boolean(continueSurface) &&
+    canContinueActiveTask(activeTask, input.request) &&
+    isSurfaceStyleSoftContinuation(input.request);
+
+  if (!isSurfaceStyleRequest(input.request) && !continuing) return null;
+  if (continuing) {
+    recordActiveTaskDiagnostics({
+      continuationOwner: "surface_style",
+      continuationMatched: true,
+    });
+  }
 
   const planned = planSurfaceStyleOperations({
     request: input.request,
     project: input.project,
+    continueFromTask: continuing ? continueSurface : null,
   });
 
   if (!planned.ok) {
@@ -1952,7 +2029,7 @@ function tryApplySurfaceStyle(input: {
   const accentUnchanged =
     applied.project.accentColor === input.project.accentColor;
 
-  const project = rememberExecution(
+  let project = rememberExecution(
     applied.project,
     input.request,
     {
@@ -1971,6 +2048,13 @@ function tryApplySurfaceStyle(input: {
     ops,
     { paletteBefore, scope: "unknown" },
   );
+  if (verified && accentUnchanged && planned.ok) {
+    project = touchActiveTask(project, {
+      kind: "surface_style",
+      target: { type: "surface", surface: planned.target },
+      userGoal: input.request,
+    });
+  }
 
   return {
     ok: true,
@@ -2170,19 +2254,35 @@ export async function runAtlasBrain(
       )
     : [];
 
-  // Sprint 28.1A — critique/redesign clears sticky clarification so routing proceeds.
-  let projectForTurn = input.project;
+  // Sprint 29.2 — normalize legacy nested clarification → single top-level pending.
+  let projectForTurn = normalizeInteractionState(input.project);
   if (
     shouldOverridePendingClarification(request) &&
-    hasPendingClarification(getActionMemory(input.project))
+    hasPendingClarification(getActionMemory(projectForTurn))
   ) {
-    projectForTurn = withActionMemory(
-      input.project,
-      clearPendingClarification(getActionMemory(input.project)),
+    projectForTurn = setInteractionState(
+      projectForTurn,
+      clearPendingClarification(getActionMemory(projectForTurn), {
+        reason: "critique_override",
+      }),
     );
-  } else {
-    // Restore image_target pending from ActiveVisualTask before any routing.
-    projectForTurn = restoreImageTargetPendingFromVisualTask(projectForTurn);
+    if (getInteractionState(projectForTurn).activeTask) {
+      projectForTurn = clearActiveTask(projectForTurn, "critique_override");
+    }
+  }
+
+  // Sprint 29.5 — explicit topic switch clears prior task before new domain runs.
+  {
+    const currentTask = getInteractionState(projectForTurn).activeTask;
+    if (currentTask && isExplicitTopicSwitch(currentTask, request)) {
+      const fresh = detectFreshTaskIntent(request);
+      if (shouldClearActiveTask("topic_switch", currentTask, request)) {
+        projectForTurn = clearActiveTask(
+          projectForTurn,
+          fresh === "critique" ? "critique_override" : "topic_switch",
+        );
+      }
+    }
   }
 
   // v1.2 — user disputes prior edit → verify/repair (never restart with plan chips)
@@ -2339,7 +2439,7 @@ export async function runAtlasBrain(
 
   // Complete my website with no applyable plan → fresh strategy/critique pipeline.
   const completeMemory = getActionMemory(projectForTurn);
-  const hasApplyable = (completeMemory.recommendations ?? []).some(
+  const hasApplyable = (completeMemory.activePlan?.recommendations ?? []).some(
     (r) => r.applyable,
   );
   if (isCompleteWebsiteRequest(request) && !hasApplyable) {
@@ -2382,6 +2482,22 @@ export async function runAtlasBrain(
       critiqueResult.recommendations,
     );
     const applyable = critiqueResult.recommendations.filter((r) => r.applyable);
+    const completionExecutionPlan = {
+      goal: "Complete the website for launch",
+      steps: [
+        {
+          id: "complete.strategy",
+          agent: "creative_director" as const,
+          label: "Form the design strategy",
+        },
+        {
+          id: "complete.apply",
+          agent: "creative_director" as const,
+          label: "Apply every supported improvement",
+        },
+      ],
+      estimatedImpact: "high" as const,
+    };
     const actionMemory = storeRecommendations(getActionMemory(projectForTurn), {
       creative: critiqueResult.recommendations,
       creativeReport: {
@@ -2390,24 +2506,9 @@ export async function runAtlasBrain(
         fingerprint: creative.fingerprint,
         reviewedAt: creative.reviewedAt,
       },
-      executionPlan: {
-        goal: "Complete the website for launch",
-        steps: [
-          {
-            id: "complete.strategy",
-            agent: "creative_director",
-            label: "Form the design strategy",
-          },
-          {
-            id: "complete.apply",
-            agent: "creative_director",
-            label: "Apply every supported improvement",
-          },
-        ],
-        estimatedImpact: "high",
-      },
+      executionPlan: completionExecutionPlan,
     });
-    let project = withActionMemory(
+    let project = setInteractionState(
       withMemory(projectForTurn, request),
       actionMemory,
     );
@@ -2421,7 +2522,7 @@ export async function runAtlasBrain(
         invalidateCritiquePipelineCache(
           creativeDirectorFingerprint(batch.project),
         );
-        project = withActionMemory(
+        project = setInteractionState(
           batch.project,
           clearRecommendations(getActionMemory(batch.project)),
         );
@@ -2450,7 +2551,8 @@ export async function runAtlasBrain(
             selectedAgents: ["creative_director", "editor_agent"],
             needsClarification: false,
             shouldExecuteEdits: true,
-            executionPlan: actionMemory.executionPlan!,
+            executionPlan:
+              actionMemory.activePlan?.executionPlan ?? completionExecutionPlan,
             explanation: "I completed the website using a design strategy.",
             followUpSuggestions: followUpsForProject(project, [
               "Add matching images",
@@ -2463,7 +2565,8 @@ export async function runAtlasBrain(
             "Improve SEO",
             "Review my website",
           ]),
-          executionPlan: actionMemory.executionPlan,
+          executionPlan:
+            actionMemory.activePlan?.executionPlan ?? completionExecutionPlan,
           atlasMemory: project.atlasMemory,
         };
       }
@@ -2491,7 +2594,8 @@ export async function runAtlasBrain(
         confidence: 0.94,
         selectedAgents: ["creative_director"],
         needsClarification: false,
-        executionPlan: actionMemory.executionPlan!,
+        executionPlan:
+          actionMemory.activePlan?.executionPlan ?? completionExecutionPlan,
         explanation: "I prepared a strategy-led completion plan.",
         followUpSuggestions: followUpsForProject(project, [
           "Apply All",
@@ -2504,7 +2608,8 @@ export async function runAtlasBrain(
         "Improve SEO",
         "Add subtle animations",
       ]),
-      executionPlan: actionMemory.executionPlan,
+      executionPlan:
+        actionMemory.activePlan?.executionPlan ?? completionExecutionPlan,
       atlasMemory: project.atlasMemory,
     };
   }
@@ -2587,7 +2692,7 @@ export async function runAtlasBrain(
         allowedAnswers: [...ATLAS_BRAIN_CLARIFICATION_OPTIONS],
       },
     );
-    const project = withActionMemory(
+    const project = setInteractionState(
       withMemory(projectForTurn, request, decision.memoryPatch),
       actionMemory,
     );
@@ -2691,7 +2796,7 @@ export async function runAtlasBrain(
       },
       executionPlan: decision.executionPlan,
     });
-    let project = withActionMemory(
+    let project = setInteractionState(
       withMemory(projectForTurn, request, decision.memoryPatch),
       actionMemory,
     );
@@ -2705,7 +2810,7 @@ export async function runAtlasBrain(
         invalidateCritiquePipelineCache(
           creativeDirectorFingerprint(batch.project),
         );
-        project = withActionMemory(
+        project = setInteractionState(
           batch.project,
           clearRecommendations(getActionMemory(batch.project)),
         );
@@ -2923,6 +3028,11 @@ export async function runAtlasBrain(
             verified,
             ops,
           );
+          project = touchActiveTask(project, {
+            kind: "section_layout",
+            target: { type: "section", section: intent.section },
+            userGoal: request,
+          });
           project = withMemory(project, request, decision.memoryPatch);
           const followUps = followUpsForProject(
             project,
@@ -3375,7 +3485,7 @@ export async function runAtlasBrain(
       applyStatus = "applied";
       explanation = appendExplanation(explanation, imageResult.explanation);
 
-      // Hero placement creates continuous fit/crop context for follow-ups.
+      // Placement creates durable image-continuation context (Sprint 29.5).
       const placedHero = imageResult.operations.some(
         (op) =>
           op.operation === "replaceHeroImage" ||
@@ -3384,12 +3494,44 @@ export async function runAtlasBrain(
           (op.operation === "replacePlaceholder" &&
             op.placeholder === "hero"),
       );
+      const placedGallery = imageResult.operations.some(
+        (op) => op.operation === "replaceGalleryImage",
+      );
+      const placedSection = imageResult.operations.find(
+        (op) =>
+          (op.operation === "replaceSectionImage" ||
+            op.operation === "setSectionImage") &&
+          op.section &&
+          op.section !== "hero",
+      );
       if (placedHero && project.heroImageId) {
-        project = touchActiveVisualTask(project, {
+        project = touchActiveTask(project, {
           kind: "hero_image_fit",
+          target: { type: "hero" },
           assetId: project.heroImageId,
-          lastUserGoal: request,
-          pendingClarification: null,
+          userGoal: request,
+        });
+      } else if (placedGallery) {
+        const assetId =
+          input.attachmentContexts?.[0]?.assetId ??
+          project.galleryImageIds?.find(Boolean) ??
+          undefined;
+        project = touchActiveTask(project, {
+          kind: "image_placement",
+          target: { type: "gallery" },
+          assetId: assetId ?? null,
+          userGoal: request,
+        });
+      } else if (placedSection && "section" in placedSection) {
+        const assetId = input.attachmentContexts?.[0]?.assetId ?? undefined;
+        project = touchActiveTask(project, {
+          kind: "image_placement",
+          target: {
+            type: "section",
+            section: String(placedSection.section),
+          },
+          assetId: assetId ?? null,
+          userGoal: request,
         });
       }
     } else if (
@@ -3417,15 +3559,13 @@ export async function runAtlasBrain(
             priorRequest: request,
           },
         });
-        project = withActionMemory(project, memory);
-        project = touchActiveVisualTask(project, {
-          kind: "hero_image_fit",
-          lastUserGoal: request,
-          pendingClarification: {
-            kind: "image_target",
-            allowedTargets: ["hero", "gallery"],
+        project = touchActiveVisualTask(
+          setInteractionState(project, memory),
+          {
+            kind: "hero_image_fit",
+            lastUserGoal: request,
           },
-        });
+        );
       }
       return {
         ok: true,
@@ -3479,7 +3619,7 @@ export async function runAtlasBrain(
         creative: critiqueResult.recommendations,
         executionPlan: decision.executionPlan,
       });
-      project = withActionMemory(project, actionMemory);
+      project = setInteractionState(project, actionMemory);
 
       if (wantsExecute && applyable.length > 0) {
         const batch = applyAllCreativeRecommendations({
@@ -3490,7 +3630,7 @@ export async function runAtlasBrain(
           invalidateCritiquePipelineCache(
             creativeDirectorFingerprint(batch.project),
           );
-          project = withActionMemory(
+          project = setInteractionState(
             batch.project,
             clearRecommendations(getActionMemory(batch.project)),
           );

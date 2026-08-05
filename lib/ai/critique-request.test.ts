@@ -186,8 +186,8 @@ describe("Atlas Brain — critique routing execution", () => {
     expect(result.explanation).not.toMatch(/Better visuals/i);
     expect(result.explanation).not.toMatch(/Understood\. What would you like/i);
     expect(result.explanation).toMatch(/Strengths:|Top improvements:|emotional|premium|hierarchy/i);
-    expect(result.project.atlasActionMemory?.applyAllPending).toBe(true);
-    expect(result.project.atlasActionMemory?.recommendations?.length).toBeGreaterThan(
+    expect(result.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(true);
+    expect(result.project.atlasActionMemory?.activePlan?.recommendations?.length).toBeGreaterThan(
       0,
     );
   });
@@ -236,7 +236,7 @@ describe("Atlas Brain — critique routing execution", () => {
     expect(result.explanation).not.toMatch(/Understood\. What would you like/i);
     expect(result.explanation).not.toMatch(/Better visuals/i);
     expect(result.project.atlasActionMemory?.pendingClarification).toBeFalsy();
-    expect(result.project.atlasActionMemory?.applyAllPending).toBe(true);
+    expect(result.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(true);
   });
 
   it("Apply All continues critique plan without clarification", async () => {
@@ -245,7 +245,7 @@ describe("Atlas Brain — critique routing execution", () => {
       request: "Review this homepage.",
     });
     expect(reviewed.decision.intent).toBe("design_critique");
-    expect(reviewed.project.atlasActionMemory?.applyAllPending).toBe(true);
+    expect(reviewed.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(true);
 
     const applied = await runAtlasBrain({
       project: reviewed.project,
@@ -262,8 +262,8 @@ describe("Atlas Brain — critique routing execution", () => {
       request: "What would you improve before launch?",
     });
     const memory = result.project.atlasActionMemory;
-    expect(memory?.recommendations?.length).toBeGreaterThan(0);
-    expect(memory?.applyAllPending).toBe(true);
-    expect(memory?.executionPlan?.goal).toMatch(/Review|website|launch/i);
+    expect(memory?.activePlan?.recommendations?.length).toBeGreaterThan(0);
+    expect(memory?.activePlan?.applyAllPending).toBe(true);
+    expect(memory?.activePlan?.executionPlan?.goal).toMatch(/Review|website|launch/i);
   });
 });

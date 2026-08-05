@@ -16,6 +16,11 @@ import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import type { AttachmentContext } from "@/lib/ai/conversation-attachments";
 import { hasMeaningfulProjectDiff } from "@/lib/ai/editor-assistant-persistence";
 import { isHeroFitRequest } from "@/lib/ai/hero-image-presentation";
+import {
+  imageEditorStateFromActiveTask,
+  resolveImageReference,
+} from "@/lib/ai/image-reference-resolver";
+import { getInteractionState } from "@/lib/ai/interaction-state";
 import type {
   ImageChangeSummary,
   ImageOperation,
@@ -36,7 +41,11 @@ export type ImageAgentHistoryItem = {
   content: string;
 };
 
-/** Lightweight editor cues for resolving “this / that / previous”. */
+/**
+ * Transient client/request cue for “this / that / previous”.
+ * Sprint 29.4 — not an independent continuation authority.
+ * Durable image continuation uses canonical `activeTask` + project truth.
+ */
 export type ImageEditorState = {
   lastImageRef?: ImageTargetRef | null;
   selectedImageRef?: ImageTargetRef | null;
@@ -229,16 +238,11 @@ function parseRelativePosition(
 
 function resolveConversationalTarget(
   text: string,
+  project: BusinessProject,
   editorState?: ImageEditorState | null,
   history: ImageAgentHistoryItem[] = [],
+  attachmentContexts?: AttachmentContext[],
 ): ImageTargetRef | null {
-  if (/\b(this|that|the\s+previous)\s+(image|picture|photo)\b/.test(text)) {
-    return (
-      editorState?.selectedImageRef ??
-      editorState?.lastImageRef ??
-      inferLastFromHistory(history)
-    );
-  }
   if (/\bhero\b/.test(text)) return { kind: "hero" };
   if (/\blogo\b/.test(text)) return { kind: "logo" };
   const gIdx = parseGalleryIndex(text);
@@ -254,6 +258,20 @@ function resolveConversationalTarget(
   const section = parseSectionSlot(text);
   if (section && /\b(image|photo|picture)\b/.test(text)) {
     return { kind: "section", section };
+  }
+
+  // Unified resolver: attachments → clarification → activeTask → project truth
+  const resolved = resolveImageReference({
+    interactionState: getInteractionState(project),
+    attachmentContexts,
+    project,
+    message: text,
+    transientEditorCue: editorState,
+  });
+  if (resolved.target) return resolved.target;
+
+  if (/\b(this|that|the\s+previous)\s+(image|picture|photo)\b/.test(text)) {
+    return inferLastFromHistory(history);
   }
   return null;
 }
@@ -328,8 +346,13 @@ export function planImageOperations(input: ImageAgentInput): ImagePlanResult {
   const history = input.history ?? [];
   const operations: ImageOperation[] = [];
   const notes: string[] = [];
+  const seededFromTask = imageEditorStateFromActiveTask(
+    getInteractionState(input.project),
+    input.project,
+  );
   let editorState: ImageEditorState = {
-    lastImageRef: input.editorState?.lastImageRef ?? null,
+    lastImageRef:
+      input.editorState?.lastImageRef ?? seededFromTask.lastImageRef ?? null,
     selectedImageRef: input.editorState?.selectedImageRef ?? null,
   };
 
@@ -413,7 +436,13 @@ export function planImageOperations(input: ImageAgentInput): ImagePlanResult {
   // --- Remove / delete ---
   if (/\b(remove|delete|clear)\b/.test(text) && IMAGE_INTENT.test(text)) {
     const target =
-      resolveConversationalTarget(text, input.editorState, history) ??
+      resolveConversationalTarget(
+        text,
+        input.project,
+        input.editorState,
+        history,
+        input.attachmentContexts,
+      ) ??
       (/\bplaceholder\b/.test(text)
         ? ({ kind: "placeholder", placeholder: "hero" } as const)
         : null);
@@ -513,7 +542,13 @@ export function planImageOperations(input: ImageAgentInput): ImagePlanResult {
   // --- Move image between slots ---
   if (/\bmove\b/.test(text) && /\b(image|picture|photo)\b/.test(text)) {
     const from =
-      resolveConversationalTarget(text, input.editorState, history) ??
+      resolveConversationalTarget(
+        text,
+        input.project,
+        input.editorState,
+        history,
+        input.attachmentContexts,
+      ) ??
       (/\bfirst\b/.test(text) ? ({ kind: "ordinal", ordinal: 1 } as const) : null);
     const toSection = parseSectionSlot(text);
     const toGallery = parseGalleryIndex(text);

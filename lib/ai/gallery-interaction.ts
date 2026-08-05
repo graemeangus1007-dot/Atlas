@@ -21,6 +21,99 @@ export function isGalleryLightboxRequest(request: string): boolean {
   return LIGHTBOX_REQUEST.test(request.trim());
 }
 
+/** Soft follow-ups while a gallery_interaction active task is sticky. */
+export function isGalleryLightboxSoftContinuation(request: string): boolean {
+  const text = request.trim();
+  if (!text) return false;
+  if (LIGHTBOX_REQUEST.test(text)) return true;
+  return /\b(hide|show)\b[\s\S]{0,20}\bcaptions?\b|\bturn\s+(that\s+|the\s+lightbox\s+|lightbox\s+)?off\b|\blightbox\s+off\b|\blet\s+them\s+swipe|\bswipe\s+too\b|\bnavigation\b/i.test(
+    text,
+  );
+}
+
+/**
+ * Plan gallery interaction changes for soft continuations
+ * (hide captions / turn off / swipe).
+ */
+export function planGalleryInteractionContinuation(request: string): {
+  operations: EditOperation[];
+  explanation: string;
+  interaction: GalleryInteraction;
+} | null {
+  const text = request.trim();
+  if (
+    /\bturn\s+(that\s+|the\s+lightbox\s+|lightbox\s+)?off\b|\bdisable\s+(the\s+)?lightbox\b|\bno\s+lightbox\b|\blightbox\s+off\b/i.test(
+      text,
+    )
+  ) {
+    const interaction: GalleryInteraction = {
+      mode: "none",
+      navigation: false,
+      captions: false,
+    };
+    return {
+      operations: [
+        {
+          operation: "setGalleryInteraction",
+          mode: "none",
+          navigation: false,
+          captions: false,
+        },
+      ],
+      interaction,
+      explanation:
+        "Done. I turned off the full-screen gallery viewer so photos stay in the grid.",
+    };
+  }
+  if (/\bhide\b[\s\S]{0,20}\bcaptions?\b/i.test(text)) {
+    return {
+      operations: [
+        {
+          operation: "setGalleryInteraction",
+          mode: "lightbox",
+          navigation: true,
+          captions: false,
+        },
+      ],
+      interaction: { mode: "lightbox", navigation: true, captions: false },
+      explanation: "Done. I hid the gallery captions in the full-screen viewer.",
+    };
+  }
+  if (/\bshow\b[\s\S]{0,20}\bcaptions?\b/i.test(text)) {
+    return {
+      operations: [
+        {
+          operation: "setGalleryInteraction",
+          mode: "lightbox",
+          navigation: true,
+          captions: true,
+        },
+      ],
+      interaction: { mode: "lightbox", navigation: true, captions: true },
+      explanation: "Done. I turned gallery captions back on in the viewer.",
+    };
+  }
+  if (/\bswipe\b|\bnavigation\b/i.test(text)) {
+    return {
+      operations: [
+        {
+          operation: "setGalleryInteraction",
+          mode: "lightbox",
+          navigation: true,
+          captions: true,
+        },
+      ],
+      interaction: { mode: "lightbox", navigation: true, captions: true },
+      explanation:
+        "Done. Visitors can swipe through gallery photos in the full-screen viewer.",
+    };
+  }
+  if (LIGHTBOX_REQUEST.test(text)) {
+    return planGalleryLightboxOperations();
+  }
+  return null;
+}
+
 export function readGalleryInteraction(
   project: BusinessProject,
 ): GalleryInteraction {

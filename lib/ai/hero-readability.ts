@@ -9,6 +9,7 @@ import {
 } from "@/data/design-options";
 import { contrastRatio, relativeLuminance } from "@/lib/ai/contrast";
 import type { EditOperation } from "@/lib/ai/edit-operations";
+import { updateInteractionState } from "@/lib/ai/interaction-state";
 import type { BusinessProject } from "@/types/business-project";
 
 export const HERO_READABILITY_THRESHOLD = 72;
@@ -752,7 +753,14 @@ export function isUserReportedHeroDifficulty(request: string): boolean {
 export function getHeroReadabilityRepairLevel(
   project: BusinessProject,
 ): HeroReadabilityRepairLevel {
-  const state = project.atlasActionMemory?.heroReadabilityRepair;
+  const memory = project.atlasActionMemory as
+    | {
+        repair?: {
+          heroReadability?: { level: number; heroImageId: string | null } | null;
+        };
+      }
+    | undefined;
+  const state = memory?.repair?.heroReadability;
   if (!state) return 0;
   const currentImage = project.heroImageId ?? null;
   if ((state.heroImageId ?? null) !== currentImage) return 0;
@@ -761,25 +769,32 @@ export function getHeroReadabilityRepairLevel(
   return 0;
 }
 
+/**
+ * Sprint 29.3 — writes canonical repair.heroReadability via adapter.
+ * Legacy heroReadabilityRepair mirror is derived on serialize.
+ * See docs/atlas-interaction-ownership.md.
+ */
 export function withHeroReadabilityRepairLevel(
   project: BusinessProject,
   level: HeroReadabilityRepairLevel,
 ): BusinessProject {
-  const memory = project.atlasActionMemory ?? {
-    updatedAt: new Date().toISOString(),
-  };
-  return {
-    ...project,
-    atlasActionMemory: {
-      ...memory,
-      heroReadabilityRepair: {
-        level,
-        heroImageId: project.heroImageId ?? null,
-        updatedAt: new Date().toISOString(),
+  const now = new Date().toISOString();
+  return updateInteractionState(
+    project,
+    (state) => ({
+      ...state,
+      repair: {
+        ...(state.repair ?? {}),
+        heroReadability: {
+          level,
+          heroImageId: project.heroImageId ?? null,
+          updatedAt: now,
+        },
       },
-      updatedAt: new Date().toISOString(),
-    },
-  };
+      updatedAt: now,
+    }),
+    { origin: "hero-readability.withHeroReadabilityRepairLevel" },
+  );
 }
 
 /** Force local corrective treatments for a repair level (1–3). */

@@ -452,7 +452,7 @@ export function stageContinuation(
       confidence: 0.99,
       selectedAgents: ["creative_director", "editor_agent"],
       needsClarification: false,
-      executionPlan: memory.executionPlan ?? plan("Continue the active plan", [
+      executionPlan: memory.activePlan?.executionPlan ?? plan("Continue the active plan", [
         {
           id: "cont.apply",
           agent: "creative_director",

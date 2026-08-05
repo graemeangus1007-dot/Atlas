@@ -1,9 +1,19 @@
 /**
  * Continuous hero / visual editing context (v1.3).
  * Short follow-ups inherit the active hero task unless the topic clearly changes.
+ *
+ * Sprint 29.3: ActiveVisualTask merges into canonical `activeTask`.
+ * Legacy `activeVisualTask` is a derived mirror only.
+ * Clarification lives only on top-level pending via the interaction adapter.
+ * See docs/atlas-interaction-ownership.md.
  */
 
 import type { AtlasActionMemory } from "@/lib/ai/atlas-action-memory";
+import type { AtlasActiveTask, AtlasInteractionState } from "@/lib/ai/atlas-interaction-types";
+import {
+  getInteractionState,
+  updateInteractionState,
+} from "@/lib/ai/interaction-state";
 import type { BusinessProject } from "@/types/business-project";
 
 export type ActiveVisualTaskKind =
@@ -13,6 +23,10 @@ export type ActiveVisualTaskKind =
   | "hero_crop"
   | "hero_composition";
 
+/**
+ * @deprecated Sprint 29.2 — nested clarification retired. Kept for typing legacy
+ * payloads during normalize/promotion only.
+ */
 export type ActiveVisualTaskPendingClarification = {
   kind: "image_target" | "fit_mode" | "crop_position";
   allowedTargets?: string[];
@@ -24,6 +38,10 @@ export type ActiveVisualTask = {
   assetId?: string;
   lastUserGoal?: string;
   repairLevel?: number;
+  /**
+   * @deprecated Sprint 29.2 — do not write. Legacy projects may still have this;
+   * `normalizeInteractionState` promotes it once to top-level pending.
+   */
   pendingClarification?: ActiveVisualTaskPendingClarification;
   updatedAt: string;
 };
@@ -38,29 +56,90 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function getActiveVisualTask(
-  memory: AtlasActionMemory | null | undefined,
+function isHeroKind(kind: string): kind is ActiveVisualTaskKind {
+  return (
+    kind === "hero_readability" ||
+    kind === "hero_balance" ||
+    kind === "hero_image_fit" ||
+    kind === "hero_crop" ||
+    kind === "hero_composition"
+  );
+}
+
+function activeTaskToVisualTask(
+  task: AtlasActiveTask | null | undefined,
 ): ActiveVisualTask | null {
-  const task = memory?.activeVisualTask;
-  if (!task || task.target !== "hero") return null;
-  return task;
+  if (!task || !isHeroKind(task.kind)) return null;
+  if (task.target.type !== "hero" && !String(task.kind).startsWith("hero_")) {
+    return null;
+  }
+  return {
+    kind: task.kind,
+    target: "hero",
+    assetId: task.assetId,
+    lastUserGoal: task.userGoal,
+    repairLevel: task.repairLevel,
+    updatedAt: task.updatedAt || nowIso(),
+  };
+}
+
+function visualTaskToActiveTask(task: ActiveVisualTask): AtlasActiveTask {
+  return {
+    kind: task.kind,
+    target: { type: "hero" },
+    assetId: task.assetId,
+    userGoal: task.lastUserGoal,
+    repairLevel: task.repairLevel,
+    updatedAt: task.updatedAt || nowIso(),
+  };
+}
+
+export function getActiveVisualTask(
+  memory:
+    | AtlasActionMemory
+    | AtlasInteractionState
+    | null
+    | undefined,
+): ActiveVisualTask | null {
+  if (!memory) return null;
+  // Sprint 29.4 — canonical activeTask only (legacy mirrors are migration-inbound).
+  if ("activeTask" in memory && memory.activeTask) {
+    return activeTaskToVisualTask(memory.activeTask as AtlasActiveTask);
+  }
+  return null;
 }
 
 export function withActiveVisualTask(
   project: BusinessProject,
   task: ActiveVisualTask | null,
 ): BusinessProject {
-  const memory = (project.atlasActionMemory ?? {
-    updatedAt: nowIso(),
-  }) as AtlasActionMemory;
-  return {
-    ...project,
-    atlasActionMemory: {
-      ...memory,
-      activeVisualTask: task,
+  // Never persist nested clarification on write.
+  const sanitized =
+    task && task.pendingClarification
+      ? (() => {
+          const rest = { ...task };
+          delete rest.pendingClarification;
+          return { ...rest, updatedAt: nowIso() };
+        })()
+      : task;
+
+  return updateInteractionState(
+    project,
+    (state) => ({
+      ...state,
+      activeTask: sanitized ? visualTaskToActiveTask(sanitized) : null,
+      preservation: {
+        ...(state.preservation ?? {}),
+        heroAssetId:
+          sanitized?.assetId ??
+          state.preservation?.heroAssetId ??
+          project.heroImageId ??
+          null,
+      },
       updatedAt: nowIso(),
-    },
-  };
+    }),
+    { origin: "active-visual-task.withActiveVisualTask" },
+  );
 }
 
 export function touchActiveVisualTask(
@@ -69,13 +148,14 @@ export function touchActiveVisualTask(
     kind: ActiveVisualTaskKind;
     lastUserGoal?: string;
     repairLevel?: number;
+    /**
+     * @deprecated Sprint 29.2 — ignored. Clarification is top-level only.
+     */
     pendingClarification?: ActiveVisualTaskPendingClarification | null;
     assetId?: string | null;
   },
 ): BusinessProject {
-  const prev = getActiveVisualTask(
-    project.atlasActionMemory as AtlasActionMemory | undefined,
-  );
+  const prev = getActiveVisualTask(getInteractionState(project));
   const next: ActiveVisualTask = {
     kind: patch.kind,
     target: "hero",
@@ -85,25 +165,22 @@ export function touchActiveVisualTask(
         : (patch.assetId ?? prev?.assetId ?? project.heroImageId ?? undefined),
     lastUserGoal: patch.lastUserGoal ?? prev?.lastUserGoal,
     repairLevel: patch.repairLevel ?? prev?.repairLevel,
-    ...(patch.pendingClarification === null
-      ? {}
-      : patch.pendingClarification
-        ? { pendingClarification: patch.pendingClarification }
-        : prev?.pendingClarification
-          ? { pendingClarification: prev.pendingClarification }
-          : {}),
+    // Intentionally omit pendingClarification — top-level only (Sprint 29.2).
     updatedAt: nowIso(),
   };
   return withActiveVisualTask(project, next);
 }
 
+/**
+ * @deprecated Sprint 29.2 — nested clarification retired. No-op identity helper
+ * kept briefly so call sites can be removed without behavior change.
+ */
 export function clearActiveVisualTaskPending(
   project: BusinessProject,
 ): BusinessProject {
-  const prev = getActiveVisualTask(
-    project.atlasActionMemory as AtlasActionMemory | undefined,
-  );
+  const prev = getActiveVisualTask(getInteractionState(project));
   if (!prev) return project;
+  if (!prev.pendingClarification) return project;
   return withActiveVisualTask(project, {
     kind: prev.kind,
     target: "hero",
@@ -115,7 +192,11 @@ export function clearActiveVisualTaskPending(
 }
 
 export function hasActiveHeroVisualTask(
-  memory: AtlasActionMemory | null | undefined,
+  memory:
+    | AtlasActionMemory
+    | AtlasInteractionState
+    | null
+    | undefined,
 ): boolean {
   return getActiveVisualTask(memory)?.target === "hero";
 }
@@ -129,7 +210,11 @@ export function isHeroVisualContinuationRequest(request: string): boolean {
 
 export function shouldContinueActiveHeroTask(
   request: string,
-  memory: AtlasActionMemory | null | undefined,
+  memory:
+    | AtlasActionMemory
+    | AtlasInteractionState
+    | null
+    | undefined,
 ): boolean {
   if (!hasActiveHeroVisualTask(memory)) return false;
   if (TOPIC_SWITCH.test(request)) return false;

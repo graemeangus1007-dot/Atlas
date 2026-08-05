@@ -559,10 +559,10 @@ describe("Complete my website routing", () => {
     if (result.applyStatus === "applied") {
       expect(result.changes.length).toBeGreaterThan(0);
       expect(result.explanation).toMatch(/applied|Done\./i);
-      expect(result.project.atlasActionMemory?.applyAllPending).not.toBe(true);
+      expect(result.project.atlasActionMemory?.activePlan?.applyAllPending).not.toBe(true);
     } else {
       expect(
-        (result.project.atlasActionMemory?.recommendations?.length ?? 0) > 0,
+        (result.project.atlasActionMemory?.activePlan?.recommendations?.length ?? 0) > 0,
       ).toBe(true);
     }
   });

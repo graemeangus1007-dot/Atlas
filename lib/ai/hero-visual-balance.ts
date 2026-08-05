@@ -183,7 +183,11 @@ export function analyzeHeroVisualBalance(
   }
 
   const repairLevel =
-    project.atlasActionMemory?.heroReadabilityRepair?.level ?? 0;
+    (
+      project.atlasActionMemory as
+        | { repair?: { heroReadability?: { level?: number } | null } }
+        | undefined
+    )?.repair?.heroReadability?.level ?? 0;
 
   return {
     textReadabilityScore: textScore,

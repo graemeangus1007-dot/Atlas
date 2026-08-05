@@ -6,8 +6,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   getLastExecution,
   storeLastExecution,
-  withActionMemory,
 } from "@/lib/ai/atlas-action-memory";
+import { setInteractionState } from "@/lib/ai/interaction-state";
 import {
   registerEditorPlanner,
   runAtlasBrain,
@@ -225,7 +225,7 @@ describe("conversation repair — disputed edits", () => {
       modifiedEntities: ["sectionOrder"],
       explanation: "Moved testimonials before services.",
     };
-    const withLie = withActionMemory(
+    const withLie = setInteractionState(
       project,
       storeLastExecution(undefined, fake),
     );

@@ -189,7 +189,7 @@ describe("Sprint 28.3 — ordinal plan references", () => {
     expect(result.explanation.toLowerCase()).not.toMatch(
       /better visuals|better copy|better conversions/i,
     );
-    expect(result.project.atlasActionMemory?.recommendations?.length).toBe(1);
+    expect(result.project.atlasActionMemory?.activePlan?.recommendations?.length).toBe(1);
   });
 
   it("keeps stable recommendation ids after refresh-shaped memory", () => {

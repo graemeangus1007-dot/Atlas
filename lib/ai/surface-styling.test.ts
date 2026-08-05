@@ -5,8 +5,8 @@ import {
   getActionMemory,
   matchClarificationAnswer,
   storePendingClarification,
-  withActionMemory,
 } from "@/lib/ai/atlas-action-memory";
+import { setInteractionState } from "@/lib/ai/interaction-state";
 import { tryRunAtlasBrain } from "@/lib/ai/atlas-brain";
 import { decideAtlasBrain } from "@/lib/ai/atlas-brain-routing";
 import { meetsWcagAa } from "@/lib/ai/contrast";
@@ -251,7 +251,7 @@ describe("brand regression + color clarification", () => {
     expect(matched?.destination).toBe("restore_accent");
     const cleared = clearPendingClarification(memory);
     expect(cleared.pendingClarification).toBeNull();
-    const project = withActionMemory(goldProject(), memory);
+    const project = setInteractionState(goldProject(), memory);
     expect(getActionMemory(project).pendingClarification?.kind).toBe("color");
   });
 });

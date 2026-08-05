@@ -140,7 +140,11 @@ describe("conversation — readability then image visibility", () => {
         atlasActionMemory: {
           ...(first.project.atlasActionMemory ?? activePlanMemory()),
           ...activePlanMemory(),
-          lastExecution: first.project.atlasActionMemory?.lastExecution,
+          lastVerifiedExecution: (
+            first.project.atlasActionMemory as
+              | { lastVerifiedExecution?: unknown }
+              | undefined
+          )?.lastVerifiedExecution,
         },
       },
       request: "But now the image is hard to see.",
