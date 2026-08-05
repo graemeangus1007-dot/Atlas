@@ -24,6 +24,7 @@ import type { BusinessProject } from "@/types/business-project";
 import {
   isHeroFitRequest,
   readHeroImagePresentation,
+  verifyHeroFitChange,
 } from "@/lib/ai/hero-image-presentation";
 import { getActiveVisualTask } from "@/lib/ai/active-visual-task";
 
@@ -313,8 +314,109 @@ describe("production hero placement → entire picture", () => {
     });
     expect(fit.applyStatus).toBe("applied");
     expect(fit.explanation).not.toMatch(/which image|tell me which image/i);
+    expect(fit.explanation).not.toMatch(/upload/i);
     expect(fit.project.heroImageId).toBe("photo-2");
     expect(readHeroImagePresentation(fit.project).fit).toBe("full");
+  });
+
+  it("place → entire picture → refresh → entire picture (idempotent, no re-upload)", async () => {
+    const asset = photoAsset("photo-3");
+    const placed = await runAtlasBrain({
+      project: greenGoldProject({
+        heroImageId: null,
+        mediaLibrary: [asset],
+        galleryImageIds: [],
+        heroImagePresentation: {
+          fit: "cover",
+          focalPoint: { x: 0.5, y: 0.5 },
+          zoom: 1.15,
+          position: "center",
+        },
+      }),
+      request: "Use this as the hero image.",
+      attachmentContexts: [
+        {
+          attachmentId: "att1",
+          assetId: "photo-3",
+          type: "image",
+          filename: "Photo 1.jpg",
+          position: 0,
+        },
+      ],
+    });
+    expect(placed.applyStatus).toBe("applied");
+    expect(placed.project.heroImageId).toBe("photo-3");
+
+    const fit = await runAtlasBrain({
+      project: placed.project,
+      request: "Use the entire picture.",
+    });
+    expect(fit.applyStatus).toBe("applied");
+    expect(fit.explanation).not.toMatch(/upload/i);
+    expect(fit.project.heroImageId).toBe("photo-3");
+    expect(readHeroImagePresentation(fit.project).fit).toBe("full");
+
+    const refreshed = JSON.parse(JSON.stringify(fit.project)) as BusinessProject;
+    expect(getActiveVisualTask(getActionMemory(refreshed))?.assetId).toBe(
+      "photo-3",
+    );
+
+    const again = await runAtlasBrain({
+      project: refreshed,
+      request: "Use the entire picture.",
+    });
+    expect(again.applyStatus).toBe("applied");
+    expect(again.explanation).not.toMatch(/upload|couldn.?t verify/i);
+    expect(again.project.heroImageId).toBe("photo-3");
+    expect(readHeroImagePresentation(again.project).fit).toBe("full");
+  });
+
+  it("treats persisted contain as equivalent to full for verification", () => {
+    const before = greenGoldProject({
+      heroImageId: "hero-busy",
+      heroImagePresentation: {
+        fit: "cover",
+        focalPoint: { x: 0.5, y: 0.5 },
+        zoom: 1,
+        position: "center",
+      },
+    });
+    const after = {
+      ...before,
+      heroImagePresentation: {
+        fit: "contain" as const,
+        focalPoint: { x: 0.5, y: 0.5 },
+        zoom: 1,
+        position: "center" as const,
+      },
+    };
+    const check = verifyHeroFitChange({
+      before,
+      after,
+      intendedFit: "full",
+    });
+    expect(check.verified).toBe(true);
+    expect(check.failures).toEqual([]);
+  });
+
+  it("idempotent full fit succeeds without asking to re-upload", async () => {
+    const project = greenGoldProject({
+      heroImageId: "hero-busy",
+      heroImagePresentation: {
+        fit: "full",
+        focalPoint: { x: 0.5, y: 0.5 },
+        zoom: 1,
+        position: "center",
+      },
+    });
+    const result = await runAtlasBrain({
+      project,
+      request: "Use the entire picture.",
+    });
+    expect(result.applyStatus).toBe("applied");
+    expect(result.explanation).not.toMatch(/upload/i);
+    expect(result.project.heroImageId).toBe("hero-busy");
+    expect(readHeroImagePresentation(result.project).fit).toBe("full");
   });
 
   it("hero image resolves image_target without re-asking", async () => {

@@ -103,10 +103,13 @@ import {
   touchActiveTask,
 } from "@/lib/ai/active-task-policy";
 import {
+  explainHeroFitVerificationFailure,
   isHeroFitRequest,
   isHeroProfessionalCompositionRequest,
   isSoftHeroVisibilityRequest,
   logHeroFitDiagnostics,
+  normalizeHeroFitMode,
+  objectFitCss,
   planHeroFitOperations,
   planHeroProfessionalComposition,
   readHeroImagePresentation,
@@ -1323,9 +1326,9 @@ function tryApplyHeroFit(input: {
     request: input.request,
     forceHero: input.forceHero,
   });
-  const active = getActiveVisualTask(
-    input.project.atlasActionMemory as AtlasActionMemory | undefined,
-  );
+  const active = getActiveVisualTask(getInteractionState(input.project));
+  const heroAssetId =
+    input.project.heroImageId ?? active?.assetId ?? null;
 
   // Never re-ask after the user already answered “Hero image”.
   if (planned.needsTargetClarification && !input.forceHero) {
@@ -1343,6 +1346,7 @@ function tryApplyHeroFit(input: {
       setInteractionState(input.project, memory),
       {
         kind: "hero_image_fit",
+        assetId: heroAssetId ?? undefined,
         lastUserGoal: input.request,
       },
     );
@@ -1353,12 +1357,20 @@ function tryApplyHeroFit(input: {
       pendingClarificationKind: "image_target",
       continuationMatched: Boolean(active),
       selectedOperation: "clarify_image_target",
+      heroAssetIdBefore: heroAssetId,
+      heroAssetIdAfter: heroAssetId,
+      activeTaskAssetId: active?.assetId ?? null,
+      requestedFit: planned.presentation.fit,
+      normalizedFit: normalizeHeroFitMode(planned.presentation.fit),
+      persistedFit: planned.before.fit,
+      renderedFit: objectFitCss(planned.before.fit),
       heroFitBefore: planned.before.fit,
       heroFitAfter: planned.before.fit,
       heroZoomBefore: planned.before.zoom,
       heroZoomAfter: planned.before.zoom,
       globalThemeChanged: false,
       verified: false,
+      verificationFailure: "needs_target_clarification",
     });
     return {
       ok: true,
@@ -1386,14 +1398,105 @@ function tryApplyHeroFit(input: {
     };
   }
 
+  // Idempotent: already showing the full picture — success, no re-upload.
+  if (planned.alreadySatisfied) {
+    let project = touchActiveVisualTask(input.project, {
+      kind: "hero_image_fit",
+      assetId: heroAssetId ?? undefined,
+      lastUserGoal: input.request,
+    });
+    project = setInteractionState(
+      project,
+      clearPendingClarification(getActionMemory(project), {
+        reason: "resolved",
+      }),
+    );
+    project = rememberExecution(
+      project,
+      input.request,
+      {
+        success: true,
+        verified: true,
+        operationType: "hero_image_fit",
+        verificationFailures: [],
+        createdEntities: [],
+        modifiedEntities: [],
+        warnings: [],
+        explanation: planned.explanation,
+      },
+      [],
+      { scope: "hero", paletteBefore: captureBrandPalette(input.project) },
+    );
+    logHeroFitDiagnostics({
+      requestId: input.requestId,
+      activeVisualTaskKind: active?.kind ?? "hero_image_fit",
+      resolvedTarget: "hero",
+      pendingClarificationKind: null,
+      continuationMatched: Boolean(active),
+      selectedOperation: "already_satisfied",
+      heroAssetIdBefore: heroAssetId,
+      heroAssetIdAfter: project.heroImageId,
+      activeTaskAssetId: active?.assetId ?? heroAssetId,
+      requestedFit: planned.presentation.fit,
+      normalizedFit: normalizeHeroFitMode(planned.presentation.fit),
+      persistedFit: readHeroImagePresentation(project).fit,
+      renderedFit: objectFitCss(readHeroImagePresentation(project).fit),
+      heroFitBefore: planned.before.fit,
+      heroFitAfter: planned.presentation.fit,
+      heroZoomBefore: planned.before.zoom,
+      heroZoomAfter: planned.presentation.zoom,
+      globalThemeChanged: false,
+      verified: true,
+      verificationFailure: null,
+    });
+    return {
+      ok: true,
+      explanation: planned.explanation,
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "applied",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.98,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: {
+          goal: "Show the full hero photo",
+          steps: [],
+          estimatedImpact: "low",
+        },
+        explanation: planned.explanation,
+        followUpSuggestions: [
+          "Make the words easier to read",
+          "Review my website",
+        ],
+        decisionStage: "explicit_command",
+        commandKind: "images",
+        shouldExecuteEdits: true,
+      },
+      followUpSuggestions: [
+        "Make the words easier to read",
+        "Review my website",
+      ],
+    };
+  }
+
   const ops = validateEditOperations(planned.operations);
   const before = input.project;
   const applied = applyEditOperations(before, ops);
+  // If heroImageId was only on activeTask, restore project truth assignment.
+  let afterProject = applied.project;
+  if (!afterProject.heroImageId && heroAssetId) {
+    afterProject = { ...afterProject, heroImageId: heroAssetId };
+  }
   const check = verifyHeroFitChange({
     before,
-    after: applied.project,
+    after: afterProject,
     intendedFit: planned.presentation.fit,
+    allowAlreadySatisfied: true,
   });
+  const persistedFit = readHeroImagePresentation(afterProject).fit;
   logHeroFitDiagnostics({
     requestId: input.requestId,
     activeVisualTaskKind: active?.kind ?? "hero_image_fit",
@@ -1401,19 +1504,31 @@ function tryApplyHeroFit(input: {
     pendingClarificationKind: null,
     continuationMatched: Boolean(active),
     selectedOperation: "setHeroImagePresentation",
+    heroAssetIdBefore: before.heroImageId,
+    heroAssetIdAfter: afterProject.heroImageId,
+    activeTaskAssetId: active?.assetId ?? null,
+    requestedFit: planned.presentation.fit,
+    normalizedFit: normalizeHeroFitMode(planned.presentation.fit),
+    persistedFit,
+    renderedFit: objectFitCss(persistedFit),
     heroFitBefore: planned.before.fit,
-    heroFitAfter: planned.presentation.fit,
+    heroFitAfter: persistedFit,
     heroZoomBefore: planned.before.zoom,
     heroZoomAfter: planned.presentation.zoom,
     globalThemeChanged: check.globalThemeChanged,
     verified: check.verified,
+    verificationFailure: check.failures[0] ?? null,
   });
 
   if (!check.verified) {
+    const explanation = explainHeroFitVerificationFailure({
+      failures: check.failures,
+      heroImageId: before.heroImageId ?? heroAssetId,
+      intendedFit: planned.presentation.fit,
+    });
     return {
       ok: true,
-      explanation:
-        "I couldn’t verify the hero fit change safely. Try uploading the hero image again, then ask me to show the full picture.",
+      explanation,
       operations: [],
       changes: [],
       project: rememberExecution(
@@ -1427,7 +1542,7 @@ function tryApplyHeroFit(input: {
           createdEntities: [],
           modifiedEntities: [],
           warnings: [],
-          explanation: "Hero fit change could not be verified.",
+          explanation,
         },
         ops,
         { scope: "hero" },
@@ -1443,7 +1558,7 @@ function tryApplyHeroFit(input: {
           steps: [],
           estimatedImpact: "medium",
         },
-        explanation: "Hero fit could not be verified.",
+        explanation,
         followUpSuggestions: ["Use the full picture", "Review my website"],
         decisionStage: "explicit_command",
         commandKind: "images",
@@ -1452,8 +1567,9 @@ function tryApplyHeroFit(input: {
     };
   }
 
-  let project = touchActiveVisualTask(applied.project, {
+  let project = touchActiveVisualTask(afterProject, {
     kind: "hero_image_fit",
+    assetId: afterProject.heroImageId ?? heroAssetId ?? undefined,
     lastUserGoal: input.request,
   });
   project = setInteractionState(

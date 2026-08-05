@@ -110,6 +110,8 @@ describe("fixture: hero placement → entire picture → refresh → entire pict
       request: "Use the entire picture.",
     });
     assertNoClarificationAsked(again.explanation);
+    expect(again.applyStatus).toBe("applied");
+    expect(again.explanation).not.toMatch(/upload/i);
     expect(readHeroImagePresentation(again.project).fit).toBe("full");
     expect(again.project.heroImageId).toBe("photo-1");
   });

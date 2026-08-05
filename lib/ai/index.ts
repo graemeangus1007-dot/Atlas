@@ -671,9 +671,13 @@ export type {
   TouchActiveTaskInput,
 } from "@/lib/ai/active-task-policy";
 export {
+  explainHeroFitVerificationFailure,
+  fitsAreEquivalent,
   isHeroFitRequest,
   isHeroFullPictureRequest,
   isHeroProfessionalCompositionRequest,
+  normalizeHeroFitMode,
+  objectFitCss,
   planHeroFitOperations,
   planHeroProfessionalComposition,
   readHeroImagePresentation,

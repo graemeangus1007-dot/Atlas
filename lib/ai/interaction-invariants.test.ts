@@ -291,6 +291,8 @@ describe("I3 / I4 / I9 / I11 — hero placement → fit → refresh", () => {
       request: "Use the entire picture.",
     });
     assertNoClarificationAsked(again.explanation);
+    expect(again.applyStatus).toBe("applied");
+    expect(again.explanation).not.toMatch(/upload/i);
     expect(readHeroImagePresentation(again.project).fit).toBe("full");
     expect(again.project.heroImageId).toBe("photo-1");
   });

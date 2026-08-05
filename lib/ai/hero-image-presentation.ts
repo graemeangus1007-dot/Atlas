@@ -33,13 +33,42 @@ export type HeroFitDiagnostics = {
   pendingClarificationKind?: string | null;
   continuationMatched: boolean;
   selectedOperation: string;
+  heroAssetIdBefore?: string | null;
+  heroAssetIdAfter?: string | null;
+  activeTaskAssetId?: string | null;
+  requestedFit?: string | null;
+  normalizedFit?: string | null;
+  persistedFit?: string | null;
+  renderedFit?: string | null;
   heroFitBefore: string;
   heroFitAfter: string;
   heroZoomBefore: number;
   heroZoomAfter: number;
+  zoomBefore?: number;
+  zoomAfter?: number;
   globalThemeChanged: boolean;
   verified: boolean;
+  verificationFailure?: string | null;
 };
+
+/**
+ * Canonical compare for fit modes.
+ * Persist `"full"` for full-picture intent; CSS renders both as `contain`.
+ * `"full"` and `"contain"` must never cause a false verification failure.
+ */
+export function normalizeHeroFitMode(
+  fit: HeroImageFit | string | null | undefined,
+): "cover" | "full" {
+  if (fit === "contain" || fit === "full") return "full";
+  return "cover";
+}
+
+export function fitsAreEquivalent(
+  a: HeroImageFit | string | null | undefined,
+  b: HeroImageFit | string | null | undefined,
+): boolean {
+  return normalizeHeroFitMode(a) === normalizeHeroFitMode(b);
+}
 
 const FULL_PICTURE =
   /\b(?:use\s+the\s+(?:full|entire|whole)\s+(?:hero\s+)?(?:picture|photo|image)|show\s+(?:me\s+)?(?:more\s+of\s+)?the\s+(?:full\s+|entire\s+|whole\s+)?(?:hero\s+)?(?:picture|photo|image)|show\s+more\s+of\s+the\s+(?:photo|image|picture)|don'?t\s+crop(?:\s+it)?|stop\s+cropping|fit\s+the\s+entire\s+(?:image|photo|picture)|full[- ]?photo\s+fit|(?:it'?s|is)\s+being\s+cut\s+off|(?:hero\s+)?(?:image|photo|picture)\s+is\s+(?:being\s+)?(?:cut\s+off|cropped)|(?:being\s+)?cut\s+off)\b/i;
@@ -167,13 +196,17 @@ export function planHeroFitOperations(input: {
   needsTargetClarification: boolean;
   explanation: string;
   before: HeroImagePresentation;
+  alreadySatisfied: boolean;
 } {
   const before = readHeroImagePresentation(input.project);
   const memory = input.project.atlasActionMemory as
     | AtlasActionMemory
     | undefined;
   const active = getActiveVisualTask(memory);
-  const hasHeroAsset = Boolean(input.project.heroImageId);
+  // Canonical project truth + activeTask — never require a current-turn upload.
+  const hasHeroAsset = Boolean(
+    input.project.heroImageId || active?.assetId,
+  );
   const continuation = hasActiveHeroVisualTask(memory);
 
   // Prefer hero when an active hero task exists, a hero asset is assigned,
@@ -182,7 +215,8 @@ export function planHeroFitOperations(input: {
     input.forceHero ||
     continuation ||
     hasHeroAsset ||
-    Boolean(active?.target === "hero");
+    Boolean(active?.target === "hero") ||
+    Boolean(active?.kind?.startsWith("hero_"));
 
   if (!canTargetHero && (input.project.mediaLibrary?.length ?? 0) > 0) {
     return {
@@ -192,12 +226,33 @@ export function planHeroFitOperations(input: {
       explanation:
         "Which image should use the full-photo fit: the hero image or a gallery image?",
       before,
+      alreadySatisfied: false,
     };
   }
 
   const presentation = isHeroFillCropRequest(input.request)
     ? planHeroFillCropPresentation(before)
     : planHeroFullPicturePresentation();
+
+  const alreadySatisfied =
+    fitsAreEquivalent(before.fit, presentation.fit) &&
+    before.zoom === presentation.zoom &&
+    before.position === presentation.position &&
+    Math.abs(before.focalPoint.x - presentation.focalPoint.x) < 0.001 &&
+    Math.abs(before.focalPoint.y - presentation.focalPoint.y) < 0.001;
+
+  if (alreadySatisfied) {
+    return {
+      operations: [],
+      presentation,
+      needsTargetClarification: false,
+      explanation: isHeroFillCropRequest(input.request)
+        ? "The hero image is already using the tighter crop."
+        : "The hero image already shows the full photo — nothing else to change.",
+      before,
+      alreadySatisfied: true,
+    };
+  }
 
   return {
     operations: [
@@ -215,6 +270,7 @@ export function planHeroFitOperations(input: {
       ? "Done. I cropped the hero image tighter while keeping the text treatment localized."
       : "Done. I changed the hero image to show the full photo instead of cropping it. The text treatment remains localized so the headline stays readable.",
     before,
+    alreadySatisfied: false,
   };
 }
 
@@ -284,30 +340,45 @@ export function verifyHeroFitChange(input: {
   before: BusinessProject;
   after: BusinessProject;
   intendedFit: HeroImageFit;
+  /** When true, already-matching presentation is success (idempotent). */
+  allowAlreadySatisfied?: boolean;
 }): {
   verified: boolean;
   failures: string[];
   globalThemeChanged: boolean;
 } {
   const failures: string[] = [];
-  const beforePres = readHeroImagePresentation(input.before);
   const afterPres = readHeroImagePresentation(input.after);
+  const intendedNorm = normalizeHeroFitMode(input.intendedFit);
+  const afterNorm = normalizeHeroFitMode(afterPres.fit);
 
-  if (
-    (input.before.heroImageId ?? null) !== (input.after.heroImageId ?? null)
-  ) {
+  const beforeAsset = input.before.heroImageId ?? null;
+  const afterAsset = input.after.heroImageId ?? null;
+  if (beforeAsset !== afterAsset) {
     failures.push("hero_asset_changed");
   }
-  if (afterPres.fit !== input.intendedFit) {
+
+  // full ↔ contain are equivalent for verification (CSS both render as contain).
+  if (afterNorm !== intendedNorm) {
     failures.push("fit_mode_not_applied");
   }
-  if (
-    afterPres.fit === beforePres.fit &&
-    afterPres.zoom === beforePres.zoom &&
-    afterPres.position === beforePres.position
-  ) {
-    failures.push("presentation_unchanged");
+
+  // Full-picture intent also requires zoom/focal defaults.
+  if (intendedNorm === "full") {
+    if (afterPres.zoom !== 1) {
+      failures.push("zoom_not_applied");
+    }
+    if (
+      Math.abs(afterPres.focalPoint.x - 0.5) > 0.001 ||
+      Math.abs(afterPres.focalPoint.y - 0.5) > 0.001
+    ) {
+      failures.push("focal_point_not_applied");
+    }
   }
+
+  // Do not fail merely because the presentation was already correct.
+  // Idempotent "Use the entire picture" must succeed when already full.
+  void input.allowAlreadySatisfied;
 
   const globalThemeChanged =
     input.before.primaryColor !== input.after.primaryColor ||
@@ -326,6 +397,34 @@ export function verifyHeroFitChange(input: {
   };
 }
 
+export function explainHeroFitVerificationFailure(input: {
+  failures: string[];
+  heroImageId: string | null | undefined;
+  intendedFit: HeroImageFit;
+}): string {
+  const hasHero = Boolean(input.heroImageId);
+  if (input.failures.includes("hero_asset_changed")) {
+    return hasHero
+      ? "I kept the current hero image, but the hero asset changed unexpectedly during the fit update. Please try the full-picture request again."
+      : "I couldn’t keep the hero image assigned while updating the fit. Upload a hero photo, then ask me to show the full picture.";
+  }
+  if (
+    input.failures.includes("fit_mode_not_applied") ||
+    input.failures.includes("zoom_not_applied") ||
+    input.failures.includes("focal_point_not_applied")
+  ) {
+    return hasHero
+      ? "I kept the current hero image, but the full-image fit did not persist in Preview."
+      : "I couldn’t apply the full-image fit because no hero image is assigned yet. Upload a hero photo, then ask again.";
+  }
+  if (input.failures.includes("global_theme_changed")) {
+    return "I blocked that fit update because it would have changed your brand colors or fonts.";
+  }
+  return hasHero
+    ? "I kept the current hero image, but I couldn’t verify the fit change in Preview."
+    : "I couldn’t verify the hero fit change. Assign a hero image first, then ask me to show the full picture.";
+}
+
 export function logHeroFitDiagnostics(diagnostics: HeroFitDiagnostics): void {
   if (typeof console === "undefined" || !console.info) return;
   console.info("[atlas:hero-fit]", {
@@ -335,12 +434,30 @@ export function logHeroFitDiagnostics(diagnostics: HeroFitDiagnostics): void {
     pendingClarificationKind: diagnostics.pendingClarificationKind ?? null,
     continuationMatched: diagnostics.continuationMatched,
     selectedOperation: diagnostics.selectedOperation,
+    heroAssetIdBefore: diagnostics.heroAssetIdBefore ?? null,
+    heroAssetIdAfter: diagnostics.heroAssetIdAfter ?? null,
+    activeTaskAssetId: diagnostics.activeTaskAssetId ?? null,
+    requestedFit: diagnostics.requestedFit ?? diagnostics.heroFitAfter,
+    normalizedFit:
+      diagnostics.normalizedFit ??
+      normalizeHeroFitMode(diagnostics.heroFitAfter),
+    persistedFit: diagnostics.persistedFit ?? diagnostics.heroFitAfter,
+    renderedFit:
+      diagnostics.renderedFit ??
+      objectFitCss(
+        normalizeHeroFitMode(diagnostics.heroFitAfter) === "full"
+          ? "full"
+          : "cover",
+      ),
     heroFitBefore: diagnostics.heroFitBefore,
     heroFitAfter: diagnostics.heroFitAfter,
     heroZoomBefore: diagnostics.heroZoomBefore,
     heroZoomAfter: diagnostics.heroZoomAfter,
+    zoomBefore: diagnostics.zoomBefore ?? diagnostics.heroZoomBefore,
+    zoomAfter: diagnostics.zoomAfter ?? diagnostics.heroZoomAfter,
     globalThemeChanged: diagnostics.globalThemeChanged,
     verified: diagnostics.verified,
+    verificationFailure: diagnostics.verificationFailure ?? null,
   });
 }
 
