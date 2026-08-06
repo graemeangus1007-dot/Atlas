@@ -58,3 +58,22 @@ export {
   captureBrandScopeSnapshot,
   brandIntegrityViolations,
 } from "@/lib/transformation/brand-snapshot";
+export {
+  assessTransformationOutcome,
+  assessBatchOutcome,
+  SCORE_TOLERANCE,
+  GOAL_EXPECTED_DIMENSIONS,
+  type TransformationOutcomeAssessment,
+  type OutcomeVerdict,
+} from "@/lib/transformation/outcome";
+export {
+  detectTransformationCapabilityGaps,
+  capabilityGapSummary,
+  type TransformationCapabilityGap,
+} from "@/lib/transformation/capability-gaps";
+export {
+  buildTransformationFingerprint,
+  shouldSkipRepeatedNoGainAttempt,
+  storeTransformationAttempt,
+  type TransformationAttemptRecord,
+} from "@/lib/transformation/attempt-memory";

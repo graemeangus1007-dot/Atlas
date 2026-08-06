@@ -424,13 +424,13 @@ export function explainHeroPatternApplication(input: {
 
   const lines: Record<ExecutableHeroPatternId, string> = {
     "hero.cinematic_full_width":
-      "I rebuilt the hero as a cinematic, image-led composition with a taller frame and localized contrast behind the copy.",
+      "I moved the content into a quieter part of the photo and used a subtle localized contrast treatment so visitors can read the headline while still seeing the image.",
     "hero.coastal_service":
-      "I set an airy coastal service hero with lighter treatment, a warm first impression, and an inviting call to action.",
+      "I placed the offer in the calmer part of the frame with lighter contrast so the photography stays open and inviting.",
     "hero.contractor_left":
-      "I shifted the hero to a contractor-focused layout with the offer and quote actions clearly grouped on the left.",
+      "I grouped the offer and quote actions in the quieter side of the photo so the work imagery stays visible behind a light directional contrast.",
     "hero.premium_minimal":
-      "I simplified the hero into a premium minimal composition with quieter spacing and one clear action.",
+      "I simplified placement and contrast so the hero stays quiet, readable, and photography-forward without a heavy overlay.",
   };
 
   let text = lines[input.patternId];

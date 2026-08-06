@@ -18,8 +18,15 @@ export function evaluateWebsiteTrust(input: {
   let score = 48;
 
   if (inv.testimonialCount > 0) {
-    signals.push("Social proof / testimonials");
-    score += 18;
+    if (inv.proofBeforeAsk) {
+      signals.push("Social proof / testimonials before the ask");
+      score += 18;
+    } else {
+      // Present but weakly positioned — not full trust credit
+      signals.push("Testimonials present but late in the journey");
+      score += 9;
+      missing.push("Proof positioned before conversion");
+    }
   } else {
     missing.push("Testimonials");
   }
@@ -33,6 +40,11 @@ export function evaluateWebsiteTrust(input: {
     missing.push("Stronger before/after or portfolio depth");
   } else {
     missing.push("Gallery / proof photography");
+  }
+
+  if (inv.galleryLightbox && inv.gallerySlots > 0) {
+    signals.push("Inspectable project photography (lightbox)");
+    score += 4;
   }
 
   if (inv.hasAboutCopy) {

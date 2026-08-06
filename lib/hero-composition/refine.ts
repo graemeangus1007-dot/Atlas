@@ -4,6 +4,10 @@
  */
 
 import {
+  logCompositionDiagnostics,
+  refineHeroWithVisualComposition,
+} from "@/lib/composition";
+import {
   classifyImageAspect,
   compositionScorePasses,
   evaluateHeroComposition,
@@ -57,6 +61,90 @@ function bumpHeight(h: HeroMinHeight): HeroMinHeight {
   if (h === "medium") return "tall";
   if (h === "tall") return "viewport";
   return "viewport";
+}
+
+/**
+ * VisualComposition may adjust placement/contrast, but must not erase
+ * pattern-defining structure (alignment, height class, mobile stack).
+ */
+function preservePatternIdentityAfterComposition(
+  composed: HeroComposition,
+  patterned: HeroComposition,
+): HeroComposition {
+  const pattern = patterned.patternId ?? "";
+  const next: HeroComposition = {
+    ...composed,
+    image: { ...composed.image },
+    treatment: {
+      ...composed.treatment,
+      gradient: composed.treatment.gradient
+        ? { ...composed.treatment.gradient }
+        : null,
+      textScrim: composed.treatment.textScrim
+        ? { ...composed.treatment.textScrim }
+        : null,
+    },
+    typography: { ...composed.typography },
+    cta: { ...composed.cta },
+    mobile: { ...composed.mobile },
+    accents: { ...composed.accents },
+  };
+
+  // Always keep structural pattern fields that define the executable pattern.
+  next.layout = patterned.layout;
+  next.minHeight = patterned.minHeight;
+  next.contentWidth = patterned.contentWidth;
+  next.mobile = { ...patterned.mobile };
+  next.typography = { ...patterned.typography };
+  next.accents = { ...patterned.accents };
+
+  if (pattern === "hero.contractor_left") {
+    next.contentAlignment = "left";
+    next.cta.alignment = "left";
+    next.cta.arrangement = patterned.cta.arrangement;
+    next.cta.primaryEmphasis = "strong";
+    next.verticalAlignment = "center";
+    next.treatment.overlay = Math.min(
+      Math.max(Math.min(next.treatment.overlay, patterned.treatment.overlay), 25),
+      50,
+    );
+    next.treatment.gradient = {
+      direction: "left",
+      strength: Math.max(0.45, next.treatment.gradient?.strength ?? 0.52),
+      coverage: Math.max(0.6, next.treatment.gradient?.coverage ?? 0.68),
+    };
+    next.treatment.textScrim = {
+      enabled: true,
+      opacity: Math.min(0.28, next.treatment.textScrim?.opacity ?? 0.28),
+      blur: undefined,
+    };
+  } else if (pattern === "hero.cinematic_full_width") {
+    next.verticalAlignment = "bottom";
+    next.contentAlignment =
+      next.contentAlignment === "right" ? "center" : next.contentAlignment;
+    next.treatment.overlay = Math.min(next.treatment.overlay, 25);
+    next.cta.arrangement = patterned.cta.arrangement;
+  } else if (pattern === "hero.coastal_service") {
+    next.verticalAlignment = "center";
+    next.treatment.overlay = Math.min(next.treatment.overlay, 25);
+    next.cta.primaryEmphasis = "default";
+  } else if (pattern === "hero.premium_minimal") {
+    next.contentAlignment = "center";
+    next.verticalAlignment = "center";
+    next.cta = { ...patterned.cta };
+    next.treatment.overlay = Math.min(next.treatment.overlay, 25);
+  } else {
+    // Non-pattern compositions: keep VC placement, still avoid large blur.
+    if ((next.treatment.textScrim?.blur ?? 0) >= 8) {
+      next.treatment.textScrim = {
+        ...next.treatment.textScrim!,
+        blur: undefined,
+      };
+    }
+  }
+
+  next.cta.alignment = next.contentAlignment;
+  return next;
 }
 
 function applyPatternRules(
@@ -304,12 +392,26 @@ export function refineHeroComposition(input: {
     aspectRatio,
   });
 
-  const candidate = applyPatternRules(
+  const patterned = applyPatternRules(
     input.composition,
     aspectClass,
     input.project,
   );
   // Preserve identity
+  patterned.patternId = input.composition.patternId;
+  patterned.version = input.composition.version;
+
+  // Visual Composition Engine — placement + local contrast before heavy overlays.
+  const visualPass = refineHeroWithVisualComposition({
+    project: input.project,
+    composition: patterned,
+    aspectRatio,
+  });
+  logCompositionDiagnostics(visualPass.diagnostics);
+  const candidate = preservePatternIdentityAfterComposition(
+    visualPass.composition,
+    patterned,
+  );
   candidate.patternId = input.composition.patternId;
   candidate.version = input.composition.version;
 

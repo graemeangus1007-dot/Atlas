@@ -42,6 +42,34 @@ function evaluateHero(inv: PageSectionInventory): SectionEvaluation {
     weaknesses.push("Primary CTA is unclear");
     score -= 12;
   }
+  // Render-aware: blend resolved HeroComposition quality (presence ≠ quality).
+  if (inv.heroCompositionScore != null) {
+    score = Math.round(score * 0.45 + inv.heroCompositionScore * 0.55);
+    if (inv.heroImageImpact != null && inv.heroImageImpact < 64) {
+      weaknesses.push("Hero image impact is too low for a strong first impression");
+      score -= 8;
+    }
+    if (inv.heroMajorDefect) {
+      weaknesses.push(
+        inv.heroProblems[0] || "Major hero composition defect is visible",
+      );
+      score -= 10;
+    } else if (inv.heroCompositionScore >= 75) {
+      strengths.push("Resolved hero composition reads as intentional");
+    }
+  } else if (inv.hasHeroImage && !inv.hasHeroPattern) {
+    weaknesses.push("Hero has imagery but no resolved composition structure");
+    score -= 6;
+  }
+  // Pattern credit after blend so intentional layouts remain measurable.
+  if (inv.hasHeroPattern) {
+    strengths.push("Hero composition is intentionally structured");
+    score += inv.heroMajorDefect ? 2 : 8;
+  }
+  if (inv.brandContrastWeak) {
+    weaknesses.push("Hero text contrast against the image is weak");
+    score -= 8;
+  }
   return {
     sectionId: "hero",
     present: true,
@@ -52,7 +80,13 @@ function evaluateHero(inv: PageSectionInventory): SectionEvaluation {
     conversionContribution: weakCta(inv.primaryCta) ? 40 : 70,
     visualWeight: "heavy",
     readingDifficulty: inv.heroSubheadline.length > 180 ? "dense" : "easy",
-    attentionScore: clamp(inv.hasHeroImage ? 88 : 62),
+    attentionScore: clamp(
+      inv.heroImageImpact != null
+        ? inv.heroImageImpact
+        : inv.hasHeroImage
+          ? 88
+          : 62,
+    ),
     recommendations: weaknesses.length
       ? [
           {
@@ -156,13 +190,19 @@ function evaluateGallery(inv: PageSectionInventory): SectionEvaluation {
     weaknesses.push("Gallery is too sparse to prove capability");
     score -= 10;
   }
+  if (inv.galleryLightbox) {
+    strengths.push("Lightbox lets visitors inspect project detail");
+    score += 8;
+  }
   return {
     sectionId: "gallery",
     present: true,
     score: clamp(score),
     strengths,
     weaknesses,
-    trustContribution: clamp(40 + inv.gallerySlots * 6),
+    trustContribution: clamp(
+      40 + inv.gallerySlots * 6 + (inv.galleryLightbox ? 6 : 0),
+    ),
     conversionContribution: 45,
     visualWeight: "heavy",
     readingDifficulty: "easy",

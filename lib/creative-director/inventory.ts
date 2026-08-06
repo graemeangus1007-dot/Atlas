@@ -3,10 +3,20 @@
  */
 
 import type { DesignStrategyInput } from "@/lib/ai/design-strategy-types";
+import { resolveAdaptiveBrandPresentation } from "@/lib/brand-presentation";
 import type {
   PageSectionInventory,
   WebsiteSectionId,
 } from "@/lib/creative-director/types";
+import {
+  analyzeProjectVisualComposition,
+  evaluateVisualComposition,
+} from "@/lib/composition";
+import {
+  evaluateHeroComposition,
+  HERO_COMPOSITION_PASS_THRESHOLD,
+  resolveHeroCompositionFromProject,
+} from "@/lib/hero-composition";
 import type { BusinessProject } from "@/types/business-project";
 
 const DEFAULT_ORDER: WebsiteSectionId[] = [
@@ -129,6 +139,80 @@ export function buildPageSectionInventory(input: {
     (project?.description?.trim().length ?? 0) > 40 ||
     (strategy?.businessDescription?.trim().length ?? 0) > 40;
 
+  const contactIdx = order.indexOf("contact");
+  const proofIdx = Math.min(
+    ...(["testimonials", "gallery"] as const)
+      .map((id) => order.indexOf(id))
+      .filter((i) => i >= 0),
+    Number.POSITIVE_INFINITY,
+  );
+  const proofBeforeAsk =
+    (testimonialCount > 0 || gallerySlots > 0) &&
+    Number.isFinite(proofIdx) &&
+    (contactIdx < 0 || proofIdx < contactIdx);
+
+  let heroCompositionScore: number | null = null;
+  let heroImageImpact: number | null = null;
+  let heroContentCluster: number | null = null;
+  let heroMajorDefect = false;
+  let heroMobileWeak = false;
+  let heroProblems: string[] = [];
+  let brandPresentationScore: number | null = null;
+  let brandContrastWeak = false;
+  let photographyPreservation: number | null = null;
+  let visualCompositionScore: number | null = null;
+  let recommendedContentZone: string | null = null;
+  let hasHeroPattern = Boolean(project?.heroComposition?.patternId);
+
+  if (project) {
+    try {
+      const composition = resolveHeroCompositionFromProject(project);
+      hasHeroPattern = Boolean(composition.patternId);
+      const heroEval = evaluateHeroComposition({
+        composition,
+        project,
+      });
+      heroCompositionScore = heroEval.overallScore;
+      heroImageImpact = heroEval.imageImpact;
+      heroContentCluster = Math.round(
+        (heroEval.balance + heroEval.hierarchy + heroEval.ctaVisibility) / 3,
+      );
+      heroMajorDefect =
+        heroEval.overallScore < HERO_COMPOSITION_PASS_THRESHOLD ||
+        heroEval.problems.some((p) =>
+          /weak_first_impression|banner_strip|contain_mode|shallow_image|dead_whitespace|bright_unsafe|mobile_collapse/i.test(
+            p,
+          ),
+        );
+      heroMobileWeak = heroEval.mobileScore < 68;
+      heroProblems = heroEval.problems.slice(0, 4).map((p) => p.replace(/_/g, " "));
+
+      const visual = analyzeProjectVisualComposition({
+        project,
+        composition,
+      });
+      const visualEval = evaluateVisualComposition({
+        visual,
+        composition,
+      });
+      photographyPreservation = visualEval.photographyPreservation.overall;
+      visualCompositionScore = visualEval.overall;
+      recommendedContentZone = visual.recommendedContentZone.zone;
+    } catch {
+      // Keep null render signals when resolution fails
+    }
+    try {
+      const brand = resolveAdaptiveBrandPresentation(project);
+      brandPresentationScore = brand.evaluation.presentationScore;
+      brandContrastWeak =
+        brand.evaluation.overallReadability < 68 ||
+        brand.evaluation.presentationScore < 68 ||
+        brand.evaluation.accessibility < 68;
+    } catch {
+      // optional
+    }
+  }
+
   return {
     order,
     present,
@@ -150,7 +234,21 @@ export function buildPageSectionInventory(input: {
     hasNewsletter,
     hasHeroImage:
       strategy?.hasHeroImage ?? Boolean(project?.heroImageId),
+    hasHeroPattern,
+    heroCompositionScore,
+    heroImageImpact,
+    heroContentCluster,
+    heroMajorDefect,
+    heroMobileWeak,
+    heroProblems,
+    photographyPreservation,
+    visualCompositionScore,
+    recommendedContentZone,
+    brandPresentationScore,
+    brandContrastWeak,
+    proofBeforeAsk,
     hasAboutCopy: aboutCopy,
+    galleryLightbox: project?.galleryInteraction?.mode === "lightbox",
     contactPhone: project?.contact?.phone?.trim() || "",
     contactEmail: project?.contact?.email?.trim() || "",
     contactLocation: project?.contact?.location?.trim() || "",

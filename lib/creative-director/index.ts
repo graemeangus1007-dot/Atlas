@@ -31,3 +31,15 @@ export {
   textExposesInternalIds,
 } from "@/lib/creative-director/presentation";
 export { evaluateWebsiteAsCreativeDirector } from "@/lib/creative-director/website-evaluator";
+export {
+  classifyDesignQualityBand,
+  designQualityBandLabel,
+  detectMajorWeaknesses,
+  applyScoreCaps,
+  DESIGN_QUALITY_BANDS,
+  type DesignQualityBand,
+  type MajorWeakness,
+} from "@/lib/creative-director/score-calibration";
+
+// Re-export benchmark advisory surface used by Creative Director consumers
+export type { BenchmarkComparison } from "@/lib/benchmarks/types";

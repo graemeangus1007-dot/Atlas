@@ -153,6 +153,25 @@ export type AtlasActionMemory = {
     reason: ClarificationClearReason;
     at: string;
   } | null;
+  /**
+   * Last Transformation Engine attempt (Phase 2+).
+   * Used to avoid immediately repeating an identical zero-delta plan.
+   */
+  lastTransformationAttempt?: {
+    fingerprint: string;
+    goalIds: string[];
+    overallDelta: number;
+    baselineScore: number;
+    at: string;
+    capabilityGaps?: Array<{
+      problem: string;
+      affectedSection: string;
+      requiredCapability: string;
+      currentCapabilityMissing: boolean;
+      userInputRequired: boolean;
+      recommendedNextStep: string;
+    }>;
+  } | null;
 
   // --- Inbound migration only (never written after 29.4) ---
   /** @deprecated migration-only */
@@ -426,6 +445,7 @@ export function emptyActionMemory(): AtlasActionMemory {
     activePlan: null,
     repair: null,
     lastClarificationClear: null,
+    lastTransformationAttempt: null,
   });
 }
 

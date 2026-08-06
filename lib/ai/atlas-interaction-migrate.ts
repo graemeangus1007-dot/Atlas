@@ -269,6 +269,10 @@ export function migrateToAtlasInteractionState(
         activePlan: planFromLegacy(legacy),
         repair: repairFromLegacy(legacy),
         lastClarificationClear: legacy.lastClarificationClear ?? null,
+        lastTransformationAttempt:
+          (raw.lastTransformationAttempt as AtlasInteractionState["lastTransformationAttempt"]) ??
+          legacy.lastTransformationAttempt ??
+          null,
       },
       source: "v1_canonical",
       migrationPerformed: true,
@@ -322,6 +326,10 @@ export function migrateToAtlasInteractionState(
         (raw.lastClarificationClear as AtlasInteractionState["lastClarificationClear"]) ??
         legacy.lastClarificationClear ??
         null,
+      lastTransformationAttempt:
+        (raw.lastTransformationAttempt as AtlasInteractionState["lastTransformationAttempt"]) ??
+        legacy.lastTransformationAttempt ??
+        null,
     };
 
     return {
@@ -350,6 +358,7 @@ export function migrateToAtlasInteractionState(
     activePlan: planFromLegacy(legacy),
     repair: repairFromLegacy(legacy),
     lastClarificationClear: legacy.lastClarificationClear ?? null,
+    lastTransformationAttempt: legacy.lastTransformationAttempt ?? null,
   };
 
   return {
@@ -392,6 +401,7 @@ export function serializeCanonicalInteractionState(
     activePlan: state.activePlan,
     repair: state.repair,
     lastClarificationClear: state.lastClarificationClear ?? null,
+    lastTransformationAttempt: state.lastTransformationAttempt ?? null,
   };
 }
 
@@ -496,6 +506,7 @@ export function canonicalStatesEquivalent(
     activePlan: s.activePlan,
     repair: s.repair,
     lastClarificationClear: s.lastClarificationClear ?? null,
+    lastTransformationAttempt: s.lastTransformationAttempt ?? null,
   });
   return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 }

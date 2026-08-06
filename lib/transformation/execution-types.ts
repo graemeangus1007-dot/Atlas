@@ -74,6 +74,10 @@ export type TransformationBatchResult = {
   rolledBack: boolean;
   verificationPassed: boolean;
   notes: string[];
+  /** Score checkpoint after the batch (null when no ops applied). */
+  scoreVerdict?: "beneficial" | "neutral" | "harmful" | "inconclusive";
+  overallDelta?: number;
+  targetedDelta?: number;
 };
 
 export type BrandScopeSnapshot = {
@@ -117,6 +121,8 @@ export type WholePageVerificationResult = {
   brandIntegrityRegression: boolean;
   criticalDependencyFailed: boolean;
   notes: string[];
+  /** Rich outcome assessment — drives selective rollback. */
+  outcome?: import("@/lib/transformation/outcome").TransformationOutcomeAssessment;
 };
 
 export type TransformationExecutionResult = {
@@ -139,6 +145,11 @@ export type TransformationExecutionResult = {
   wholePage: WholePageVerificationResult;
   batchResults: TransformationBatchResult[];
   rollbackPerformed: boolean;
+  /** full | selective | none */
+  rollbackScope?: "full" | "selective" | "none";
+  capabilityGaps?: import("@/lib/transformation/capability-gaps").TransformationCapabilityGap[];
+  qualityBand?: string;
+  skippedAsRepeat?: boolean;
 };
 
 export type ClassifiedTransformationGoal = {
@@ -179,6 +190,7 @@ export type TransformationExecutorInput = {
 export type TransformationExecutionDiagnostics = {
   planId: string;
   baselineScore: number;
+  baselineOverall: number;
   preflightStatus: boolean;
   goalStatuses: Array<{
     goalId: TransformationGoalId;
@@ -187,11 +199,27 @@ export type TransformationExecutionDiagnostics = {
   }>;
   dependencyOrder: TransformationGoalId[];
   batchOrder: TransformationBatchId[];
+  batchScores: Array<{
+    batchId: TransformationBatchId;
+    overallDelta: number;
+    verdict: string;
+  }>;
   operationsByGoal: Record<string, string[]>;
   verificationByBatch: Record<string, boolean>;
   finalScore: number;
+  finalOverall: number;
+  overallDelta: number;
   scoreDelta: number;
+  dimensionDeltas: Record<string, number>;
+  sectionDeltas: Record<string, number>;
+  goalExpectedDimensions: Record<string, string[]>;
+  goalObservedDeltas: Record<string, Record<string, number>>;
+  batchVerdicts: string[];
+  criticalRegressions: string[];
+  evaluatorConfidence: number;
+  finalVerdict: string;
   refinementApplied: boolean;
   blockedReasons: string[];
   rollbackPerformed: boolean;
+  rollbackScope: "full" | "selective" | "none";
 };

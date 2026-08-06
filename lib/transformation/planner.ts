@@ -72,18 +72,23 @@ export function proposeTransformationGoals(input: {
 
   const heroScore =
     evaluation?.sections.find((s) => s.sectionId === "hero")?.score ?? 60;
-  if (heroScore < 80 || !input.strategyInput.hasHeroImage) {
+  const firstImpression = evaluation?.dimensions.firstImpression ?? heroScore;
+  // Exclude when hero is already strong with photography (already satisfied)
+  if (
+    !input.strategyInput.hasHeroImage ||
+    Math.min(heroScore, firstImpression) < 80
+  ) {
     goals.push(
       goal({
         id: "strengthen_hero",
         objective: "Strengthen the first impression",
         reason:
-          evaluation?.executiveSummary.biggestStrength &&
-          /first impression/i.test(
-            evaluation.executiveSummary.biggestWeakness || "",
+          evaluation?.executiveSummary.biggestWeakness &&
+          /first impression|hero|image|photo|overlay/i.test(
+            evaluation.executiveSummary.biggestWeakness,
           )
-            ? evaluation.executiveSummary.biggestWeakness
-            : "The opening must carry the promise before visitors scroll.",
+            ? `${evaluation.executiveSummary.biggestWeakness} Prefer composition refinement — content placement and local contrast — before stronger overlays.`
+            : "The opening must carry the promise before visitors scroll. Prefer composition refinement before stronger overlays.",
         priority: heroScore < 60 ? "critical" : "high",
         phase: "first_impression",
         dependencies: ["set_page_direction"],
@@ -135,7 +140,12 @@ export function proposeTransformationGoals(input: {
     );
   }
 
-  if (input.strategyInput.sectionOrder.length > 0) {
+  const servicesScore =
+    evaluation?.sections.find((s) => s.sectionId === "services")?.score ?? 60;
+  if (
+    input.strategyInput.sectionOrder.length > 0 &&
+    servicesScore < 82
+  ) {
     goals.push(
       goal({
         id: "clarify_services",
@@ -220,30 +230,33 @@ export function proposeTransformationGoals(input: {
     );
   }
 
-  goals.push(
-    goal({
-      id: "simplify_conversion",
-      objective: "Simplify the conversion path",
-      reason:
-        "Once trust exists, every section should lead naturally to one clear next step.",
-      priority: "high",
-      phase: "conversion",
-      dependencies: ["sequence_proof_before_ask", "strengthen_proof"],
-      affectedSections: ["hero", "cta", "contact"],
-      expectedImprovement: 11,
-      verificationCriteria: [
-        "CTA wording is specific",
-        "Contact remains reachable",
-        "No brand palette change",
-      ],
-      visitorImpact: 80,
-      visualImpact: 45,
-      risk: "low",
-      effort: "low",
-      requiredAssets: [],
-      theme: "conversion",
-    }),
-  );
+  const conversionScore = evaluation?.conversion.score ?? 55;
+  if (conversionScore < 78) {
+    goals.push(
+      goal({
+        id: "simplify_conversion",
+        objective: "Simplify the conversion path",
+        reason:
+          "Once trust exists, every section should lead naturally to one clear next step.",
+        priority: "high",
+        phase: "conversion",
+        dependencies: ["sequence_proof_before_ask", "strengthen_proof"],
+        affectedSections: ["hero", "cta", "contact"],
+        expectedImprovement: 11,
+        verificationCriteria: [
+          "CTA wording is specific",
+          "Contact remains reachable",
+          "No brand palette change",
+        ],
+        visitorImpact: 80,
+        visualImpact: 45,
+        risk: "low",
+        effort: "low",
+        requiredAssets: [],
+        theme: "conversion",
+      }),
+    );
+  }
 
   if ((evaluation?.rhythm.score ?? 70) < 70) {
     goals.push(

@@ -192,6 +192,8 @@ export type WebsiteHealthV2 = {
   mobile: number;
   accessibility: number;
   professionalism: number;
+  /** Poor | Developing | Solid | Strong | Exceptional */
+  qualityBand: string;
 };
 
 export type CreativeDirectorRecommendation = {
@@ -235,6 +237,11 @@ export type CreativeDirectorEvaluation = {
   executiveSummary: ExecutiveSummary;
   health: WebsiteHealthV2;
   diagnostics: CreativeDirectorDiagnostics;
+  /**
+   * Advisory quality comparison against a Benchmark Library profile.
+   * Quality reference only — never a layout/brand template.
+   */
+  benchmarkComparison?: import("@/lib/benchmarks/types").BenchmarkComparison | null;
 };
 
 /** Deterministic inventory of what the homepage currently contains. */
@@ -256,7 +263,29 @@ export type PageSectionInventory = {
   hasBookingCta: boolean;
   hasNewsletter: boolean;
   hasHeroImage: boolean;
+  /** True when an executable hero composition pattern is active. */
+  hasHeroPattern: boolean;
+  /** Resolved HeroComposition evaluation (null when no project to resolve). */
+  heroCompositionScore: number | null;
+  heroImageImpact: number | null;
+  heroContentCluster: number | null;
+  heroMajorDefect: boolean;
+  heroMobileWeak: boolean;
+  heroProblems: string[];
+  /** Visual Composition Engine — photography preservation 0–100. */
+  photographyPreservation: number | null;
+  /** Visual Composition Engine — overall composition quality 0–100. */
+  visualCompositionScore: number | null;
+  /** Recommended content zone id from VisualComposition (advisory). */
+  recommendedContentZone: string | null;
+  /** Adaptive brand presentation readability score (null when unavailable). */
+  brandPresentationScore: number | null;
+  brandContrastWeak: boolean;
+  /** True when proof (testimonials/gallery) appears before contact in order. */
+  proofBeforeAsk: boolean;
   hasAboutCopy: boolean;
+  /** Gallery lightbox interaction enabled. */
+  galleryLightbox: boolean;
   contactPhone: string;
   contactEmail: string;
   contactLocation: string;

@@ -37,6 +37,17 @@ import {
   transformationRevisionPrompt,
 } from "@/lib/transformation";
 import {
+  buildTransformationFingerprint,
+  shouldSkipRepeatedNoGainAttempt,
+  storeTransformationAttempt,
+} from "@/lib/transformation/attempt-memory";
+import { detectTransformationCapabilityGaps } from "@/lib/transformation/capability-gaps";
+import { classifyTransformationGoals } from "@/lib/transformation/classify";
+import { formatTransformationExecutionReport } from "@/lib/transformation/report";
+import { designQualityBandLabel } from "@/lib/creative-director/score-calibration";
+import { evaluateWebsiteAsCreativeDirector } from "@/lib/creative-director";
+import type { TransformationExecutionResult } from "@/lib/transformation/execution-types";
+import {
   getInteractionState,
   normalizeInteractionState,
   recordActiveTaskDiagnostics,
@@ -318,6 +329,96 @@ function dedupeChangeLabels(changes: EditChangeSummary[]): EditChangeSummary[] {
   return out;
 }
 
+function persistTransformationAttempt(
+  project: BusinessProject,
+  tx: TransformationExecutionResult,
+  goalIds: import("@/lib/transformation/types").TransformationGoalId[],
+): BusinessProject {
+  const fingerprint = buildTransformationFingerprint({
+    project: tx.baselineProject,
+    goalIds,
+  });
+  const memory = storeTransformationAttempt(getActionMemory(project), {
+    fingerprint,
+    goalIds,
+    overallDelta: tx.verifiedScoreDelta,
+    baselineScore: tx.baselineScore,
+    at: new Date().toISOString(),
+    capabilityGaps: tx.capabilityGaps ?? [],
+  });
+  return setInteractionState(project, memory);
+}
+
+function skippedRepeatTransformationResult(input: {
+  project: BusinessProject;
+  plan: import("@/lib/transformation/types").TransformationPlan;
+  prior: NonNullable<ReturnType<typeof shouldSkipRepeatedNoGainAttempt>>;
+}): TransformationExecutionResult {
+  const evaluation = evaluateWebsiteAsCreativeDirector({
+    project: input.project,
+  });
+  const classified = classifyTransformationGoals({
+    plan: input.plan,
+    project: input.project,
+  });
+  const capabilityGaps =
+    input.prior.capabilityGaps?.length
+      ? input.prior.capabilityGaps
+      : detectTransformationCapabilityGaps({
+          project: input.project,
+          plan: input.plan,
+          evaluation,
+          classified,
+        });
+  const score = evaluation.dimensions.overallDesignScore;
+  const result: TransformationExecutionResult = {
+    planId: `tx-skip-${input.prior.fingerprint}`,
+    status: "already_satisfied",
+    baselineScore: score,
+    finalScore: score,
+    verifiedScoreDelta: 0,
+    executedGoals: [],
+    blockedGoals: [],
+    failedGoals: [],
+    revisionsCreated: [],
+    refinementApplied: false,
+    summary: "",
+    project: input.project,
+    operations: [],
+    changes: [],
+    baselineProject: input.project,
+    preflight: {
+      passed: true,
+      planValidationPassed: true,
+      dependenciesSatisfiable: true,
+      brandCaptured: true,
+      revisionBaselineValid: true,
+      issues: [],
+      blockedGoalIds: [],
+      readyGoalIds: [],
+    },
+    wholePage: {
+      passed: true,
+      baselineScore: score,
+      finalScore: score,
+      verifiedScoreDelta: 0,
+      highestPriorityImproved: false,
+      accessibilityRegression: false,
+      brandIntegrityRegression: false,
+      criticalDependencyFailed: false,
+      notes: ["Skipped identical zero-delta transformation plan"],
+    },
+    batchResults: [],
+    rollbackPerformed: false,
+    rollbackScope: "none",
+    capabilityGaps,
+    qualityBand: designQualityBandLabel(score),
+    skippedAsRepeat: true,
+  };
+  result.summary = formatTransformationExecutionReport(result);
+  return result;
+}
+
 function applyActionMemoryRecommendations(input: {
   project: BusinessProject;
   memory: AtlasActionMemory;
@@ -338,23 +439,41 @@ function applyActionMemoryRecommendations(input: {
     !input.recommendationIds?.length &&
     !looksLikePlanReference(input.request)
   ) {
-    const tx = executeTransformationPlan({
+    const goalIds = activeTxPlan.goals.map((g) => g.id);
+    const fingerprint = buildTransformationFingerprint({
       project: input.project,
-      plan: activeTxPlan,
-      logDiagnostics: process.env.NODE_ENV === "development",
+      goalIds,
     });
+    const prior = shouldSkipRepeatedNoGainAttempt({
+      memory: input.memory,
+      fingerprint,
+    });
+    const tx = prior
+      ? skippedRepeatTransformationResult({
+          project: input.project,
+          plan: activeTxPlan,
+          prior,
+        })
+      : executeTransformationPlan({
+          project: input.project,
+          plan: activeTxPlan,
+          logDiagnostics: process.env.NODE_ENV === "development",
+        });
     const txApplied =
       (tx.status === "applied" || tx.status === "partially_applied") &&
       tx.operations.length > 0;
 
     if (txApplied) {
-      const nextMemory = clearRecommendations(
-        clearPendingClarification(input.memory, { reason: "resolved" }),
+      let project = withMemory(tx.project, input.request);
+      project = setInteractionState(
+        project,
+        clearRecommendations(
+          clearPendingClarification(getActionMemory(project), {
+            reason: "resolved",
+          }),
+        ),
       );
-      const project = setInteractionState(
-        withMemory(tx.project, input.request),
-        nextMemory,
-      );
+      project = persistTransformationAttempt(project, tx, goalIds);
       invalidateCritiquePipelineCache(creativeDirectorFingerprint(project));
       return {
         ok: true,
@@ -382,14 +501,31 @@ function applyActionMemoryRecommendations(input: {
     const hasApplyableRecs = (input.memory.activePlan?.recommendations ?? []).some(
       (r) => r.applyable && r.operations.length > 0,
     );
-    if (!hasApplyableRecs) {
-      const nextMemory = clearRecommendations(
-        clearPendingClarification(input.memory, { reason: "resolved" }),
+    if (!hasApplyableRecs || prior || tx.skippedAsRepeat) {
+      let project = withMemory(
+        tx.skippedAsRepeat ? input.project : tx.project,
+        input.request,
       );
-      const project = setInteractionState(
-        withMemory(input.project, input.request),
-        nextMemory,
+      project = setInteractionState(
+        project,
+        clearRecommendations(
+          clearPendingClarification(getActionMemory(project), {
+            reason: "resolved",
+          }),
+        ),
       );
+      if (!tx.skippedAsRepeat) {
+        project = persistTransformationAttempt(project, tx, goalIds);
+      } else {
+        // Keep prior attempt timestamp / gaps for consecutive Completes
+        project = setInteractionState(
+          project,
+          storeTransformationAttempt(getActionMemory(project), {
+            ...prior!,
+            at: new Date().toISOString(),
+          }),
+        );
+      }
       return {
         ok: true,
         explanation: tx.summary,
@@ -3043,11 +3179,26 @@ export async function runAtlasBrain(
       projectForTurn,
       "Complete my website for launch",
     );
-    const tx = executeTransformationPlan({
+    const goalIds = plan.goals.map((g) => g.id);
+    const fingerprint = buildTransformationFingerprint({
       project: projectForTurn,
-      plan,
-      logDiagnostics: process.env.NODE_ENV === "development",
+      goalIds,
     });
+    const prior = shouldSkipRepeatedNoGainAttempt({
+      memory: completeMemory,
+      fingerprint,
+    });
+    const tx = prior
+      ? skippedRepeatTransformationResult({
+          project: projectForTurn,
+          plan,
+          prior,
+        })
+      : executeTransformationPlan({
+          project: projectForTurn,
+          plan,
+          logDiagnostics: process.env.NODE_ENV === "development",
+        });
 
     void reviewCreativeDirector({
       project: tx.project,
@@ -3058,10 +3209,22 @@ export async function runAtlasBrain(
       project,
       clearRecommendations(getActionMemory(project)),
     );
+    if (!tx.skippedAsRepeat) {
+      project = persistTransformationAttempt(project, tx, goalIds);
+    } else if (prior) {
+      project = setInteractionState(
+        project,
+        storeTransformationAttempt(getActionMemory(project), {
+          ...prior,
+          at: new Date().toISOString(),
+        }),
+      );
+    }
     invalidateCritiquePipelineCache(creativeDirectorFingerprint(project));
 
     const applied =
-      tx.status === "applied" || tx.status === "partially_applied";
+      (tx.status === "applied" || tx.status === "partially_applied") &&
+      !tx.skippedAsRepeat;
     return {
       ok: true,
       explanation: [

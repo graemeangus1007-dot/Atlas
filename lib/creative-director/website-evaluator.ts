@@ -17,19 +17,52 @@ import {
   evaluatePersonality,
   logCreativeDirectorDiagnostics,
 } from "@/lib/creative-director/presentation";
+import {
+  applyScoreCaps,
+  detectMajorWeaknesses,
+} from "@/lib/creative-director/score-calibration";
 import { evaluateVisualRhythm } from "@/lib/creative-director/rhythm-evaluator";
 import { evaluateWebsiteSections } from "@/lib/creative-director/section-evaluator";
 import { evaluateWebsiteTrust } from "@/lib/creative-director/trust-evaluator";
 import {
   CREATIVE_DIRECTOR_EVAL_VERSION,
   type CreativeDirectorEvaluation,
+  type CreativeDirectorRecommendation,
   type DimensionExplanation,
   type WebsiteDimensionScores,
 } from "@/lib/creative-director/types";
+import {
+  benchmarkAdvisoryLine,
+  benchmarkGapToThemes,
+  evaluateBenchmarkComparison,
+  labelDimension,
+} from "@/lib/benchmarks";
 import type { BusinessProject } from "@/types/business-project";
 
 function clamp(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function recommendationThemeForBenchmarkGap(
+  dimension: import("@/lib/benchmarks/types").BenchmarkDimensionId,
+): CreativeDirectorRecommendation["theme"] {
+  const themes = benchmarkGapToThemes(dimension);
+  const map: Record<string, CreativeDirectorRecommendation["theme"]> = {
+    hero: "hierarchy",
+    hierarchy: "hierarchy",
+    trust: "trust",
+    proof: "proof",
+    conversion: "conversion",
+    flow: "flow",
+    rhythm: "rhythm",
+    imagery: "imagery",
+    messaging: "messaging",
+  };
+  for (const t of themes) {
+    const mapped = map[t];
+    if (mapped) return mapped;
+  }
+  return "hierarchy";
 }
 
 function buildDimensions(input: {
@@ -185,7 +218,7 @@ export function evaluateWebsiteAsCreativeDirector(input: {
   });
   const personality = evaluatePersonality(inventory);
   const consistency = evaluateDesignConsistency(inventory);
-  const dimensions = buildDimensions({
+  const rawDimensions = buildDimensions({
     sections,
     flow,
     rhythm,
@@ -195,20 +228,125 @@ export function evaluateWebsiteAsCreativeDirector(input: {
     consistency,
     inventory,
   });
+  const majorWeaknesses = detectMajorWeaknesses({ inventory, flow });
+  const { dimensions, appliedCaps, qualityBand } = applyScoreCaps(
+    rawDimensions,
+    majorWeaknesses,
+  );
+  // Keep section scores honest — hero section already render-aware.
+  const cappedSections = sections.map((s) => {
+    if (s.sectionId !== "hero") return s;
+    const cap = dimensions.firstImpression;
+    if (s.score > cap + 8) {
+      return { ...s, score: Math.min(s.score, cap + 4) };
+    }
+    return s;
+  });
   const crossSectionInsights = buildCrossSectionInsights({
     inventory,
-    sections,
+    sections: cappedSections,
     flow,
     trust,
   });
-  const recommendations = buildCreativeDirectorRecommendations({
+  let recommendations = buildCreativeDirectorRecommendations({
     inventory,
-    sections,
+    sections: cappedSections,
     flow,
     trust,
     conversion,
     insights: crossSectionInsights,
   });
+
+  // Partial evaluation used only to derive benchmark site scores.
+  const provisional: CreativeDirectorEvaluation = {
+    version: CREATIVE_DIRECTOR_EVAL_VERSION,
+    reviewedAt: new Date().toISOString(),
+    dimensions,
+    dimensionExplanations: explainDimensions(dimensions),
+    sections: cappedSections,
+    flow,
+    rhythm,
+    trust,
+    conversion,
+    narrative,
+    personality,
+    consistency,
+    crossSectionInsights,
+    recommendations,
+    executiveSummary: {
+      overallScore: dimensions.overallDesignScore,
+      biggestStrength: "",
+      biggestWeakness: "",
+      fastestImprovement: "",
+      professionalAssessment: "",
+    },
+    health: buildWebsiteHealthV2(dimensions),
+    diagnostics: {
+      overallScore: dimensions.overallDesignScore,
+      flowScore: flow.score,
+      rhythmScore: rhythm.score,
+      trustScore: trust.score,
+      conversionScore: conversion.score,
+      narrativeScore: narrative.score,
+      sectionScores: {},
+      strongestSection: null,
+      weakestSection: null,
+      highestROIRecommendation: null,
+      creativeDirectorSummary: "",
+    },
+  };
+
+  const benchmarkComparison = evaluateBenchmarkComparison({
+    evaluation: provisional,
+    inventory,
+    industry: inventory.industry,
+    businessType: input.project?.businessType,
+    businessDescription: inventory.description,
+  });
+
+  if (
+    benchmarkComparison.highestGap &&
+    benchmarkComparison.highestGap.gap >= 8
+  ) {
+    const gap = benchmarkComparison.highestGap;
+    const theme = recommendationThemeForBenchmarkGap(gap.dimension);
+    const title = `Close the ${labelDimension(gap.dimension)} quality gap`;
+    if (!recommendations.some((r) => r.title === title)) {
+      recommendations = [
+        {
+          title,
+          creativeDirectorExplanation: [
+            `Against the ${benchmarkComparison.benchmarkName} quality bar, ${labelDimension(gap.dimension)} is the largest gap.`,
+            gap.characteristic + ".",
+            "Improve the quality characteristic — do not copy another site’s layout, colors, or wording.",
+          ].join(" "),
+          priority: gap.gap >= 14 ? "high" : "medium",
+          theme,
+          relatedSections:
+            gap.dimension === "hero_quality"
+              ? ["hero"]
+              : gap.dimension === "trust_progression"
+                ? ["testimonials", "gallery", "contact"]
+                : gap.dimension === "cta_confidence"
+                  ? ["hero", "contact"]
+                  : ["hero", "services"],
+          estimatedImpact: Math.min(30, 12 + Math.round(gap.gap * 0.6)),
+        },
+        ...recommendations,
+      ];
+    }
+    crossSectionInsights.unshift({
+      explanation:
+        benchmarkAdvisoryLine(benchmarkComparison) ||
+        benchmarkComparison.recommendedFocus,
+      severity: gap.gap >= 14 ? "high" : "medium",
+      relatedSections:
+        gap.dimension === "trust_progression"
+          ? ["testimonials", "gallery", "contact"]
+          : ["hero", "services"],
+    });
+  }
+
   const executiveSummary = buildExecutiveSummary({
     dimensions,
     inventory,
@@ -224,13 +362,27 @@ export function evaluateWebsiteAsCreativeDirector(input: {
     trust,
     conversion,
     narrative,
-    sections,
+    sections: cappedSections,
     recommendations,
     executiveSummary,
   });
 
   if (input.logDiagnostics) {
     logCreativeDirectorDiagnostics(diagnostics, input.requestId);
+    if (process.env.NODE_ENV === "development") {
+      console.info("[atlas:creative-director:calibration]", {
+        requestId: input.requestId ?? null,
+        qualityBand,
+        appliedCaps,
+        majorWeaknesses: majorWeaknesses.map((w) => w.kind),
+      });
+      console.info("[atlas:creative-director:benchmark]", {
+        requestId: input.requestId ?? null,
+        benchmarkId: benchmarkComparison.benchmarkId,
+        matchPercentage: benchmarkComparison.matchPercentage,
+        highestGap: benchmarkComparison.highestGap?.dimension ?? null,
+      });
+    }
   }
 
   return {
@@ -238,7 +390,7 @@ export function evaluateWebsiteAsCreativeDirector(input: {
     reviewedAt: new Date().toISOString(),
     dimensions,
     dimensionExplanations: explainDimensions(dimensions),
-    sections,
+    sections: cappedSections,
     flow,
     rhythm,
     trust,
@@ -251,5 +403,6 @@ export function evaluateWebsiteAsCreativeDirector(input: {
     executiveSummary,
     health,
     diagnostics,
+    benchmarkComparison,
   };
 }

@@ -676,6 +676,13 @@ export function formatDesignStrategySection(strategy: DesignStrategy): string {
     : [];
 
   const cd = strategy.creativeDirectorEvaluation;
+  const benchmarkLine = cd?.benchmarkComparison
+    ? `Quality benchmark: ${cd.benchmarkComparison.benchmarkName} (${cd.benchmarkComparison.matchPercentage}% match)` +
+      (cd.benchmarkComparison.highestGap &&
+      cd.benchmarkComparison.highestGap.gap >= 6
+        ? ` — focus ${cd.benchmarkComparison.highestGap.dimension.replace(/_/g, " ")}`
+        : "")
+    : null;
   const directorBlock = cd
     ? [
         "",
@@ -684,6 +691,7 @@ export function formatDesignStrategySection(strategy: DesignStrategy): string {
         `Biggest strength: ${cd.executiveSummary.biggestStrength}`,
         `Biggest weakness: ${cd.executiveSummary.biggestWeakness}`,
         `Fastest improvement: ${cd.executiveSummary.fastestImprovement}`,
+        ...(benchmarkLine ? [benchmarkLine] : []),
       ]
     : [];
 

@@ -28,13 +28,21 @@ import {
   transformationPlanId,
 } from "@/lib/transformation/report";
 import {
+  assessBatchOutcome,
+  type BatchOutcomeCheckpoint,
+} from "@/lib/transformation/outcome";
+import {
   overallDesignScore,
   verifyBatchIntegrity,
   verifyGoalAgainstProject,
   verifyWholePageTransformation,
 } from "@/lib/transformation/verify";
 import { buildTransformationPlanForProject } from "@/lib/transformation/plan-from-project";
+import { detectTransformationCapabilityGaps } from "@/lib/transformation/capability-gaps";
+import { designQualityBandLabel } from "@/lib/creative-director/score-calibration";
+import { snapshotEvaluation } from "@/lib/transformation/outcome";
 import type {
+  TransformationGoal,
   TransformationGoalId,
   TransformationPlan,
 } from "@/lib/transformation/types";
@@ -48,18 +56,28 @@ function logDiagnostics(diag: TransformationExecutionDiagnostics): void {
   if (process.env.NODE_ENV !== "development") return;
   console.info("[atlas:transformation:execution]", {
     planId: diag.planId,
-    baselineScore: diag.baselineScore,
+    baselineOverall: diag.baselineOverall,
     preflightStatus: diag.preflightStatus,
     goalStatuses: diag.goalStatuses,
     dependencyOrder: diag.dependencyOrder,
     batchOrder: diag.batchOrder,
+    batchScores: diag.batchScores,
     operationsByGoal: diag.operationsByGoal,
     verificationByBatch: diag.verificationByBatch,
-    finalScore: diag.finalScore,
-    scoreDelta: diag.scoreDelta,
+    finalOverall: diag.finalOverall,
+    overallDelta: diag.overallDelta,
+    dimensionDeltas: diag.dimensionDeltas,
+    sectionDeltas: diag.sectionDeltas,
+    goalExpectedDimensions: diag.goalExpectedDimensions,
+    goalObservedDeltas: diag.goalObservedDeltas,
+    batchVerdicts: diag.batchVerdicts,
+    criticalRegressions: diag.criticalRegressions,
+    evaluatorConfidence: diag.evaluatorConfidence,
+    finalVerdict: diag.finalVerdict,
     refinementApplied: diag.refinementApplied,
     blockedReasons: diag.blockedReasons,
     rollbackPerformed: diag.rollbackPerformed,
+    rollbackScope: diag.rollbackScope,
   });
 }
 
@@ -156,6 +174,7 @@ export function executeTransformationPlan(
       logDiagnostics({
         planId,
         baselineScore,
+        baselineOverall: baselineScore,
         preflightStatus: false,
         goalStatuses: blockedGoals.map((g) => ({
           goalId: g.goalId,
@@ -164,13 +183,25 @@ export function executeTransformationPlan(
         })),
         dependencyOrder: plan.graph.dependencyOrder,
         batchOrder: [],
+        batchScores: [],
         operationsByGoal: {},
         verificationByBatch: {},
         finalScore: baselineScore,
+        finalOverall: baselineScore,
+        overallDelta: 0,
         scoreDelta: 0,
+        dimensionDeltas: {},
+        sectionDeltas: {},
+        goalExpectedDimensions: {},
+        goalObservedDeltas: {},
+        batchVerdicts: [],
+        criticalRegressions: [],
+        evaluatorConfidence: 0,
+        finalVerdict: "blocked",
         refinementApplied: false,
         blockedReasons: preflight.issues,
         rollbackPerformed: false,
+        rollbackScope: "none",
       });
     }
     return result;
@@ -186,8 +217,12 @@ export function executeTransformationPlan(
   const allChanges: EditChangeSummary[] = [];
   const operationsByGoal: Record<string, string[]> = {};
   const verificationByBatch: Record<string, boolean> = {};
+  const batchCheckpoints: BatchOutcomeCheckpoint[] = [];
+  /** Ops retained per batch for selective rebuild */
+  const batchOpsKept = new Map<string, EditOperation[]>();
   let project = baselineProject;
   let rollbackPerformed = false;
+  let rollbackScope: "full" | "selective" | "none" = "none";
   let criticalDependencyFailed = false;
   let stopFurtherBatches = false;
 
@@ -471,22 +506,95 @@ export function executeTransformationPlan(
     }
 
     if (appliedInBatch.length > 0) {
+      const checkpoint = assessBatchOutcome({
+        batchId: batch.id,
+        before: batchBefore,
+        after: project,
+        goalIds: appliedInBatch,
+      });
+      batchCheckpoints.push(checkpoint);
+      batchNotes.push(...checkpoint.notes);
+
+      if (checkpoint.verdict === "harmful") {
+        // Selective: roll back only this harmful batch; stop dependents.
+        project = batchBefore;
+        rollbackPerformed = true;
+        rollbackScope = "selective";
+        stopFurtherBatches = true;
+        verificationByBatch[batch.id] = false;
+        for (const id of appliedInBatch) {
+          const prev = outcomes.get(id);
+          if (prev && prev.status === "applied") {
+            const rolled: TransformationGoalResult = {
+              ...prev,
+              status: "failed",
+              reason:
+                "This change did not help the page and was rolled back.",
+              operations: [],
+            };
+            outcomes.set(id, rolled);
+            const idx = executedGoals.findIndex((g) => g.goalId === id);
+            if (idx >= 0) executedGoals.splice(idx, 1);
+            failedGoals.push(rolled);
+          }
+        }
+        for (const op of batchOps) {
+          const i = allOps.lastIndexOf(op);
+          if (i >= 0) allOps.splice(i, 1);
+        }
+        batchResults.push({
+          batchId: batch.id,
+          revisionId,
+          appliedGoalIds: [],
+          failed: true,
+          rolledBack: true,
+          verificationPassed: false,
+          notes: batchNotes,
+          scoreVerdict: checkpoint.verdict,
+          overallDelta: checkpoint.overallDelta,
+          targetedDelta: checkpoint.targetedDelta,
+        });
+        continue;
+      }
+
+      batchOpsKept.set(batch.id, [...batchOps]);
       revisionsCreated.push(revisionId);
+      verificationByBatch[batch.id] = true;
+      batchResults.push({
+        batchId: batch.id,
+        revisionId,
+        appliedGoalIds: appliedInBatch,
+        failed: false,
+        rolledBack: false,
+        verificationPassed: true,
+        notes: batchNotes,
+        scoreVerdict: checkpoint.verdict,
+        overallDelta: checkpoint.overallDelta,
+        targetedDelta: checkpoint.targetedDelta,
+      });
+    } else {
+      verificationByBatch[batch.id] = true;
+      batchResults.push({
+        batchId: batch.id,
+        revisionId,
+        appliedGoalIds: appliedInBatch,
+        failed: false,
+        rolledBack: false,
+        verificationPassed: true,
+        notes: batchNotes,
+        scoreVerdict: "neutral",
+        overallDelta: 0,
+        targetedDelta: 0,
+      });
     }
-    verificationByBatch[batch.id] = true;
-    batchResults.push({
-      batchId: batch.id,
-      revisionId,
-      appliedGoalIds: appliedInBatch,
-      failed: false,
-      rolledBack: false,
-      verificationPassed: true,
-      notes: batchNotes,
-    });
   }
 
   let refinementApplied = false;
   const allowRefinement = input.allowRefinement !== false;
+
+  const appliedGoalModels: TransformationGoal[] = executedGoals
+    .filter((g) => g.status === "applied")
+    .map((g) => goalById(plan, g.goalId));
 
   let wholePage = verifyWholePageTransformation({
     baselineProject,
@@ -494,14 +602,17 @@ export function executeTransformationPlan(
     plan,
     brand,
     criticalDependencyFailed,
+    appliedGoals: appliedGoalModels,
+    blockedGoalIds: blockedGoals.map((g) => g.goalId),
+    batchCheckpoints,
   });
 
   if (
     allowRefinement &&
     executedGoals.some((g) => g.status === "applied") &&
     !wholePage.passed &&
-    !criticalDependencyFailed &&
-    !rollbackPerformed
+    wholePage.outcome?.verdict === "neutral_no_gain" &&
+    !criticalDependencyFailed
   ) {
     const refined = maybeRefineTransformation({
       project,
@@ -518,45 +629,225 @@ export function executeTransformationPlan(
         plan,
         brand,
         criticalDependencyFailed: false,
+        appliedGoals: appliedGoalModels,
+        blockedGoalIds: blockedGoals.map((g) => g.goalId),
+        batchCheckpoints,
       });
     }
   }
 
   let appliedCount = executedGoals.filter((g) => g.status === "applied").length;
+  const outcome = wholePage.outcome;
 
-  // Whole-page verification is authoritative — never claim success from ops alone.
-  if (
-    appliedCount > 0 &&
-    !wholePage.passed &&
-    wholePage.verifiedScoreDelta <= 0
-  ) {
-    project = baselineProject;
-    rollbackPerformed = true;
-    revisionsCreated.length = 0;
-    allOps.length = 0;
-    allChanges.length = 0;
-    for (const g of executedGoals.splice(0)) {
-      if (g.status === "applied") {
-        failedGoals.push({
-          ...g,
-          status: "failed",
-          reason: "Whole-page score did not improve — changes were reverted.",
-          operations: [],
+  // Selective / full rollback from rich verdict — never revert solely for flat overall.
+  if (appliedCount > 0 && outcome) {
+    if (
+      outcome.verdict === "critical_regression" ||
+      outcome.verdict === "neutral_no_gain"
+    ) {
+      project = baselineProject;
+      rollbackPerformed = true;
+      rollbackScope = "full";
+      revisionsCreated.length = 0;
+      allOps.length = 0;
+      allChanges.length = 0;
+      for (const g of executedGoals.splice(0)) {
+        if (g.status === "applied") {
+          failedGoals.push({
+            ...g,
+            status: "failed",
+            reason:
+              outcome.verdict === "critical_regression"
+                ? "Rolled back to protect the site after a critical regression."
+                : "Tested but did not produce a measurable improvement — restored the previous version.",
+            operations: [],
+          });
+        }
+      }
+      appliedCount = 0;
+      wholePage = verifyWholePageTransformation({
+        baselineProject,
+        finalProject: project,
+        plan,
+        brand,
+        criticalDependencyFailed,
+        appliedGoals: [],
+        blockedGoalIds: blockedGoals.map((g) => g.goalId),
+        batchCheckpoints,
+      });
+    } else if (outcome.verdict === "evaluation_inconclusive") {
+      // Conservative: keep only beneficial batches when confidence is low.
+      const keepIds = new Set(
+        batchCheckpoints
+          .filter((b) => b.verdict === "beneficial")
+          .map((b) => b.batchId),
+      );
+      if (keepIds.size === 0) {
+        project = baselineProject;
+        rollbackPerformed = true;
+        rollbackScope = "full";
+        revisionsCreated.length = 0;
+        allOps.length = 0;
+        allChanges.length = 0;
+        for (const g of executedGoals.splice(0)) {
+          if (g.status === "applied") {
+            failedGoals.push({
+              ...g,
+              status: "failed",
+              reason:
+                "Evaluator could not confirm improvement — changes were restored.",
+              operations: [],
+            });
+          }
+        }
+        appliedCount = 0;
+      } else if (keepIds.size < batchOpsKept.size) {
+        let rebuilt = cloneProject(baselineProject);
+        const keptOps: EditOperation[] = [];
+        for (const br of batchResults) {
+          if (!keepIds.has(br.batchId)) continue;
+          const ops = batchOpsKept.get(br.batchId) ?? [];
+          if (ops.length === 0) continue;
+          const applied = applyEditOperations(
+            rebuilt,
+            validateEditOperations(ops),
+          );
+          rebuilt = applied.project;
+          keptOps.push(...ops);
+          allChanges.push(...applied.changes);
+        }
+        project = rebuilt;
+        allOps.length = 0;
+        allOps.push(...keptOps);
+        rollbackPerformed = true;
+        rollbackScope = "selective";
+        // Drop goals from non-kept batches
+        for (const br of batchResults) {
+          if (keepIds.has(br.batchId)) continue;
+          for (const id of br.appliedGoalIds) {
+            const prev = outcomes.get(id);
+            if (prev?.status === "applied") {
+              const rolled: TransformationGoalResult = {
+                ...prev,
+                status: "failed",
+                reason:
+                  "Rolled back because the evaluator could not confirm this change helped.",
+                operations: [],
+              };
+              outcomes.set(id, rolled);
+              const idx = executedGoals.findIndex((g) => g.goalId === id);
+              if (idx >= 0) executedGoals.splice(idx, 1);
+              failedGoals.push(rolled);
+            }
+          }
+          br.rolledBack = true;
+        }
+        appliedCount = executedGoals.filter((g) => g.status === "applied").length;
+      }
+      wholePage = verifyWholePageTransformation({
+        baselineProject,
+        finalProject: project,
+        plan,
+        brand,
+        criticalDependencyFailed: false,
+        appliedGoals: executedGoals
+          .filter((g) => g.status === "applied")
+          .map((g) => goalById(plan, g.goalId)),
+        blockedGoalIds: blockedGoals.map((g) => g.goalId),
+        batchCheckpoints: batchCheckpoints.filter((b) =>
+          keepIds.size === 0 ? false : keepIds.has(b.batchId),
+        ),
+      });
+    } else if (outcome.verdict === "verified_partial") {
+      // Drop trailing neutral/inconclusive batches that missed their goals
+      // when they are not required by a later beneficial batch.
+      const beneficialIds = new Set(
+        batchCheckpoints
+          .filter((b) => b.verdict === "beneficial")
+          .map((b) => b.batchId),
+      );
+      const dropIds = new Set(
+        batchCheckpoints
+          .filter(
+            (b) =>
+              (b.verdict === "neutral" || b.verdict === "inconclusive") &&
+              b.targetedDelta < 3 &&
+              !beneficialIds.has(b.batchId),
+          )
+          .map((b) => b.batchId),
+      );
+      // Keep neutrals that precede a beneficial batch (dependency scaffolding)
+      const order = batchResults.map((b) => b.batchId);
+      for (const dropId of [...dropIds]) {
+        const dropIdx = order.indexOf(dropId);
+        const laterBeneficial = order
+          .slice(dropIdx + 1)
+          .some((id) => beneficialIds.has(id));
+        if (laterBeneficial) dropIds.delete(dropId);
+      }
+      if (dropIds.size > 0 && beneficialIds.size > 0) {
+        let rebuilt = cloneProject(baselineProject);
+        const keptOps: EditOperation[] = [];
+        allChanges.length = 0;
+        for (const br of batchResults) {
+          if (dropIds.has(br.batchId) || br.rolledBack) continue;
+          const ops = batchOpsKept.get(br.batchId) ?? [];
+          if (ops.length === 0) continue;
+          const applied = applyEditOperations(
+            rebuilt,
+            validateEditOperations(ops),
+          );
+          rebuilt = applied.project;
+          keptOps.push(...ops);
+          allChanges.push(...applied.changes);
+        }
+        project = rebuilt;
+        allOps.length = 0;
+        allOps.push(...keptOps);
+        rollbackPerformed = true;
+        rollbackScope = "selective";
+        for (const br of batchResults) {
+          if (!dropIds.has(br.batchId)) continue;
+          br.rolledBack = true;
+          for (const id of br.appliedGoalIds) {
+            const prev = outcomes.get(id);
+            if (prev?.status === "applied") {
+              const rolled: TransformationGoalResult = {
+                ...prev,
+                status: "failed",
+                reason:
+                  "This adjustment did not improve the page and was rolled back.",
+                operations: [],
+              };
+              outcomes.set(id, rolled);
+              const idx = executedGoals.findIndex((g) => g.goalId === id);
+              if (idx >= 0) executedGoals.splice(idx, 1);
+              failedGoals.push(rolled);
+            }
+          }
+        }
+        appliedCount = executedGoals.filter(
+          (g) => g.status === "applied",
+        ).length;
+        wholePage = verifyWholePageTransformation({
+          baselineProject,
+          finalProject: project,
+          plan,
+          brand,
+          criticalDependencyFailed: false,
+          appliedGoals: executedGoals
+            .filter((g) => g.status === "applied")
+            .map((g) => goalById(plan, g.goalId)),
+          blockedGoalIds: blockedGoals.map((g) => g.goalId),
+          batchCheckpoints: batchCheckpoints.filter(
+            (b) => !dropIds.has(b.batchId),
+          ),
         });
       }
     }
-    appliedCount = 0;
-    wholePage = {
-      ...wholePage,
-      finalScore: baselineScore,
-      verifiedScoreDelta: 0,
-      passed: false,
-      notes: [
-        ...wholePage.notes,
-        "Transformation reverted because the whole page did not improve.",
-      ],
-    };
   }
+
+  appliedCount = executedGoals.filter((g) => g.status === "applied").length;
 
   const onlySatisfied =
     appliedCount === 0 &&
@@ -570,12 +861,21 @@ export function executeTransformationPlan(
     );
 
   let status: TransformationExecutionResult["status"];
+  const finalVerdict = wholePage.outcome?.verdict;
   if (appliedCount > 0 && wholePage.passed && failedGoals.length === 0) {
     status =
-      blockedGoals.length > 0 ? "partially_applied" : "applied";
+      blockedGoals.length > 0 || finalVerdict === "verified_partial"
+        ? "partially_applied"
+        : "applied";
   } else if (appliedCount > 0) {
     status = "partially_applied";
-  } else if (failedGoals.length > 0) {
+  } else if (
+    failedGoals.length > 0 &&
+    (finalVerdict === "critical_regression" ||
+      finalVerdict === "neutral_no_gain")
+  ) {
+    status = "failed";
+  } else if (failedGoals.length > 0 && appliedCount === 0) {
     status = "failed";
   } else if (onlySatisfied) {
     status = "already_satisfied";
@@ -584,6 +884,24 @@ export function executeTransformationPlan(
   } else {
     status = "already_satisfied";
   }
+
+  const finalEval = snapshotEvaluation(project);
+  const capabilityGaps = detectTransformationCapabilityGaps({
+    project,
+    plan,
+    evaluation: finalEval,
+    classified: [
+      ...initialClassified,
+      ...executedGoals.map((g) => ({
+        goalId: g.goalId,
+        classification: g.classification,
+        reason: g.reason ?? "",
+        operations: g.operations,
+        affectedSections: g.affectedSections,
+      })),
+    ],
+  });
+  const qualityBand = designQualityBandLabel(wholePage.finalScore);
 
   const result: TransformationExecutionResult = {
     planId,
@@ -605,13 +923,18 @@ export function executeTransformationPlan(
     wholePage,
     batchResults,
     rollbackPerformed,
+    rollbackScope,
+    capabilityGaps,
+    qualityBand,
   };
   result.summary = formatTransformationExecutionReport(result);
 
   if (input.logDiagnostics || process.env.NODE_ENV === "development") {
+    const oc = wholePage.outcome;
     logDiagnostics({
       planId,
       baselineScore,
+      baselineOverall: baselineScore,
       preflightStatus: preflight.passed,
       goalStatuses: [
         ...executedGoals,
@@ -624,13 +947,31 @@ export function executeTransformationPlan(
       })),
       dependencyOrder: plan.graph.dependencyOrder,
       batchOrder: batches.map((b) => b.id),
+      batchScores: batchCheckpoints.map((b) => ({
+        batchId: b.batchId,
+        overallDelta: b.overallDelta,
+        verdict: b.verdict,
+      })),
       operationsByGoal,
       verificationByBatch,
       finalScore: result.finalScore,
+      finalOverall: result.finalScore,
+      overallDelta: result.verifiedScoreDelta,
       scoreDelta: result.verifiedScoreDelta,
+      dimensionDeltas: oc?.dimensionDeltas ?? {},
+      sectionDeltas: oc?.sectionDeltas ?? {},
+      goalExpectedDimensions: oc?.goalExpectedDimensions ?? {},
+      goalObservedDeltas: oc?.goalObservedDeltas ?? {},
+      batchVerdicts: batchCheckpoints.map(
+        (b) => `${b.batchId}:${b.verdict}`,
+      ),
+      criticalRegressions: oc?.criticalRegressions ?? [],
+      evaluatorConfidence: oc?.confidence ?? 0,
+      finalVerdict: oc?.verdict ?? "unknown",
       refinementApplied,
       blockedReasons: blockedGoals.map((g) => g.reason || g.goalId),
       rollbackPerformed,
+      rollbackScope,
     });
   }
 

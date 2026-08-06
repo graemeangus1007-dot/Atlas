@@ -2,7 +2,6 @@
  * Batch and whole-page verification for transformation execution.
  */
 
-import { evaluateWebsiteAsCreativeDirector } from "@/lib/creative-director";
 import {
   brandIntegrityViolations,
   heroAssetPreserved,
@@ -12,6 +11,12 @@ import type {
   GoalVerificationResult,
   WholePageVerificationResult,
 } from "@/lib/transformation/execution-types";
+import {
+  assessTransformationOutcome,
+  snapshotEvaluation,
+  type BatchOutcomeCheckpoint,
+  type TransformationOutcomeAssessment,
+} from "@/lib/transformation/outcome";
 import type {
   TransformationGoal,
   TransformationGoalId,
@@ -22,8 +27,7 @@ import { getEffectiveSectionOrder } from "@/lib/ai/section-order";
 import { creativeDirectorFingerprint } from "@/lib/ai/creative-director";
 
 export function overallDesignScore(project: BusinessProject): number {
-  return evaluateWebsiteAsCreativeDirector({ project }).dimensions
-    .overallDesignScore;
+  return snapshotEvaluation(project).dimensions.overallDesignScore;
 }
 
 export function verifyGoalAgainstProject(
@@ -100,7 +104,6 @@ export function verifyGoalAgainstProject(
         project.creativePolish?.spacing !== "comfortable" &&
         project.creativePolish?.spacing !== "airy"
       ) {
-        // Soft fail — spacing may already be acceptable via template
         notes.push("Spacing not explicitly set to comfortable");
       }
       break;
@@ -143,87 +146,89 @@ export function verifyBatchIntegrity(input: {
       creativeDirectorFingerprint(input.after)
   ) {
     notes.push("Batch produced no visible project change");
-    // Not critical — treat as soft pass for already-near goals
   }
   return { passed: true, notes };
 }
 
+/**
+ * Whole-page verification using dimension-aware outcome assessment.
+ * Flat overall score alone is NOT a failure when targeted dimensions improve.
+ */
 export function verifyWholePageTransformation(input: {
   baselineProject: BusinessProject;
   finalProject: BusinessProject;
   plan: TransformationPlan;
   brand: BrandScopeSnapshot;
   criticalDependencyFailed: boolean;
+  appliedGoals?: TransformationGoal[];
+  blockedGoalIds?: TransformationGoalId[];
+  batchCheckpoints?: BatchOutcomeCheckpoint[];
 }): WholePageVerificationResult {
-  const baselineEval = evaluateWebsiteAsCreativeDirector({
-    project: input.baselineProject,
+  const outcome = assessTransformationOutcome({
+    baselineProject: input.baselineProject,
+    finalProject: input.finalProject,
+    plan: input.plan,
+    brand: input.brand,
+    appliedGoals: input.appliedGoals ?? [],
+    blockedGoalIds: input.blockedGoalIds ?? [],
+    criticalDependencyFailed: input.criticalDependencyFailed,
+    batchCheckpoints: input.batchCheckpoints,
   });
-  const finalEval = evaluateWebsiteAsCreativeDirector({
-    project: input.finalProject,
-  });
-  const baselineScore = baselineEval.dimensions.overallDesignScore;
-  const finalScore = finalEval.dimensions.overallDesignScore;
-  const verifiedScoreDelta = finalScore - baselineScore;
 
-  const brandViolations = brandIntegrityViolations(
-    input.brand,
-    input.finalProject,
+  return wholePageFromOutcome(outcome, input.criticalDependencyFailed);
+}
+
+export function wholePageFromOutcome(
+  outcome: TransformationOutcomeAssessment,
+  criticalDependencyFailed: boolean,
+): WholePageVerificationResult {
+  const accessibilityRegression = outcome.criticalRegressions.some((r) =>
+    /accessibility/i.test(r),
   );
-  const brandIntegrityRegression = brandViolations.length > 0;
+  const brandIntegrityRegression = outcome.criticalRegressions.some((r) =>
+    /brand integrity/i.test(r),
+  );
 
-  const accessibilityRegression =
-    finalEval.dimensions.accessibility <
-    baselineEval.dimensions.accessibility - 6;
-
-  const problem = input.plan.vision.highestPriorityProblem.toLowerCase();
-  let highestPriorityImproved = verifiedScoreDelta > 0;
-  if (/trust|testimonial|proof/.test(problem)) {
-    highestPriorityImproved =
-      finalEval.trust.score >= baselineEval.trust.score;
-  } else if (/hero|first impression|visual/.test(problem)) {
-    const baseHero =
-      baselineEval.sections.find((s) => s.sectionId === "hero")?.score ?? 0;
-    const finalHero =
-      finalEval.sections.find((s) => s.sectionId === "hero")?.score ?? 0;
-    highestPriorityImproved = finalHero >= baseHero;
-  } else if (/conversion|cta|contact|ask/.test(problem)) {
-    highestPriorityImproved =
-      finalEval.conversion.score >= baselineEval.conversion.score;
-  }
+  const passed =
+    outcome.verdict === "verified_success" ||
+    outcome.verdict === "verified_partial";
 
   const notes: string[] = [];
-  if (verifiedScoreDelta <= 0) {
-    notes.push("Whole-page design score did not improve.");
+  if (outcome.verdict === "neutral_no_gain") {
+    notes.push(
+      "Changes were applied but did not produce a measurable improvement in the targeted design dimensions.",
+    );
   }
-  if (!highestPriorityImproved) {
-    notes.push("Highest-priority problem did not improve.");
+  if (outcome.verdict === "critical_regression") {
+    notes.push(...outcome.criticalRegressions.slice(0, 4));
   }
-  if (accessibilityRegression) {
-    notes.push("Accessibility regressed beyond tolerance.");
+  if (outcome.verdict === "evaluation_inconclusive") {
+    notes.push(
+      "The evaluator could not confidently confirm the redesign result — treating this conservatively.",
+    );
   }
-  if (brandIntegrityRegression) {
-    notes.push(`Brand integrity regression: ${brandViolations.join(", ")}`);
+  if (outcome.overallDelta <= 0 && outcome.meaningfulImprovements.length > 0) {
+    notes.push(
+      `Overall score was flat (${outcome.overallDelta >= 0 ? "+" : ""}${outcome.overallDelta}), but targeted dimensions improved.`,
+    );
   }
-  if (input.criticalDependencyFailed) {
+  if (!outcome.highestPriorityProblemImproved) {
+    notes.push("Highest-priority problem did not improve enough.");
+  }
+  if (criticalDependencyFailed) {
     notes.push("A critical dependency failed during execution.");
   }
 
-  const passed =
-    verifiedScoreDelta > 0 &&
-    highestPriorityImproved &&
-    !accessibilityRegression &&
-    !brandIntegrityRegression &&
-    !input.criticalDependencyFailed;
-
   return {
     passed,
-    baselineScore,
-    finalScore,
-    verifiedScoreDelta,
-    highestPriorityImproved,
+    baselineScore: outcome.baselineOverall,
+    finalScore: outcome.finalOverall,
+    verifiedScoreDelta: outcome.overallDelta,
+    highestPriorityImproved: outcome.highestPriorityProblemImproved,
     accessibilityRegression,
     brandIntegrityRegression,
-    criticalDependencyFailed: input.criticalDependencyFailed,
+    criticalDependencyFailed,
     notes,
+    outcome,
   };
 }

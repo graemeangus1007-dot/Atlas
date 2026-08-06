@@ -355,8 +355,19 @@ export function buildExecutiveSummary(input: {
 export function buildWebsiteHealthV2(
   dimensions: WebsiteDimensionScores,
 ): WebsiteHealthV2 {
+  const overall = dimensions.overallDesignScore;
+  const qualityBand =
+    overall >= 90
+      ? "Exceptional"
+      : overall >= 80
+        ? "Strong"
+        : overall >= 65
+          ? "Solid"
+          : overall >= 50
+            ? "Developing"
+            : "Poor";
   return {
-    overall: dimensions.overallDesignScore,
+    overall,
     design: Math.round(
       (dimensions.visualHierarchy +
         dimensions.whitespace +
@@ -376,6 +387,7 @@ export function buildWebsiteHealthV2(
     mobile: dimensions.mobileExperience,
     accessibility: dimensions.accessibility,
     professionalism: dimensions.professionalism,
+    qualityBand,
   };
 }
 

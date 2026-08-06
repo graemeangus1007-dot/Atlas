@@ -130,6 +130,22 @@ export type AtlasInteractionState = {
     reason: ClarificationClearReason;
     at: string;
   } | null;
+  /** Last Transformation Engine attempt — repeat no-gain prevention. */
+  lastTransformationAttempt?: {
+    fingerprint: string;
+    goalIds: string[];
+    overallDelta: number;
+    baselineScore: number;
+    at: string;
+    capabilityGaps?: Array<{
+      problem: string;
+      affectedSection: string;
+      requiredCapability: string;
+      currentCapabilityMissing: boolean;
+      userInputRequired: boolean;
+      recommendedNextStep: string;
+    }>;
+  } | null;
 };
 
 export type InteractionSource =
@@ -147,6 +163,7 @@ export function emptyAtlasInteractionState(
     activeTask: null,
     pendingClarification: null,
     lastVerifiedExecution: null,
+    lastTransformationAttempt: null,
     preservation: null,
     activePlan: null,
     repair: null,
