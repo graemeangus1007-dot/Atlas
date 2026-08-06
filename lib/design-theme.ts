@@ -9,6 +9,10 @@ import {
   type SiteWidthId,
 } from "@/data/design-options";
 import {
+  brandPresentationCssVars,
+  resolveAdaptiveBrandPresentation,
+} from "@/lib/brand-presentation";
+import {
   buildHeroRenderPlan,
   resolveHeroCompositionFromProject,
 } from "@/lib/hero-composition";
@@ -80,7 +84,22 @@ export function buildSiteDesignStyle(
   const accent = project.accentColor || project.primaryColor;
   const composition = resolveHeroCompositionFromProject(project);
   const heroPlan = buildHeroRenderPlan(composition);
-  const overlay = normalizeOverlay(composition.treatment.overlay);
+  const brandPresentation = resolveAdaptiveBrandPresentation(project);
+  const presentationVars = brandPresentationCssVars(brandPresentation);
+  const overlay = normalizeOverlay(
+    brandPresentation.presentation.heroOverlayStrength,
+  );
+
+  const gradientDirection = (() => {
+    const direction =
+      brandPresentation.presentation.heroGradient?.direction ??
+      composition.treatment.gradient?.direction ??
+      project.heroTreatment?.gradient?.direction;
+    if (direction === "left") return "to right";
+    if (direction === "right") return "to left";
+    if (direction === "top") return "to bottom";
+    return "to top";
+  })();
 
   return {
     "--site-bg": background,
@@ -88,6 +107,7 @@ export function buildSiteDesignStyle(
     "--site-muted": muted,
     "--site-surface": surface,
     "--site-border": border,
+    // Brand identity tokens — never rewritten by presentation.
     "--site-primary": project.primaryColor,
     "--site-secondary": project.secondaryColor,
     "--site-accent": accent,
@@ -114,37 +134,25 @@ export function buildSiteDesignStyle(
     "--site-hero-vertical-align":
       heroPlan.cssVars["--site-hero-vertical-align"],
     "--site-hero-content-max": heroPlan.cssVars["--site-hero-content-max"],
-    "--site-hero-gradient-opacity": String(
-      composition.treatment.gradient?.strength ??
-        project.heroTreatment?.gradient?.strength ??
-        0,
-    ),
-    "--site-hero-gradient-coverage": `${Math.round(
-      (composition.treatment.gradient?.coverage ??
-        project.heroTreatment?.gradient?.coverage ??
-        0) * 100,
-    )}%`,
-    "--site-hero-gradient-direction": (() => {
-      const direction =
-        composition.treatment.gradient?.direction ??
-        project.heroTreatment?.gradient?.direction;
-      if (direction === "left") return "to right";
-      if (direction === "right") return "to left";
-      if (direction === "top") return "to bottom";
-      return "to top";
-    })(),
-    "--site-hero-scrim-opacity": String(
-      composition.treatment.textScrim?.enabled
-        ? composition.treatment.textScrim.opacity
-        : project.heroTreatment?.textScrim?.enabled
-          ? project.heroTreatment.textScrim.opacity
-          : 0,
-    ),
-    "--site-hero-scrim-blur": `${
-      composition.treatment.textScrim?.blur ??
-      project.heroTreatment?.textScrim?.blur ??
-      0
-    }px`,
+    "--site-hero-gradient-opacity":
+      presentationVars["--site-hero-gradient-opacity"] ??
+      String(
+        composition.treatment.gradient?.strength ??
+          project.heroTreatment?.gradient?.strength ??
+          0,
+      ),
+    "--site-hero-gradient-coverage":
+      presentationVars["--site-hero-gradient-coverage"] ??
+      `${Math.round(
+        (composition.treatment.gradient?.coverage ??
+          project.heroTreatment?.gradient?.coverage ??
+          0) * 100,
+      )}%`,
+    "--site-hero-gradient-direction": gradientDirection,
+    "--site-hero-scrim-opacity":
+      presentationVars["--site-hero-scrim-opacity"] ?? "0",
+    "--site-hero-scrim-blur":
+      presentationVars["--site-hero-scrim-blur"] ?? "0px",
     "--site-hero-object-fit":
       composition.image.fit === "contain" ? "contain" : "cover",
     "--site-hero-object-position": (() => {
@@ -157,6 +165,16 @@ export function buildSiteDesignStyle(
       return `${Math.round(fp.x * 100)}% ${Math.round(fp.y * 100)}%`;
     })(),
     "--site-hero-object-zoom": String(composition.image.zoom ?? 1),
+    // Adaptive hero presentation colors (computed — not Brand Studio).
+    "--site-hero-headline": presentationVars["--site-hero-headline"],
+    "--site-hero-eyebrow": presentationVars["--site-hero-eyebrow"],
+    "--site-hero-body": presentationVars["--site-hero-body"],
+    "--site-hero-cta-bg": presentationVars["--site-hero-cta-bg"],
+    "--site-hero-cta-fg": presentationVars["--site-hero-cta-fg"],
+    "--site-hero-cta-secondary-fg":
+      presentationVars["--site-hero-cta-secondary-fg"],
+    "--site-hero-cta-secondary-border":
+      presentationVars["--site-hero-cta-secondary-border"],
     "--site-content-max": contentMaxWidth(project.siteWidth),
     "--site-section-pad":
       project.creativePolish?.spacing === "airy"

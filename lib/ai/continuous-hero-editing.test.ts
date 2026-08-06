@@ -179,7 +179,7 @@ describe("Complete my website — no active plan", () => {
     );
     expect(result.decision.needsClarification).toBe(false);
     expect(result.explanation).toMatch(
-      /Overall direction|Biggest problem|Design goals|Execution plan|Done\.|Apply All|strategy/i,
+      /Overall direction|Biggest problem|Design goals|Execution plan|Done\.|Apply All|strategy|coordinated stage|redesign|design score/i,
     );
   });
 });

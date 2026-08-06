@@ -119,6 +119,7 @@ function planFromLegacy(memory: AtlasActionMemory): ActiveInteractionPlan | null
           : fromRecs?.recommendationIds ?? []),
       executionPlan: memory.activePlan.executionPlan ?? memory.executionPlan,
       creativeReport: memory.activePlan.creativeReport ?? memory.creativeReport,
+      transformationPlan: memory.activePlan.transformationPlan ?? null,
       source: memory.activePlan.source ?? memory.source,
       applyAllPending: Boolean(
         memory.activePlan.applyAllPending ?? memory.applyAllPending,

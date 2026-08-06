@@ -93,6 +93,11 @@ export type ActiveInteractionPlan = {
     fingerprint: string;
     reviewedAt: string;
   };
+  /**
+   * v1.5 Transformation Engine plan (Phase 2).
+   * When present, Apply All executes this coordinated plan.
+   */
+  transformationPlan?: import("@/lib/transformation/types").TransformationPlan | null;
   source?: "creative_director" | "business_advisor" | "design_critique" | "mixed";
   applyAllPending: boolean;
   lastSelectedId?: string | null;

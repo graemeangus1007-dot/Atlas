@@ -6,6 +6,8 @@
 
 import type { DesignKnowledgeEvidence } from "@/lib/ai/design-knowledge/types";
 import type { DesignPatternStrategyAttachment } from "@/lib/ai/design-patterns/types";
+import type { CreativeDirectorEvaluation } from "@/lib/creative-director";
+import type { TransformationPlan } from "@/lib/transformation";
 
 export const DESIGN_AGENCIES_TONES = [
   "luxury",
@@ -80,6 +82,16 @@ export type DesignStrategy = {
    * Does not rewrite the website; informs judgment and explanations only.
    */
   patternComposition: DesignPatternStrategyAttachment | null;
+  /**
+   * v1.4 — Whole-page Creative Director evaluation (analysis only).
+   * Does not execute edits; informs prioritization and explanations.
+   */
+  creativeDirectorEvaluation: CreativeDirectorEvaluation | null;
+  /**
+   * v1.5 — Transformation Engine plan (advisory only).
+   * Coordinated vision → phases → dependency graph. No execution in Phase 1.
+   */
+  transformationPlan: TransformationPlan | null;
 };
 
 export type DesignStrategyInput = {

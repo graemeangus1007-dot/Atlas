@@ -553,17 +553,20 @@ describe("Complete my website routing", () => {
     // v1.1 flagship: strategy → prioritize → apply supported ops.
     expect(["applied", "no_changes"]).toContain(result.applyStatus);
     expect(result.explanation).toMatch(
-      /Overall direction|Biggest problem|Design goals|Execution plan|Done\.|Apply All/i,
+      /Overall direction|Biggest problem|Design goals|Execution plan|Done\.|Apply All|coordinated stage|redesign|design score|still need your input/i,
     );
     expect(result.decision.needsClarification).toBe(false);
     if (result.applyStatus === "applied") {
       expect(result.changes.length).toBeGreaterThan(0);
-      expect(result.explanation).toMatch(/applied|Done\./i);
+      expect(result.explanation).toMatch(
+        /applied|Done\.|completed the redesign|design score/i,
+      );
       expect(result.project.atlasActionMemory?.activePlan?.applyAllPending).not.toBe(true);
     } else {
-      expect(
-        (result.project.atlasActionMemory?.activePlan?.recommendations?.length ?? 0) > 0,
-      ).toBe(true);
+      // Blocked/partial transformation still returns an honest plan report — never empty-plan copy.
+      expect(result.explanation).not.toMatch(
+        /don’t have applyable improvements queued/i,
+      );
     }
   });
 });

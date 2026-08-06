@@ -68,7 +68,7 @@ export default function EditorCanvas({
             slots={{
               eyebrow: eyebrow ? (
                 <p
-                  className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]"
+                  className="site-hero-eyebrow text-sm font-medium uppercase tracking-wide text-[color:var(--site-hero-eyebrow,var(--site-accent))]"
                   data-testid="editor-hero-eyebrow"
                 >
                   {eyebrow}
@@ -81,7 +81,7 @@ export default function EditorCanvas({
                     value={content.hero.headline}
                     onChange={onHeadlineChange}
                     aria-label="Hero headline"
-                    className={`site-heading atlas-display-text font-semibold tracking-tight text-foreground ${plan.titleSizeClass} ${
+                    className={`site-heading atlas-display-text font-semibold tracking-tight text-[color:var(--site-hero-headline,var(--site-fg))] ${plan.titleSizeClass} ${
                       eyebrow ? "mt-4" : ""
                     }`}
                   />
@@ -94,24 +94,24 @@ export default function EditorCanvas({
                     value={content.hero.subheadline}
                     onChange={onSubheadlineChange}
                     aria-label="Hero subheadline"
-                    className={`mt-5 text-base leading-relaxed text-muted sm:text-lg ${plan.ledeWidthClass}`}
+                    className={`mt-5 text-base leading-relaxed text-[color:var(--site-hero-body,var(--site-muted))] sm:text-lg ${plan.ledeWidthClass}`}
                   />
                 </div>
               ),
               primaryCta: (
-                <div className="site-button inline-flex min-w-[10rem] flex-col items-center justify-center bg-[color:var(--site-accent)] px-6 py-3.5 text-sm font-medium text-[color:var(--site-bg)] transition-all duration-200 hover:brightness-110">
+                <div className="site-button site-button-primary inline-flex min-w-[10rem] flex-col items-center justify-center bg-[color:var(--site-hero-cta-bg,var(--site-accent))] px-6 py-3.5 text-sm font-medium text-[color:var(--site-hero-cta-fg,var(--site-bg))] transition-all duration-200 hover:brightness-110">
                   <EditableText
                     as="span"
                     value={content.hero.primaryCta}
                     onChange={onPrimaryCtaChange}
                     aria-label="Call-to-action button text"
                     className="text-center"
-                    inputClassName="text-center text-foreground"
+                    inputClassName="text-center"
                   />
                 </div>
               ),
               secondaryCta: (
-                <span className="site-button inline-flex items-center justify-center border border-border px-8 py-3.5 text-sm font-medium text-foreground">
+                <span className="site-button site-button-secondary inline-flex items-center justify-center border border-border px-8 py-3.5 text-sm font-medium text-[color:var(--site-hero-cta-secondary-fg,var(--site-fg))]">
                   {content.hero.secondaryCta}
                 </span>
               ),

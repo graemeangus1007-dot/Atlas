@@ -49,14 +49,14 @@ export default function SiteHero({
     slots?.eyebrow !== undefined ? (
       slots.eyebrow
     ) : eyebrowText ? (
-      <p className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]">
+      <p className="site-hero-eyebrow text-sm font-medium uppercase tracking-wide text-[color:var(--site-hero-eyebrow,var(--site-accent))]">
         {eyebrowText}
       </p>
     ) : null;
 
   const headlineNode = slots?.headline ?? (
     <h1
-      className={`site-heading atlas-display-text font-semibold tracking-tight text-foreground ${plan.titleSizeClass} ${
+      className={`site-heading atlas-display-text font-semibold tracking-tight text-[color:var(--site-hero-headline,var(--site-fg))] ${plan.titleSizeClass} ${
         eyebrowText || slots?.eyebrow ? "mt-4" : ""
       }`}
     >
@@ -66,7 +66,7 @@ export default function SiteHero({
 
   const subheadlineNode = slots?.subheadline ?? (
     <p
-      className={`mt-5 text-base leading-relaxed text-muted sm:text-lg ${plan.ledeWidthClass}`}
+      className={`mt-5 text-base leading-relaxed text-[color:var(--site-hero-body,var(--site-muted))] sm:text-lg ${plan.ledeWidthClass}`}
     >
       {content.subheadline}
     </p>
@@ -75,7 +75,7 @@ export default function SiteHero({
   const primaryCtaNode = slots?.primaryCta ?? (
     <Button
       href="#contact"
-      className="site-button bg-[color:var(--site-accent)] px-8 py-3.5 text-[color:var(--site-bg)] hover:bg-[color:var(--site-accent)] hover:brightness-110"
+      className="site-button site-button-primary bg-[color:var(--site-hero-cta-bg,var(--site-accent))] px-8 py-3.5 text-[color:var(--site-hero-cta-fg,var(--site-bg))] hover:brightness-110"
     >
       {content.primaryCta}
     </Button>
@@ -86,7 +86,7 @@ export default function SiteHero({
         <Button
           href="#about"
           variant="secondary"
-          className="site-button px-8 py-3.5"
+          className="site-button site-button-secondary px-8 py-3.5 text-[color:var(--site-hero-cta-secondary-fg,var(--site-fg))]"
         >
           {content.secondaryCta}
         </Button>

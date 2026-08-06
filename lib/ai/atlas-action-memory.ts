@@ -136,6 +136,8 @@ export type AtlasActionMemory = {
       fingerprint: string;
       reviewedAt: string;
     };
+    /** Coordinated Transformation Engine plan (Phase 2). */
+    transformationPlan?: import("@/lib/transformation/types").TransformationPlan | null;
     source?: "creative_director" | "business_advisor" | "design_critique" | "mixed";
     applyAllPending: boolean;
     lastSelectedId?: string | null;
@@ -691,6 +693,12 @@ export function matchClarificationAnswer(
   return null;
 }
 
+export function hasActiveTransformationPlan(
+  memory: AtlasActionMemory | null | undefined,
+): boolean {
+  return Boolean(memory?.activePlan?.transformationPlan?.goals?.length);
+}
+
 export function storeRecommendations(
   memory: AtlasActionMemory | null | undefined,
   input: {
@@ -698,6 +706,7 @@ export function storeRecommendations(
     advisor?: BusinessRecommendation[];
     creativeReport?: AtlasActionMemory["creativeReport"];
     executionPlan?: AtlasExecutionPlan;
+    transformationPlan?: import("@/lib/transformation/types").TransformationPlan | null;
   },
 ): AtlasActionMemory {
   const creative = (input.creative ?? []).map(
@@ -732,19 +741,29 @@ export function storeRecommendations(
           ? "business_advisor"
           : undefined;
 
-  const applyAllPending = recommendations.some((r) => r.applyable);
+  const transformationPlan =
+    input.transformationPlan !== undefined
+      ? input.transformationPlan
+      : memory?.activePlan?.transformationPlan ?? null;
+  const applyAllPending =
+    recommendations.some((r) => r.applyable) ||
+    Boolean(transformationPlan?.goals?.length);
   const creativeReport =
     input.creativeReport ?? memory?.activePlan?.creativeReport;
   const executionPlan =
     input.executionPlan ?? memory?.activePlan?.executionPlan;
   const hasPlan =
-    recommendations.length > 0 || Boolean(executionPlan) || Boolean(creativeReport);
+    recommendations.length > 0 ||
+    Boolean(executionPlan) ||
+    Boolean(creativeReport) ||
+    Boolean(transformationPlan?.goals?.length);
   const activePlan = hasPlan
     ? {
         recommendations,
         recommendationIds: recommendations.map((r) => r.id),
         executionPlan,
         creativeReport,
+        transformationPlan,
         source,
         applyAllPending,
         lastSelectedId: null as string | null,
@@ -1091,7 +1110,10 @@ export function toAdvisorRecommendations(
 function hasApplyableRecommendations(
   memory: AtlasActionMemory | null | undefined,
 ): boolean {
-  return getPlanRecommendations(memory).some((r) => r.applyable);
+  return (
+    getPlanRecommendations(memory).some((r) => r.applyable) ||
+    hasActiveTransformationPlan(memory)
+  );
 }
 
 /** Explicit plan continuation only — not short hero replies. */

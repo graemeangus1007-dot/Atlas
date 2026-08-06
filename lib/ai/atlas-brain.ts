@@ -14,6 +14,7 @@ import {
   detectActionConfirmation,
   getActionMemory,
   hasActiveRecommendations,
+  hasActiveTransformationPlan,
   hasPendingClarification,
   isCompleteWebsiteRequest,
   looksLikePlanReference,
@@ -30,6 +31,11 @@ import {
   type AtlasActionMemory,
   type ClarificationDestination,
 } from "@/lib/ai/atlas-action-memory";
+import {
+  buildTransformationPlanForProject,
+  executeTransformationPlan,
+  transformationRevisionPrompt,
+} from "@/lib/transformation";
 import {
   getInteractionState,
   normalizeInteractionState,
@@ -319,6 +325,93 @@ function applyActionMemoryRecommendations(input: {
   destination?: ClarificationDestination | null;
   recommendationIds?: string[];
 }): AtlasBrainResult {
+  const confirmationEarly = detectActionConfirmation(input.request);
+  const wantsFullPlan =
+    confirmationEarly.kind === "apply_all" ||
+    isCompleteWebsiteRequest(input.request);
+  const activeTxPlan = input.memory.activePlan?.transformationPlan ?? null;
+
+  // Apply All / Complete → coordinated Transformation Engine when a plan is active.
+  if (
+    wantsFullPlan &&
+    activeTxPlan &&
+    !input.recommendationIds?.length &&
+    !looksLikePlanReference(input.request)
+  ) {
+    const tx = executeTransformationPlan({
+      project: input.project,
+      plan: activeTxPlan,
+      logDiagnostics: process.env.NODE_ENV === "development",
+    });
+    const txApplied =
+      (tx.status === "applied" || tx.status === "partially_applied") &&
+      tx.operations.length > 0;
+
+    if (txApplied) {
+      const nextMemory = clearRecommendations(
+        clearPendingClarification(input.memory, { reason: "resolved" }),
+      );
+      const project = setInteractionState(
+        withMemory(tx.project, input.request),
+        nextMemory,
+      );
+      invalidateCritiquePipelineCache(creativeDirectorFingerprint(project));
+      return {
+        ok: true,
+        explanation: tx.summary,
+        operations: tx.operations,
+        changes: tx.changes,
+        project,
+        applyStatus: "applied",
+        decision: confirmDecision(
+          "Apply transformation plan",
+          transformationRevisionPrompt(tx.planId),
+        ),
+        followUpSuggestions: followUpsForProject(project, [
+          "Review my website",
+          "Add matching images",
+          "Improve SEO",
+        ]),
+        executionPlan: input.memory.activePlan?.executionPlan,
+        atlasMemory: project.atlasMemory,
+      };
+    }
+
+    // Ordinary critique plans: if the transformation had nothing safe to apply,
+    // fall through to recommendation Apply All so queued ops still run.
+    const hasApplyableRecs = (input.memory.activePlan?.recommendations ?? []).some(
+      (r) => r.applyable && r.operations.length > 0,
+    );
+    if (!hasApplyableRecs) {
+      const nextMemory = clearRecommendations(
+        clearPendingClarification(input.memory, { reason: "resolved" }),
+      );
+      const project = setInteractionState(
+        withMemory(input.project, input.request),
+        nextMemory,
+      );
+      return {
+        ok: true,
+        explanation: tx.summary,
+        operations: [],
+        changes: [],
+        project,
+        applyStatus: "no_changes",
+        decision: confirmDecision(
+          "Apply transformation plan",
+          transformationRevisionPrompt(tx.planId),
+        ),
+        followUpSuggestions: followUpsForProject(project, [
+          "Review my website",
+          "Add matching images",
+          "Improve SEO",
+        ]),
+        executionPlan: input.memory.activePlan?.executionPlan,
+        atlasMemory: project.atlasMemory,
+      };
+    }
+  }
+
   const planRef = resolvePlanReference(input.request, input.memory);
   if (planRef.kind === "out_of_range" || (planRef.reason && !planRef.matched)) {
     const project = setInteractionState(
@@ -2918,51 +3011,12 @@ export async function runAtlasBrain(
     return continued;
   }
 
-  // Complete my website with no applyable plan → fresh strategy/critique pipeline.
+  // Complete my website with no applyable plan → fresh Transformation Engine run.
   const completeMemory = getActionMemory(projectForTurn);
-  const hasApplyable = (completeMemory.activePlan?.recommendations ?? []).some(
-    (r) => r.applyable,
-  );
+  const hasApplyable =
+    (completeMemory.activePlan?.recommendations ?? []).some((r) => r.applyable) ||
+    hasActiveTransformationPlan(completeMemory);
   if (isCompleteWebsiteRequest(request) && !hasApplyable) {
-    const critiqueResult = await runAtlasCritiquePipeline({
-      project: projectForTurn,
-      request:
-        "Complete my website for launch — form a design strategy, then prioritize and apply the highest-impact coordinated improvements.",
-      mode: "execute",
-      history,
-      atlasRequestId: input.atlasRequestId,
-      allowFingerprintReuse: true,
-    });
-
-    if (!critiqueResult.ok) {
-      return {
-        ok: true,
-        explanation: `I couldn’t finish the launch-ready plan (${critiqueResult.message}). Try again in a moment.`,
-        operations: [],
-        changes: [],
-        project: withMemory(projectForTurn, request),
-        applyStatus: "no_changes",
-        decision: confirmDecision(
-          "Complete website",
-          "Critique pipeline could not complete.",
-        ),
-        followUpSuggestions: [
-          "Review my website",
-          "Improve SEO",
-          "Add testimonials",
-        ],
-        atlasMemory: projectForTurn.atlasMemory,
-      };
-    }
-
-    const creative = reviewCreativeDirector({
-      project: projectForTurn,
-      limit: 1,
-    });
-    const supportPlan = formatRecommendationSupportPlan(
-      critiqueResult.recommendations,
-    );
-    const applyable = critiqueResult.recommendations.filter((r) => r.applyable);
     const completionExecutionPlan = {
       goal: "Complete the website for launch",
       steps: [
@@ -2972,125 +3026,76 @@ export async function runAtlasBrain(
           label: "Form the design strategy",
         },
         {
-          id: "complete.apply",
+          id: "complete.transform",
           agent: "creative_director" as const,
-          label: "Apply every supported improvement",
+          label: "Execute the coordinated transformation plan",
+        },
+        {
+          id: "complete.verify",
+          agent: "creative_director" as const,
+          label: "Verify the whole-page result",
         },
       ],
       estimatedImpact: "high" as const,
     };
-    const actionMemory = storeRecommendations(getActionMemory(projectForTurn), {
-      creative: critiqueResult.recommendations,
-      creativeReport: {
-        overallCompleteness: creative.overallCompleteness,
-        maturityLevel: creative.maturityLevel,
-        fingerprint: creative.fingerprint,
-        reviewedAt: creative.reviewedAt,
-      },
-      executionPlan: completionExecutionPlan,
-    });
-    let project = setInteractionState(
-      withMemory(projectForTurn, request),
-      actionMemory,
+
+    const { plan, strategy } = buildTransformationPlanForProject(
+      projectForTurn,
+      "Complete my website for launch",
     );
+    const tx = executeTransformationPlan({
+      project: projectForTurn,
+      plan,
+      logDiagnostics: process.env.NODE_ENV === "development",
+    });
 
-    if (applyable.length > 0) {
-      const batch = applyAllCreativeRecommendations({
-        project,
-        recommendations: applyable.slice(0, 8),
-      });
-      if (batch.ok && batch.status === "applied") {
-        invalidateCritiquePipelineCache(
-          creativeDirectorFingerprint(batch.project),
-        );
-        project = setInteractionState(
-          batch.project,
-          clearRecommendations(getActionMemory(batch.project)),
-        );
-        const strategyName =
-          critiqueResult.strategy?.overallDirection ?? "the launch plan";
-        return {
-          ok: true,
-          explanation: [
-            critiqueResult.explanation
-              .replace(/I’m applying the coordinated plan next\.?/i, "")
-              .trim(),
-            "",
-            `Done. I applied the supported improvements from ${strategyName}.`,
-            batch.explanation,
-            supportPlan,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-          operations: applyable.flatMap((r) => r.operations).slice(0, 32),
-          changes: batch.changes,
-          project,
-          applyStatus: "applied",
-          decision: {
-            intent: "design_redesign",
-            confidence: 0.95,
-            selectedAgents: ["creative_director", "editor_agent"],
-            needsClarification: false,
-            shouldExecuteEdits: true,
-            executionPlan:
-              actionMemory.activePlan?.executionPlan ?? completionExecutionPlan,
-            explanation: "I completed the website using a design strategy.",
-            followUpSuggestions: followUpsForProject(project, [
-              "Add matching images",
-              "Improve SEO",
-              "Review my website",
-            ]),
-          },
-          followUpSuggestions: followUpsForProject(project, [
-            "Add matching images",
-            "Improve SEO",
-            "Review my website",
-          ]),
-          executionPlan:
-            actionMemory.activePlan?.executionPlan ?? completionExecutionPlan,
-          atlasMemory: project.atlasMemory,
-        };
-      }
-    }
+    void reviewCreativeDirector({
+      project: tx.project,
+      limit: 1,
+    });
+    let project = withMemory(tx.project, request);
+    project = setInteractionState(
+      project,
+      clearRecommendations(getActionMemory(project)),
+    );
+    invalidateCritiquePipelineCache(creativeDirectorFingerprint(project));
 
+    const applied =
+      tx.status === "applied" || tx.status === "partially_applied";
     return {
       ok: true,
       explanation: [
-        critiqueResult.explanation,
+        "Overall direction",
+        strategy.overallDirection,
         "",
-        supportPlan,
-        "",
-        applyable.length === 0
-          ? "I’ve prepared the strategy — some items need uploads or aren’t available to apply yet."
-          : "Say Apply All when you want me to make these changes.",
+        tx.summary,
       ]
         .filter(Boolean)
         .join("\n"),
-      operations: [],
-      changes: [],
+      operations: tx.operations,
+      changes: tx.changes,
       project,
-      applyStatus: "no_changes",
+      applyStatus: applied ? "applied" : "no_changes",
       decision: {
-        intent: "recommend",
-        confidence: 0.94,
-        selectedAgents: ["creative_director"],
+        intent: "design_redesign",
+        confidence: 0.95,
+        selectedAgents: ["creative_director", "editor_agent"],
         needsClarification: false,
-        executionPlan:
-          actionMemory.activePlan?.executionPlan ?? completionExecutionPlan,
-        explanation: "I prepared a strategy-led completion plan.",
+        shouldExecuteEdits: applied,
+        executionPlan: completionExecutionPlan,
+        explanation: "I completed the website using a coordinated transformation plan.",
         followUpSuggestions: followUpsForProject(project, [
-          "Apply All",
+          "Add matching images",
           "Improve SEO",
-          "Add subtle animations",
+          "Review my website",
         ]),
       },
       followUpSuggestions: followUpsForProject(project, [
-        "Apply All",
+        "Add matching images",
         "Improve SEO",
-        "Add subtle animations",
+        "Review my website",
       ]),
-      executionPlan:
-        actionMemory.activePlan?.executionPlan ?? completionExecutionPlan,
+      executionPlan: completionExecutionPlan,
       atlasMemory: project.atlasMemory,
     };
   }
@@ -3276,6 +3281,7 @@ export async function runAtlasBrain(
         reviewedAt: creative.reviewedAt,
       },
       executionPlan: decision.executionPlan,
+      transformationPlan: critiqueResult.strategy?.transformationPlan ?? null,
     });
     let project = setInteractionState(
       withMemory(projectForTurn, request, decision.memoryPatch),

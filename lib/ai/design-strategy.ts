@@ -30,8 +30,10 @@ import type {
   DesignStrategyInput,
 } from "@/lib/ai/design-strategy-types";
 import { DESIGN_AGENCIES_TONES } from "@/lib/ai/design-strategy-types";
+import { evaluateWebsiteAsCreativeDirector } from "@/lib/creative-director";
+import { planWebsiteTransformation } from "@/lib/transformation";
 
-const STRATEGY_VERSION = "1.3.0";
+const STRATEGY_VERSION = "1.5.0";
 
 export { STRATEGY_VERSION };
 
@@ -402,10 +404,49 @@ export function buildDesignStrategy(input: DesignStrategyInput): DesignStrategy 
     principleIds,
     evidence,
     patternComposition: null,
+    creativeDirectorEvaluation: null,
+    transformationPlan: null,
   };
 
   // v1.3 — Pattern Engine selection (advisory; does not rewrite the site).
-  return attachDesignPatternsToStrategy(strategy, input);
+  const withPatterns = attachDesignPatternsToStrategy(strategy, input);
+
+  // v1.4 — Whole-page Creative Director evaluation (analysis only).
+  const creativeDirectorEvaluation = evaluateWebsiteAsCreativeDirector({
+    strategyInput: input,
+    logDiagnostics: process.env.NODE_ENV === "development",
+  });
+
+  const withDirector = {
+    ...withPatterns,
+    creativeDirectorEvaluation,
+  };
+
+  // v1.5 — Transformation Engine plan (advisory; no execution).
+  const transformationPlan = planWebsiteTransformation({
+    strategy: withDirector,
+    strategyInput: input,
+    evaluation: creativeDirectorEvaluation,
+    logDiagnostics: process.env.NODE_ENV === "development",
+  });
+
+  const cdWeakness =
+    creativeDirectorEvaluation.executiveSummary.biggestWeakness?.trim() || "";
+  const preferCdProblem =
+    cdWeakness.length > 20 &&
+    /trust|proof|testimonial|visual|conversion|ask/i.test(cdWeakness);
+
+  return {
+    ...withDirector,
+    transformationPlan,
+    // Prefer Creative Director’s problem when it names trust/proof/conversion.
+    biggestProblem: preferCdProblem ? cdWeakness : withDirector.biggestProblem,
+    conversionBlocker:
+      creativeDirectorEvaluation.trust.score <
+        creativeDirectorEvaluation.conversion.score && preferCdProblem
+        ? cdWeakness
+        : withDirector.conversionBlocker,
+  };
 }
 
 /** Score an improvement against strategy focus (higher = earlier). */
@@ -456,6 +497,29 @@ export function scoreImprovementAgainstStrategy(
     }
     if (focus === "navigation" && /nav|menu/.test(hay)) score += w;
     if (focus === "mobile" && /mobile|tap/.test(hay)) score += w;
+  }
+
+  // v1.4 — boost improvements that match Creative Director highest-ROI themes.
+  const cd = strategy.creativeDirectorEvaluation;
+  if (cd?.recommendations?.length) {
+    for (const rec of cd.recommendations.slice(0, 3)) {
+      const theme = rec.theme;
+      if (theme === "trust" && /trust|testimonial|proof/.test(hay)) {
+        score += 12;
+      }
+      if (theme === "proof" && /testimonial|proof|gallery|social/.test(hay)) {
+        score += 12;
+      }
+      if (theme === "flow" && /testimonial|order|below|before|after/.test(hay)) {
+        score += 10;
+      }
+      if (theme === "imagery" && /image|gallery|photo|imagery/.test(hay)) {
+        score += 10;
+      }
+      if (theme === "conversion" && /cta|contact|conversion/.test(hay)) {
+        score += 10;
+      }
+    }
   }
 
   if (
@@ -611,6 +675,23 @@ export function formatDesignStrategySection(strategy: DesignStrategy): string {
       ]
     : [];
 
+  const cd = strategy.creativeDirectorEvaluation;
+  const directorBlock = cd
+    ? [
+        "",
+        "Creative Director review",
+        `Overall ${cd.executiveSummary.overallScore}/100 — ${cd.executiveSummary.professionalAssessment}`,
+        `Biggest strength: ${cd.executiveSummary.biggestStrength}`,
+        `Biggest weakness: ${cd.executiveSummary.biggestWeakness}`,
+        `Fastest improvement: ${cd.executiveSummary.fastestImprovement}`,
+      ]
+    : [];
+
+  const tx = strategy.transformationPlan;
+  const transformationBlock = tx
+    ? ["", "Transformation plan", tx.explanation]
+    : [];
+
   return [
     "Overall direction",
     `${strategy.overallDirection}${tones ? ` (${tones})` : ""}`,
@@ -636,6 +717,8 @@ export function formatDesignStrategySection(strategy: DesignStrategy): string {
     "Execution plan",
     plan,
     ...patternBlock,
+    ...directorBlock,
+    ...transformationBlock,
   ].join("\n");
 }
 

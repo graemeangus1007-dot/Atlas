@@ -154,6 +154,22 @@ h1, h2, h3, p {
   filter: brightness(1.1);
 }
 
+/* Hero-scoped presentation (adaptive) — identity tokens stay global. */
+.site-hero .site-button-primary {
+  background: var(--site-hero-cta-bg, var(--site-accent));
+  color: var(--site-hero-cta-fg, var(--site-bg));
+}
+
+.site-hero .site-button-secondary {
+  color: var(--site-hero-cta-secondary-fg, var(--site-fg));
+  border-color: var(--site-hero-cta-secondary-border, var(--site-border));
+}
+
+.site-hero .site-eyebrow,
+.site-hero-eyebrow {
+  color: var(--site-hero-eyebrow, var(--site-accent));
+}
+
 .site-button-secondary {
   background: transparent;
   color: var(--site-fg);
@@ -463,6 +479,7 @@ h1, h2, h3, p {
   font-size: clamp(2rem, 6vw, 3.75rem);
   font-weight: 600;
   letter-spacing: -0.03em;
+  color: var(--site-hero-headline, var(--site-fg));
 }
 
 .site-hero-bold-overlay .site-hero-content h1 {
@@ -476,7 +493,7 @@ h1, h2, h3, p {
 .site-hero-content .lede {
   margin-top: 1.25rem;
   font-size: 1.05rem;
-  color: var(--site-muted);
+  color: var(--site-hero-body, var(--site-muted));
   max-width: 42rem;
 }
 

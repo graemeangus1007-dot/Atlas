@@ -454,6 +454,34 @@ export {
   DESIGN_FOCUS_AREAS,
 } from "@/lib/ai/design-strategy-types";
 export {
+  CREATIVE_DIRECTOR_EVAL_VERSION,
+  evaluateWebsiteAsCreativeDirector,
+  textExposesInternalIds,
+} from "@/lib/creative-director";
+export type {
+  CreativeDirectorEvaluation,
+  WebsiteHealthV2,
+} from "@/lib/creative-director";
+export {
+  TRANSFORMATION_PLAN_VERSION,
+  planWebsiteTransformation,
+  transformationTextExposesInternalIds,
+  executeTransformationPlan,
+  executeFreshWebsiteTransformation,
+  buildTransformationPlanForProject,
+  mapTransformationGoalToOperations,
+  runTransformationPreflight,
+  formatTransformationExecutionReport,
+  restoreTransformationBaseline,
+  captureTransformationUndoSnapshot,
+} from "@/lib/transformation";
+export type {
+  TransformationPlan,
+  WebsiteVision,
+  TransformationExecutionResult,
+  TransformationGoalExecutionStatus,
+} from "@/lib/transformation";
+export {
   DESIGN_PATTERN_CATEGORIES,
   DESIGN_PATTERN_REGISTRY,
   attachDesignPatternsToStrategy,
@@ -593,6 +621,7 @@ export {
   removeAppliedRecommendations,
   matchClarificationAnswer,
   hasActiveRecommendations,
+  hasActiveTransformationPlan,
   hasPendingClarification,
   getActionMemory,
   selectRecommendationsToApply,
