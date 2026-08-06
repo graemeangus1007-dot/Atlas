@@ -24,3 +24,20 @@ export {
   heroParityContract,
   type HeroRenderPlan,
 } from "@/lib/hero-composition/render-plan";
+export {
+  HERO_COMPOSITION_PASS_THRESHOLD,
+  classifyImageAspect,
+  compositionScorePasses,
+  evaluateHeroComposition,
+  readHeroImageAspectRatio,
+  type HeroCompositionAdjustment,
+  type HeroCompositionEvaluation,
+  type HeroCompositionProblem,
+  type HeroImageAspectClass,
+} from "@/lib/hero-composition/evaluator";
+export {
+  logHeroCompositionDiagnostics,
+  refineHeroComposition,
+  type HeroCompositionRefineDiagnostics,
+  type RefineHeroCompositionResult,
+} from "@/lib/hero-composition/refine";

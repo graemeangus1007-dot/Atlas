@@ -7,8 +7,12 @@ import { textExposesDesignPatternIds } from "@/lib/ai/design-patterns/registry";
 import type { EditOperation } from "@/lib/ai/edit-operations";
 import {
   buildHeroRenderPlan,
+  compositionScorePasses,
+  evaluateHeroComposition,
   HERO_COMPOSITION_VERSION,
+  refineHeroComposition,
   type HeroComposition,
+  type HeroCompositionRefineDiagnostics,
   resolveHeroCompositionFromProject,
 } from "@/lib/hero-composition";
 import { getTemplate } from "@/lib/templates";
@@ -49,6 +53,8 @@ export type HeroPatternVerifyResult = {
   alreadySatisfied: boolean;
   globalThemeChanged: boolean;
   scopeViolations: string[];
+  compositionScore?: number;
+  compositionDiagnostics?: HeroCompositionRefineDiagnostics | null;
 };
 
 function snapOverlay(value: number): HeroOverlayStep {
@@ -90,22 +96,22 @@ export function heroPatternPreset(
         legacyLayoutKey: "bold-overlay",
         minHeight: "viewport",
         contentAlignment: "center",
-        verticalAlignment: "center",
+        verticalAlignment: "bottom",
         contentWidth: "medium",
         image: {
           fit: "cover",
           position: "center",
-          zoom: 1.05,
-          focalPoint: { x: 0.5, y: 0.42 },
+          zoom: 1.08,
+          focalPoint: { x: 0.5, y: 0.4 },
         },
         treatment: {
           overlay: 25,
           gradient: {
             direction: "bottom",
-            strength: 0.35,
-            coverage: 0.55,
+            strength: 0.45,
+            coverage: 0.62,
           },
-          textScrim: { enabled: true, opacity: 0.22, blur: 6 },
+          textScrim: { enabled: true, opacity: 0.3, blur: 8 },
         },
         typography: {
           headingScale: "xl",
@@ -576,21 +582,28 @@ export function planHeroPatternApplication(input: {
     current?.patternId === adapted.patternId &&
     compositionsStructurallyEqual(current, adapted.composition)
   ) {
-    return {
-      operations: [],
-      patternId: adapted.patternId,
-      requestedPatternId: requested,
-      composition: adapted.composition,
-      explanation: explainHeroPatternApplication({
+    const score = evaluateHeroComposition({
+      composition: current,
+      project: input.project,
+    }).overallScore;
+    if (compositionScorePasses(score)) {
+      return {
+        operations: [],
         patternId: adapted.patternId,
+        requestedPatternId: requested,
+        composition: adapted.composition,
+        explanation: explainHeroPatternApplication({
+          patternId: adapted.patternId,
+          alreadySatisfied: true,
+        }),
         alreadySatisfied: true,
-      }),
-      alreadySatisfied: true,
-      fallbackUsed: adapted.fallbackUsed,
-      fallbackReason: adapted.fallbackReason,
-      blocked: false,
-      blockReason: null,
-    };
+        fallbackUsed: adapted.fallbackUsed,
+        fallbackReason: adapted.fallbackReason,
+        blocked: false,
+        blockReason: null,
+      };
+    }
+    // Structurally active but visually weak — fall through to re-apply with refinement.
   }
 
   const explanation = explainHeroPatternApplication({
@@ -785,13 +798,25 @@ export function verifyHeroPatternApplication(input: {
     failures.push("template_changed");
   }
 
+  // Visually poor compositions must not pass even if fields match.
+  const evaluation = evaluateHeroComposition({
+    composition: input.after.heroComposition ?? input.expected,
+    project: input.after,
+  });
+  if (!compositionScorePasses(evaluation.overallScore)) {
+    failures.push(
+      `composition_score_too_low:${evaluation.overallScore}`,
+    );
+  }
+
   const alreadySatisfied =
     Boolean(input.allowAlreadySatisfied) &&
     input.before.heroComposition?.patternId === input.expected.patternId &&
     compositionsStructurallyEqual(
       input.before.heroComposition!,
       input.expected,
-    );
+    ) &&
+    compositionScorePasses(evaluation.overallScore);
 
   return {
     verified: alreadySatisfied ? true : failures.length === 0,
@@ -799,6 +824,32 @@ export function verifyHeroPatternApplication(input: {
     alreadySatisfied,
     globalThemeChanged,
     scopeViolations: violations,
+    compositionScore: evaluation.overallScore,
+    compositionDiagnostics: null,
+  };
+}
+
+/**
+ * Run one composition-first refinement pass after planning (does not change the planner).
+ */
+export function prepareHeroPatternComposition(input: {
+  project: BusinessProject;
+  composition: HeroComposition;
+  aspectRatio?: number | null;
+}): {
+  composition: HeroComposition;
+  diagnostics: HeroCompositionRefineDiagnostics;
+  refined: boolean;
+} {
+  const result = refineHeroComposition({
+    project: input.project,
+    composition: input.composition,
+    aspectRatio: input.aspectRatio,
+  });
+  return {
+    composition: result.composition,
+    diagnostics: result.diagnostics,
+    refined: result.refined,
   };
 }
 

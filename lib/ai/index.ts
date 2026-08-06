@@ -724,6 +724,7 @@ export {
   matchExplicitHeroPatternRequest,
   mirrorHeroCompositionToLegacyFields,
   planHeroPatternApplication,
+  prepareHeroPatternComposition,
   verifyHeroPatternApplication,
 } from "@/lib/ai/hero-pattern-application";
 export type {
@@ -732,6 +733,11 @@ export type {
   HeroPatternStrategyContext,
   HeroPatternVerifyResult,
 } from "@/lib/ai/hero-pattern-application";
+export {
+  HERO_COMPOSITION_PASS_THRESHOLD,
+  evaluateHeroComposition,
+  refineHeroComposition,
+} from "@/lib/hero-composition";
 export {
   DEFAULT_GALLERY_INTERACTION,
   isGalleryLightboxRequest,

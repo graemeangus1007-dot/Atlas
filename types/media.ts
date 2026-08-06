@@ -30,6 +30,10 @@ export type MediaAsset = MediaAssetMeta & {
   size: number;
   /** Human-readable size, e.g. "240 KB". */
   sizeLabel: string;
+  /** Optional pixel width when known (upload / analysis). */
+  width?: number;
+  /** Optional pixel height when known (upload / analysis). */
+  height?: number;
   createdAt: number;
   /**
    * When the current signed `url` should be refreshed (epoch ms).

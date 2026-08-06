@@ -121,10 +121,12 @@ import {
   isHeroPatternRedesignRequest,
   matchExplicitHeroPatternRequest,
   planHeroPatternApplication,
+  prepareHeroPatternComposition,
   verifyHeroPatternApplication,
   type ExecutableHeroPatternId,
 } from "@/lib/ai/hero-pattern-application";
 import { composeDesignPatterns } from "@/lib/ai/design-patterns/composition";
+import { logHeroCompositionDiagnostics } from "@/lib/hero-composition";
 import {
   isGalleryLightboxRequest,
   isGalleryLightboxSoftContinuation,
@@ -1792,9 +1794,25 @@ function tryApplyHeroPattern(input: {
     };
   }
 
+  // P1.5 — one composition-first refinement pass before apply/verify.
+  const prepared = prepareHeroPatternComposition({
+    project: input.project,
+    composition: planned.composition,
+  });
+  logHeroCompositionDiagnostics({
+    ...prepared.diagnostics,
+    requestId: input.requestId,
+  });
+
   const ops = validateEditOperations(
     filterOperationsForBrandPreservation(
-      planned.operations,
+      [
+        {
+          operation: "applyHeroPattern",
+          patternId: planned.patternId,
+          composition: prepared.composition,
+        },
+      ],
       defaultHeroPreservationContext(),
     ),
   );
@@ -1807,7 +1825,7 @@ function tryApplyHeroPattern(input: {
   const check = verifyHeroPatternApplication({
     before,
     after: paletteSafe,
-    expected: planned.composition,
+    expected: prepared.composition,
   });
 
   if (!check.verified) {
@@ -1863,6 +1881,9 @@ function tryApplyHeroPattern(input: {
     kind: "hero_composition",
     lastUserGoal: input.request,
   });
+  const explanation = prepared.refined
+    ? `${planned.explanation} I refined the composition for stronger balance and readability.`
+    : planned.explanation;
   project = rememberExecution(
     project,
     input.request,
@@ -1879,7 +1900,7 @@ function tryApplyHeroPattern(input: {
         "heroImagePresentation",
       ],
       warnings: [],
-      explanation: planned.explanation,
+      explanation,
     },
     ops,
     { scope: "hero", paletteBefore: captureBrandPalette(before) },
@@ -1887,7 +1908,7 @@ function tryApplyHeroPattern(input: {
 
   return {
     ok: true,
-    explanation: planned.explanation,
+    explanation,
     operations: ops,
     changes: applied.changes,
     project,
@@ -1908,7 +1929,7 @@ function tryApplyHeroPattern(input: {
         ],
         estimatedImpact: "high",
       },
-      explanation: planned.explanation,
+      explanation,
       followUpSuggestions: [
         "Show the entire picture",
         "Keep the words readable",

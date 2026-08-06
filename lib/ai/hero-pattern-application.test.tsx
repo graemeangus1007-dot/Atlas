@@ -25,6 +25,7 @@ import {
   heroPatternPreset,
   matchExplicitHeroPatternRequest,
   planHeroPatternApplication,
+  prepareHeroPatternComposition,
   verifyHeroPatternApplication,
   type ExecutableHeroPatternId,
 } from "@/lib/ai/hero-pattern-application";
@@ -146,14 +147,25 @@ describe("planner + apply + verify", () => {
       expect(planned.operations).toHaveLength(1);
       expect(planned.operations[0]?.operation).toBe("applyHeroPattern");
 
-      const ops = validateEditOperations(planned.operations);
+      const prepared = prepareHeroPatternComposition({
+        project: before,
+        composition: planned.composition,
+      });
+      const ops = validateEditOperations([
+        {
+          operation: "applyHeroPattern",
+          patternId: planned.patternId,
+          composition: prepared.composition,
+        },
+      ]);
       const applied = applyEditOperations(before, ops);
       const check = verifyHeroPatternApplication({
         before,
         after: applied.project,
-        expected: planned.composition,
+        expected: prepared.composition,
       });
       expect(check.verified).toBe(true);
+      expect(check.compositionScore ?? 0).toBeGreaterThanOrEqual(68);
       expect(applied.project.heroComposition?.patternId).toBe(
         planned.patternId,
       );
