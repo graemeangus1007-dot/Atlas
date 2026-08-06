@@ -10,6 +10,7 @@ import {
   deriveAltText,
   publicGalleryTitle,
 } from "@/lib/media-titles";
+import { resolveHeroCompositionFromProject } from "@/lib/hero-composition";
 import type { BusinessType } from "@/types/business";
 import type { BusinessProject } from "@/types/business-project";
 import { normalizeGalleryInteraction } from "@/types/gallery";
@@ -72,6 +73,7 @@ export function generateWebsiteContent(
         heroImageUrl || placeholderImageUrl(`${businessName} hero`, 1600, 900),
       isPlaceholder: !heroImageUrl,
     },
+    heroComposition: resolveHeroCompositionFromProject(project),
     about: {
       title: project.aboutTitle?.trim() || template.aboutTitle,
       description,

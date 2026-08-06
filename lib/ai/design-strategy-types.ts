@@ -5,6 +5,7 @@
  */
 
 import type { DesignKnowledgeEvidence } from "@/lib/ai/design-knowledge/types";
+import type { DesignPatternStrategyAttachment } from "@/lib/ai/design-patterns/types";
 
 export const DESIGN_AGENCIES_TONES = [
   "luxury",
@@ -74,6 +75,11 @@ export type DesignStrategy = {
   principleIds: string[];
   /** v1.2 — internal evidence linking findings to principles (not user-facing). */
   evidence: DesignKnowledgeEvidence[];
+  /**
+   * v1.3 — Design Pattern Engine composition (advisory).
+   * Does not rewrite the website; informs judgment and explanations only.
+   */
+  patternComposition: DesignPatternStrategyAttachment | null;
 };
 
 export type DesignStrategyInput = {

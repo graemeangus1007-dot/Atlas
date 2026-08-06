@@ -16,6 +16,7 @@ import type {
   ProjectDesignSections,
 } from "@/lib/ai/edit-operations";
 import type { WebsiteService } from "@/types/website-content";
+import type { HeroComposition } from "@/lib/hero-composition/types";
 
 /** Lifecycle of a generated Atlas website project. */
 export type ProjectStatus = "draft" | "generating" | "ready" | "published";
@@ -126,6 +127,11 @@ export type BusinessProject = {
     zoom: number;
     position: "center" | "top" | "bottom" | "left" | "right";
   };
+  /**
+   * Optional coordinated hero composition (Design Pattern Engine execution).
+   * Absent on legacy projects — inferred at render time without mutating storage.
+   */
+  heroComposition?: HeroComposition | null;
   /**
    * Gallery visitor interaction (lightbox / none).
    * Persisted in branding JSON with other presentation tokens.

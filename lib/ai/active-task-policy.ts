@@ -23,6 +23,7 @@ import {
 import { isHeroVisualContinuationRequest } from "@/lib/ai/active-visual-task";
 import { isGalleryLightboxRequest } from "@/lib/ai/gallery-interaction";
 import { isGalleryMetadataRequest } from "@/lib/ai/gallery-metadata";
+import { isHeroPatternApplicationRequest } from "@/lib/ai/hero-pattern-application";
 import {
   isHeroFitRequest,
   isHeroProfessionalCompositionRequest,
@@ -124,7 +125,8 @@ const POLICIES: Record<AtlasActiveTaskKind, ActiveTaskPolicy> = {
   hero_composition: {
     kind: "hero_composition",
     allowedTargets: ["hero"],
-    continuationSignals: /\b(professional|composition|layout|hero)\b/i,
+    continuationSignals:
+      /\b(professional|composition|layout|hero|cinematic|coastal|contractor|minimal|pattern)\b/i,
     topicSwitchSignals: GLOBAL_TOPIC_SWITCH,
     blocksActivePlan: true,
     requiresPreservation: true,
@@ -220,6 +222,7 @@ export function detectFreshTaskIntent(request: string): ActiveTaskIntent {
   if (isHeroImageVisibilityComplaint(text) || isSoftHeroVisibilityRequest(text)) {
     return "hero_balance";
   }
+  if (isHeroPatternApplicationRequest(text)) return "hero_composition";
   if (isHeroProfessionalCompositionRequest(text)) return "hero_composition";
   if (isHeroFitRequest(text)) return "hero_image_fit";
   if (PLAN_CONTINUE.test(text)) return "plan_execution";

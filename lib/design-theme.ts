@@ -8,6 +8,10 @@ import {
   type HeadingFontId,
   type SiteWidthId,
 } from "@/data/design-options";
+import {
+  buildHeroRenderPlan,
+  resolveHeroCompositionFromProject,
+} from "@/lib/hero-composition";
 import type { BusinessProject } from "@/types/business-project";
 import type { CSSProperties } from "react";
 import { accentToSoft } from "@/lib/website-generator";
@@ -74,7 +78,9 @@ export function buildSiteDesignStyle(
     ? "rgba(16, 24, 40, 0.1)"
     : "rgba(255, 255, 255, 0.1)";
   const accent = project.accentColor || project.primaryColor;
-  const overlay = normalizeOverlay(project.heroOverlay ?? 50);
+  const composition = resolveHeroCompositionFromProject(project);
+  const heroPlan = buildHeroRenderPlan(composition);
+  const overlay = normalizeOverlay(composition.treatment.overlay);
 
   return {
     "--site-bg": background,
@@ -102,46 +108,55 @@ export function buildSiteDesignStyle(
     "--site-body-font": fontCssVar(project.bodyFont, BODY_FONTS),
     "--site-button-radius": buttonRadius(project.buttonStyle),
     "--site-hero-overlay": String(overlay),
+    "--site-hero-min-height": heroPlan.cssVars["--site-hero-min-height"],
+    "--site-hero-content-align":
+      heroPlan.cssVars["--site-hero-content-align"],
+    "--site-hero-vertical-align":
+      heroPlan.cssVars["--site-hero-vertical-align"],
+    "--site-hero-content-max": heroPlan.cssVars["--site-hero-content-max"],
     "--site-hero-gradient-opacity": String(
-      project.heroTreatment?.gradient?.strength ?? 0,
+      composition.treatment.gradient?.strength ??
+        project.heroTreatment?.gradient?.strength ??
+        0,
     ),
     "--site-hero-gradient-coverage": `${Math.round(
-      (project.heroTreatment?.gradient?.coverage ?? 0) * 100,
+      (composition.treatment.gradient?.coverage ??
+        project.heroTreatment?.gradient?.coverage ??
+        0) * 100,
     )}%`,
-    "--site-hero-gradient-direction":
-      project.heroTreatment?.gradient?.direction === "left"
-        ? "to right"
-        : project.heroTreatment?.gradient?.direction === "right"
-          ? "to left"
-          : project.heroTreatment?.gradient?.direction === "top"
-            ? "to bottom"
-            : "to top",
+    "--site-hero-gradient-direction": (() => {
+      const direction =
+        composition.treatment.gradient?.direction ??
+        project.heroTreatment?.gradient?.direction;
+      if (direction === "left") return "to right";
+      if (direction === "right") return "to left";
+      if (direction === "top") return "to bottom";
+      return "to top";
+    })(),
     "--site-hero-scrim-opacity": String(
-      project.heroTreatment?.textScrim?.enabled
-        ? project.heroTreatment.textScrim.opacity
-        : 0,
+      composition.treatment.textScrim?.enabled
+        ? composition.treatment.textScrim.opacity
+        : project.heroTreatment?.textScrim?.enabled
+          ? project.heroTreatment.textScrim.opacity
+          : 0,
     ),
-    "--site-hero-scrim-blur": `${project.heroTreatment?.textScrim?.blur ?? 0}px`,
+    "--site-hero-scrim-blur": `${
+      composition.treatment.textScrim?.blur ??
+      project.heroTreatment?.textScrim?.blur ??
+      0
+    }px`,
     "--site-hero-object-fit":
-      project.heroImagePresentation?.fit === "contain" ||
-      project.heroImagePresentation?.fit === "full"
-        ? "contain"
-        : "cover",
+      composition.image.fit === "contain" ? "contain" : "cover",
     "--site-hero-object-position": (() => {
-      const pos = project.heroImagePresentation?.position ?? "center";
-      const fp = project.heroImagePresentation?.focalPoint ?? {
-        x: 0.5,
-        y: 0.5,
-      };
+      const pos = composition.image.position;
+      const fp = composition.image.focalPoint;
       if (pos === "top") return "50% 0%";
       if (pos === "bottom") return "50% 100%";
       if (pos === "left") return "0% 50%";
       if (pos === "right") return "100% 50%";
       return `${Math.round(fp.x * 100)}% ${Math.round(fp.y * 100)}%`;
     })(),
-    "--site-hero-object-zoom": String(
-      project.heroImagePresentation?.zoom ?? 1,
-    ),
+    "--site-hero-object-zoom": String(composition.image.zoom ?? 1),
     "--site-content-max": contentMaxWidth(project.siteWidth),
     "--site-section-pad":
       project.creativePolish?.spacing === "airy"

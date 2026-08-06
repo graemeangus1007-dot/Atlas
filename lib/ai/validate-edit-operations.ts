@@ -19,6 +19,10 @@ import {
   isRequiredSectionId,
   type EditOperation,
 } from "@/lib/ai/edit-operations";
+import {
+  heroPatternPreset,
+  isExecutableHeroPatternId,
+} from "@/lib/ai/hero-pattern-application";
 import { resolveSectionAlias } from "@/lib/ai/section-order";
 import { MOTION_PRESETS } from "@/lib/ai/motion-model";
 import { TEMPLATE_IDS } from "@/lib/templates/types";
@@ -756,6 +760,36 @@ function validateOne(raw: unknown, index: number): EditOperation {
         ...(focalPoint ? { focalPoint } : {}),
         ...(zoom !== undefined ? { zoom } : {}),
         ...(position ? { position } : {}),
+      };
+    }
+    case "applyHeroPattern": {
+      if (
+        typeof row.patternId !== "string" ||
+        !isExecutableHeroPatternId(row.patternId)
+      ) {
+        throw new AiError(
+          "bad_request",
+          `applyHeroPattern.patternId must be an executable hero pattern at index ${index}.`,
+        );
+      }
+      let composition = heroPatternPreset(row.patternId);
+      if (row.composition !== undefined) {
+        if (!row.composition || typeof row.composition !== "object") {
+          throw new AiError(
+            "bad_request",
+            `applyHeroPattern.composition must be an object at index ${index}.`,
+          );
+        }
+        composition = {
+          ...composition,
+          ...(row.composition as typeof composition),
+          patternId: row.patternId,
+        };
+      }
+      return {
+        operation: "applyHeroPattern",
+        patternId: row.patternId,
+        composition,
       };
     }
     case "setGalleryInteraction": {

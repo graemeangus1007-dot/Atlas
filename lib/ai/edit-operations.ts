@@ -83,6 +83,7 @@ export const EDIT_OPERATION_KINDS = [
   "setHeroOverlay",
   "setHeroTreatment",
   "setHeroImagePresentation",
+  "applyHeroPattern",
   "setGalleryInteraction",
   "updateGalleryItemMetadata",
   "setComponentSurface",
@@ -247,6 +248,68 @@ export type SetHeroImagePresentationOperation = {
   position?: "center" | "top" | "bottom" | "left" | "right";
 };
 
+/**
+ * Atomic hero pattern composition (P1).
+ * Applies one coordinated HeroComposition + mirrors legacy hero fields.
+ */
+export type ApplyHeroPatternOperation = {
+  operation: "applyHeroPattern";
+  patternId:
+    | "hero.cinematic_full_width"
+    | "hero.coastal_service"
+    | "hero.contractor_left"
+    | "hero.premium_minimal";
+  /** Full planned composition from the planner (preferred). */
+  composition?: {
+    patternId: string | null;
+    version: 1;
+    layout: "full_width" | "split" | "contained" | "floating_card";
+    legacyLayoutKey?: "centered" | "split" | "minimal" | "bold-overlay";
+    minHeight: "short" | "medium" | "tall" | "viewport";
+    contentAlignment: "left" | "center" | "right";
+    verticalAlignment: "top" | "center" | "bottom";
+    contentWidth: "narrow" | "medium" | "wide";
+    image: {
+      fit: "cover" | "contain";
+      position: "center" | "top" | "bottom" | "left" | "right";
+      zoom: number;
+      focalPoint: { x: number; y: number };
+    };
+    treatment: {
+      overlay: number;
+      gradient?: {
+        direction: "left" | "right" | "top" | "bottom";
+        strength: number;
+        coverage: number;
+      } | null;
+      textScrim?: {
+        enabled: boolean;
+        opacity: number;
+        blur?: number;
+      } | null;
+    };
+    typography: {
+      headingScale: "sm" | "md" | "lg" | "xl";
+      headingWeight: 400 | 500 | 600 | 700;
+      bodyScale: "sm" | "md" | "lg";
+      showSecondaryCta: boolean;
+    };
+    cta: {
+      arrangement: "row" | "stack";
+      alignment: "left" | "center" | "right";
+      primaryEmphasis: "default" | "strong" | "quiet";
+    };
+    mobile: {
+      layout: "stack_copy_first" | "stack_image_first" | "keep_overlay";
+      minHeight: "short" | "medium" | "tall" | "viewport";
+    };
+    accents: {
+      showAccentWash: boolean;
+      showGrid: boolean;
+    };
+  };
+};
+
 /** Gallery visitor interaction (lightbox). */
 export type SetGalleryInteractionOperation = {
   operation: "setGalleryInteraction";
@@ -299,6 +362,7 @@ export type EditOperation =
   | SetHeroOverlayOperation
   | SetHeroTreatmentOperation
   | SetHeroImagePresentationOperation
+  | ApplyHeroPatternOperation
   | SetGalleryInteractionOperation
   | UpdateGalleryItemMetadataOperation
   | SetComponentSurfaceOperation;

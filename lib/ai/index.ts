@@ -454,6 +454,32 @@ export {
   DESIGN_FOCUS_AREAS,
 } from "@/lib/ai/design-strategy-types";
 export {
+  DESIGN_PATTERN_CATEGORIES,
+  DESIGN_PATTERN_REGISTRY,
+  attachDesignPatternsToStrategy,
+  buildCompatibilityGraph,
+  composeDesignPatterns,
+  countDesignPatternsByCategory,
+  explainDesignPatternComposition,
+  getDesignPatternById,
+  getDesignPatternsByCategory,
+  inferIndustryAffinityTags,
+  isCompatiblePatternSet,
+  listAllDesignPatterns,
+  scoreComposition,
+  scorePatternForContext,
+  scorePatternPairCompatibility,
+  selectCandidatePatterns,
+  textExposesDesignPatternIds,
+} from "@/lib/ai/design-patterns";
+export type {
+  DesignPattern,
+  DesignPatternCategory,
+  DesignPatternComposition,
+  DesignPatternSelectionContext,
+  DesignPatternStrategyAttachment,
+} from "@/lib/ai/design-patterns";
+export {
   DESIGN_KNOWLEDGE_REGISTRY,
   MAX_PROMPT_DESIGN_PRINCIPLES,
   countDesignPrinciplesByCategory,
@@ -687,6 +713,25 @@ export type {
   HeroImagePresentation,
   HeroImageFit,
 } from "@/lib/ai/hero-image-presentation";
+export {
+  EXECUTABLE_HERO_PATTERN_IDS,
+  adaptHeroPatternComposition,
+  explainHeroPatternApplication,
+  heroPatternPreset,
+  isExecutableHeroPatternId,
+  isHeroPatternApplicationRequest,
+  isHeroPatternRedesignRequest,
+  matchExplicitHeroPatternRequest,
+  mirrorHeroCompositionToLegacyFields,
+  planHeroPatternApplication,
+  verifyHeroPatternApplication,
+} from "@/lib/ai/hero-pattern-application";
+export type {
+  ExecutableHeroPatternId,
+  HeroPatternPlanResult,
+  HeroPatternStrategyContext,
+  HeroPatternVerifyResult,
+} from "@/lib/ai/hero-pattern-application";
 export {
   DEFAULT_GALLERY_INTERACTION,
   isGalleryLightboxRequest,

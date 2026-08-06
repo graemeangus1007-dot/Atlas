@@ -521,7 +521,25 @@ h1, h2, h3, p {
 .site-hero-split-image .site-hero-overlay {
   position: absolute;
   inset: 0;
-  opacity: 0.3;
+  /* Legacy split uses composition.treatment.overlay = 30 → 0.3 */
+  opacity: var(--site-hero-overlay, 0.3);
+}
+
+.site-hero-split-image .site-hero-gradient,
+.site-hero-split-image .site-hero-text-scrim {
+  position: absolute;
+  z-index: 1;
+}
+
+.site-hero-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.15;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
 }
 
 .site-about-grid {

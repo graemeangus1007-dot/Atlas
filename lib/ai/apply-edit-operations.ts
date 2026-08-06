@@ -18,6 +18,11 @@ import {
   createDefaultTestimonials,
 } from "@/lib/ai/design-sections-canonical";
 import { findFaqIndexByQuestion } from "@/lib/ai/content-edit-planner";
+import {
+  adaptHeroPatternComposition,
+  mirrorHeroCompositionToLegacyFields,
+} from "@/lib/ai/hero-pattern-application";
+import { HERO_COMPOSITION_VERSION } from "@/lib/hero-composition";
 import { applySectionMove } from "@/lib/ai/section-order";
 import { defaultProjectSeo } from "@/lib/seo/defaults";
 
@@ -272,6 +277,8 @@ function summarizeOp(op: EditOperation, index: number): EditChangeSummary {
       return { id, label: "Hero contrast localized", ok: true };
     case "setHeroImagePresentation":
       return { id, label: "Hero image fit updated", ok: true };
+    case "applyHeroPattern":
+      return { id, label: "Hero pattern composition applied", ok: true };
     case "setGalleryInteraction":
       return {
         id,
@@ -636,6 +643,20 @@ export function applyEditOperations(
         }
         if (op.position) prev.position = op.position;
         next = { ...next, heroImagePresentation: prev };
+        break;
+      }
+      case "applyHeroPattern": {
+        const composition = op.composition
+          ? {
+              ...op.composition,
+              patternId: op.patternId,
+              version: HERO_COMPOSITION_VERSION,
+            }
+          : adaptHeroPatternComposition({
+              patternId: op.patternId,
+              project: next,
+            }).composition;
+        next = mirrorHeroCompositionToLegacyFields(next, composition);
         break;
       }
       case "setGalleryInteraction": {

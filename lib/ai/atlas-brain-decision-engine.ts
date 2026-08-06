@@ -44,6 +44,10 @@ import {
   isHeroProfessionalCompositionRequest,
   isSoftHeroVisibilityRequest,
 } from "@/lib/ai/hero-image-presentation";
+import {
+  isHeroPatternApplicationRequest,
+  matchExplicitHeroPatternRequest,
+} from "@/lib/ai/hero-pattern-application";
 import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
 import { shouldContinueActiveHeroTask } from "@/lib/ai/active-visual-task";
 import { isGalleryLightboxRequest } from "@/lib/ai/gallery-interaction";
@@ -510,6 +514,47 @@ export function stageExplicitCommand(
         memoryPatch: inferMemoryFromMessage(request),
         decisionStage: "explicit_command",
         commandKind: "images",
+        shouldExecuteEdits: true,
+      }),
+    };
+  }
+
+  // Explicit hero pattern composition (P1) — before feel/image agents.
+  if (
+    isHeroPatternApplicationRequest(request) &&
+    (matchExplicitHeroPatternRequest(request) ||
+      /\b(redesign|professionally\s+improve|professional\s+hero|make\s+the\s+hero\s+(look\s+)?professional)\b/i.test(
+        request,
+      ))
+  ) {
+    return {
+      stage: "explicit_command",
+      commandKind: "hero_balance",
+      decision: withConfidencePolicy({
+        intent: "command_readability",
+        confidence: 0.97,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Apply hero pattern composition",
+          [
+            {
+              id: "cmd.hero-pattern",
+              agent: "editor_agent",
+              label: "Apply coordinated hero composition",
+            },
+          ],
+          "high",
+        ),
+        explanation:
+          "I’ll apply a coordinated hero composition without changing your global brand system.",
+        followUpSuggestions: [
+          "Show the entire picture",
+          "Keep the words readable",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
         shouldExecuteEdits: true,
       }),
     };

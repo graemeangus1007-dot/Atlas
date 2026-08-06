@@ -6,7 +6,9 @@ import EditorServices from "@/components/editor/editor-services";
 import PreviewDesignSections from "@/components/preview/preview-design-sections";
 import PreviewFeatures from "@/components/preview/preview-features";
 import PreviewGallery from "@/components/preview/preview-gallery";
+import SiteHero from "@/components/site/site-hero";
 import { useTemplate } from "@/context/template-context";
+import { buildHeroRenderPlan } from "@/lib/hero-composition";
 import type { TemplateSectionId } from "@/lib/templates/types";
 import type { ProjectContact } from "@/types/business-project";
 import type { GeneratedWebsiteContent, WebsiteService } from "@/types/website-content";
@@ -54,60 +56,49 @@ export default function EditorCanvas({
   function renderCore(sectionId: string) {
     switch (sectionId as TemplateSectionId) {
       case "hero": {
+        const composition = content.heroComposition;
+        const plan = buildHeroRenderPlan(composition);
         const eyebrow = content.hero.eyebrow?.trim() || "";
-        const showEyebrow =
-          Boolean(eyebrow) &&
-          eyebrow.toLowerCase() !== content.businessName.trim().toLowerCase();
         return (
-          <section
+          <SiteHero
             key="hero"
-            className="relative isolate overflow-hidden border-b border-border px-5 py-20 text-center sm:px-8 sm:py-28"
-            data-testid="editor-hero"
-            data-hero-placeholder={content.hero.isPlaceholder ? "true" : "false"}
-          >
-            <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={content.hero.imageUrl}
-                alt=""
-                className="site-hero-image h-full w-full"
-                data-testid="editor-hero-image"
-              />
-              <div className="site-hero-overlay absolute inset-0" />
-              <div className="site-hero-gradient absolute inset-0" aria-hidden="true" />
-              <div className="site-hero-text-scrim absolute inset-x-0 bottom-0" aria-hidden="true" />
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,var(--site-accent-soft),transparent_55%)]" />
-            </div>
-            <div className="site-shell relative z-10">
-              {showEyebrow ? (
+            content={content.hero}
+            composition={composition}
+            testId="editor-hero"
+            slots={{
+              eyebrow: eyebrow ? (
                 <p
                   className="text-sm font-medium uppercase tracking-wide text-[color:var(--site-accent)]"
                   data-testid="editor-hero-eyebrow"
                 >
                   {eyebrow}
                 </p>
-              ) : null}
-              <div data-testid="editor-hero-headline">
-                <EditableText
-                  as="h1"
-                  value={content.hero.headline}
-                  onChange={onHeadlineChange}
-                  aria-label="Hero headline"
-                  className={`site-heading atlas-display-text mx-auto max-w-4xl text-3xl font-semibold tracking-tight text-foreground sm:text-5xl ${
-                    showEyebrow ? "mt-4" : ""
-                  }`}
-                />
-              </div>
-              <div data-testid="editor-hero-subheadline">
-                <EditableText
-                  as="p"
-                  value={content.hero.subheadline}
-                  onChange={onSubheadlineChange}
-                  aria-label="Hero subheadline"
-                  className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg"
-                />
-              </div>
-              <div className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+              ) : null,
+              headline: (
+                <div data-testid="editor-hero-headline">
+                  <EditableText
+                    as="h1"
+                    value={content.hero.headline}
+                    onChange={onHeadlineChange}
+                    aria-label="Hero headline"
+                    className={`site-heading atlas-display-text font-semibold tracking-tight text-foreground ${plan.titleSizeClass} ${
+                      eyebrow ? "mt-4" : ""
+                    }`}
+                  />
+                </div>
+              ),
+              subheadline: (
+                <div data-testid="editor-hero-subheadline">
+                  <EditableText
+                    as="p"
+                    value={content.hero.subheadline}
+                    onChange={onSubheadlineChange}
+                    aria-label="Hero subheadline"
+                    className={`mt-5 text-base leading-relaxed text-muted sm:text-lg ${plan.ledeWidthClass}`}
+                  />
+                </div>
+              ),
+              primaryCta: (
                 <div className="site-button inline-flex min-w-[10rem] flex-col items-center justify-center bg-[color:var(--site-accent)] px-6 py-3.5 text-sm font-medium text-[color:var(--site-bg)] transition-all duration-200 hover:brightness-110">
                   <EditableText
                     as="span"
@@ -118,12 +109,14 @@ export default function EditorCanvas({
                     inputClassName="text-center text-foreground"
                   />
                 </div>
+              ),
+              secondaryCta: (
                 <span className="site-button inline-flex items-center justify-center border border-border px-8 py-3.5 text-sm font-medium text-foreground">
                   {content.hero.secondaryCta}
                 </span>
-              </div>
-            </div>
-          </section>
+              ),
+            }}
+          />
         );
       }
       case "about":

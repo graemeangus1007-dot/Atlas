@@ -216,6 +216,9 @@ export function businessProjectToColumns(
     ...(project.heroImagePresentation
       ? { heroImagePresentation: project.heroImagePresentation }
       : {}),
+    ...(project.heroComposition
+      ? { heroComposition: project.heroComposition }
+      : {}),
     galleryInteraction: normalizeGalleryInteraction(
       project.galleryInteraction,
     ),
@@ -343,6 +346,9 @@ export function rowToBusinessProject(row: ProjectRow): BusinessProject {
     heroImagePresentation: isRecord(branding.heroImagePresentation)
       ? (branding.heroImagePresentation as BusinessProject["heroImagePresentation"])
       : base.heroImagePresentation,
+    heroComposition: isRecord(branding.heroComposition)
+      ? (branding.heroComposition as BusinessProject["heroComposition"])
+      : base.heroComposition,
     galleryInteraction: normalizeGalleryInteraction(
       isRecord(branding.galleryInteraction)
         ? (branding.galleryInteraction as BusinessProject["galleryInteraction"])

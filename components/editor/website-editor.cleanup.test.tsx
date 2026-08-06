@@ -239,8 +239,10 @@ describe("Hero placeholder parity", () => {
     ).toMatch(/Lawn care/);
     expect(within(hero).queryByText(/^Placeholder$/i)).toBeNull();
     expect(within(hero).queryByText(/Harborview Landscaping hero/i)).toBeNull();
-    // Duplicate brand eyebrow suppressed when it matches the nav name
-    expect(within(hero).queryByTestId("editor-hero-eyebrow")).toBeNull();
+    // P0: Editor matches Preview/Publish — brand eyebrow renders when present
+    expect(within(hero).getByTestId("editor-hero-eyebrow").textContent).toBe(
+      "Harborview Landscaping",
+    );
     expect(hero.querySelectorAll("h1")).toHaveLength(1);
     expect(within(hero).getAllByLabelText("Hero subheadline")).toHaveLength(1);
   });

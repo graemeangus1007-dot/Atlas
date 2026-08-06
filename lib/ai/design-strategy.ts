@@ -22,6 +22,7 @@ import {
   selectRelevantDesignPrinciples,
 } from "@/lib/ai/design-knowledge";
 import type { DesignPrinciple } from "@/lib/ai/design-knowledge/types";
+import { attachDesignPatternsToStrategy } from "@/lib/ai/design-patterns/strategy-integration";
 import type {
   DesignAgencyTone,
   DesignFocusArea,
@@ -30,7 +31,7 @@ import type {
 } from "@/lib/ai/design-strategy-types";
 import { DESIGN_AGENCIES_TONES } from "@/lib/ai/design-strategy-types";
 
-const STRATEGY_VERSION = "1.2.0";
+const STRATEGY_VERSION = "1.3.0";
 
 export { STRATEGY_VERSION };
 
@@ -382,7 +383,7 @@ export function buildDesignStrategy(input: DesignStrategyInput): DesignStrategy 
     ? "One dominant element per region, then proof, then services, then a single contact action — never equal weight across the fold."
     : "One dominant hero message, then proof, then services, then a single contact action — never equal weight across the fold.";
 
-  return {
+  const strategy: DesignStrategy = {
     overallDirection: directionLabel(tones, industry, name),
     biggestProblem: sanitizeDesignKnowledgeUserText(problem),
     currentImpression,
@@ -400,7 +401,11 @@ export function buildDesignStrategy(input: DesignStrategyInput): DesignStrategy 
     confidence: 0.88,
     principleIds,
     evidence,
+    patternComposition: null,
   };
+
+  // v1.3 — Pattern Engine selection (advisory; does not rewrite the site).
+  return attachDesignPatternsToStrategy(strategy, input);
 }
 
 /** Score an improvement against strategy focus (higher = earlier). */
@@ -598,6 +603,14 @@ export function formatDesignStrategySection(strategy: DesignStrategy): string {
       ? strategy.missingTrustSignals.map((t) => `• ${t}`).join("\n")
       : "• Core trust signals are present — strengthen placement and hierarchy.";
 
+  const patternBlock = strategy.patternComposition?.explanation
+    ? [
+        "",
+        "Composition approach",
+        strategy.patternComposition.explanation,
+      ]
+    : [];
+
   return [
     "Overall direction",
     `${strategy.overallDirection}${tones ? ` (${tones})` : ""}`,
@@ -622,6 +635,7 @@ export function formatDesignStrategySection(strategy: DesignStrategy): string {
     "",
     "Execution plan",
     plan,
+    ...patternBlock,
   ].join("\n");
 }
 

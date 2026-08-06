@@ -18,6 +18,10 @@ import {
   type EditOperation,
   type InsertableSectionType,
 } from "@/lib/ai/edit-operations";
+import {
+  heroPatternPreset,
+  verifyHeroPatternApplication,
+} from "@/lib/ai/hero-pattern-application";
 import type { ImageOperation } from "@/lib/ai/image-operations";
 import {
   getEffectiveSectionOrder,
@@ -430,6 +434,57 @@ export function verifyEditOperation(
         ...emptyExecutionResult("replaceText"),
         verificationFailures: [`Copy at ${target} did not change as requested.`],
         explanation: "I wasn’t able to update that copy.",
+      };
+    }
+    case "applyHeroPattern": {
+      const expected = op.composition ?? heroPatternPreset(op.patternId);
+      const check = verifyHeroPatternApplication({
+        before,
+        after,
+        expected: { ...expected, patternId: op.patternId },
+        allowAlreadySatisfied: true,
+      });
+      if (check.verified && after.heroComposition?.patternId === op.patternId) {
+        const changed =
+          before.heroComposition?.patternId !==
+            after.heroComposition?.patternId ||
+          JSON.stringify(before.heroComposition) !==
+            JSON.stringify(after.heroComposition);
+        if (!changed) {
+          return {
+            success: false,
+            verified: true,
+            operationType: "applyHeroPattern",
+            verificationFailures: [],
+            createdEntities: [],
+            modifiedEntities: [],
+            warnings: ["Hero pattern composition was already active."],
+            explanation: "That hero composition is already active.",
+          };
+        }
+        return {
+          success: true,
+          verified: true,
+          operationType: "applyHeroPattern",
+          verificationFailures: [],
+          createdEntities: [],
+          modifiedEntities: [
+            "heroComposition",
+            "heroOverlay",
+            "heroTreatment",
+            "heroImagePresentation",
+          ],
+          warnings: [],
+          explanation: "Done. I applied the hero composition.",
+        };
+      }
+      return {
+        ...emptyExecutionResult("applyHeroPattern"),
+        verificationFailures:
+          check.failures.length > 0
+            ? check.failures
+            : ["Hero pattern composition could not be verified."],
+        explanation: "I wasn’t able to verify the hero pattern composition.",
       };
     }
     case "setSectionImage":

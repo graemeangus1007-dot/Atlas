@@ -33,6 +33,7 @@ function renderCoreSection(
         <PreviewHero
           key="hero"
           content={content.hero}
+          composition={content.heroComposition}
           heroLayout={template.heroLayout}
         />
       );

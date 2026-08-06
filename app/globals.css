@@ -229,6 +229,16 @@ body {
   backdrop-filter: blur(var(--site-hero-scrim-blur, 0px));
 }
 
+/* Composition tokens (P0) — driven by HeroCompositionResolver / SiteHero */
+.site-canvas [data-hero-composition-layout="split"] .site-hero-overlay {
+  opacity: var(--site-hero-overlay, 0.3);
+}
+
+.site-canvas [data-hero-composition-layout="split"] .site-hero-gradient,
+.site-canvas [data-hero-composition-layout="split"] .site-hero-text-scrim {
+  z-index: 1;
+}
+
 /* Creative Director polish (Sprint 25.0A) */
 .site-canvas[data-hierarchy="on"] .site-heading {
   font-size: calc(1em * var(--site-heading-scale, 1.06));

@@ -1,3 +1,7 @@
+import {
+  buildHeroRenderPlan,
+  inferLegacyHeroComposition,
+} from "@/lib/hero-composition";
 import { escapeAttr, escapeHtml } from "@/lib/publishing/escape";
 import {
   renderGalleryLightboxScript,
@@ -7,7 +11,6 @@ import type {
   CardStyle,
   FooterLayout,
   GalleryLayout,
-  HeroLayout,
   NavStyle,
   TemplateSectionId,
   WebsiteTemplate,
@@ -100,16 +103,37 @@ function renderNav(
 
 function renderHero(
   hero: GeneratedWebsiteContent["hero"],
-  layout: HeroLayout,
+  content: GeneratedWebsiteContent,
+  template: WebsiteTemplate,
 ): string {
-  const primary = `<a class="site-button site-button-primary" href="#contact">${escapeHtml(hero.primaryCta)}</a>`;
-  const secondary = `<a class="site-button site-button-secondary" href="#about">${escapeHtml(hero.secondaryCta)}</a>`;
+  const composition =
+    content.heroComposition ??
+    inferLegacyHeroComposition({
+      heroLayout: template.heroLayout,
+      heroOverlay: 50,
+    });
+  const plan = buildHeroRenderPlan(composition);
+  const dataAttrs = Object.entries(plan.dataAttributes)
+    .map(([key, value]) => `${key}="${escapeAttr(value)}"`)
+    .join(" ");
+  const styleAttrs = Object.entries(plan.cssVars)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(";");
 
-  if (layout === "split") {
-    return `<section id="home" class="site-hero site-hero-split">
+  const primary = `<a class="site-button site-button-primary" href="#contact">${escapeHtml(hero.primaryCta)}</a>`;
+  const secondary =
+    composition.typography.showSecondaryCta && hero.secondaryCta?.trim()
+      ? `<a class="site-button site-button-secondary" href="#about">${escapeHtml(hero.secondaryCta)}</a>`
+      : "";
+  const eyebrow = hero.eyebrow?.trim()
+    ? `<p class="site-eyebrow">${escapeHtml(hero.eyebrow)}</p>`
+    : "";
+
+  if (plan.variant === "split") {
+    return `<section id="home" class="site-hero site-hero-split" data-testid="publish-hero" data-hero-placeholder="${hero.isPlaceholder ? "true" : "false"}" ${dataAttrs} style="${escapeAttr(styleAttrs)}">
   <div class="site-shell site-hero-split-grid">
-    <div class="site-hero-content">
-      <p class="site-eyebrow">${escapeHtml(hero.eyebrow)}</p>
+    <div class="site-hero-content" data-hero-content="true">
+      ${eyebrow}
       <h1 class="site-heading">${escapeHtml(hero.headline)}</h1>
       <p class="lede">${escapeHtml(hero.subheadline)}</p>
       <div class="site-hero-actions">${primary}${secondary}</div>
@@ -117,28 +141,33 @@ function renderHero(
     <div class="site-hero-split-image">
       <img src="${escapeAttr(hero.imageUrl)}" alt="" />
       <div class="site-hero-overlay" aria-hidden="true"></div>
+      <div class="site-hero-gradient" aria-hidden="true"></div>
+      <div class="site-hero-text-scrim" aria-hidden="true"></div>
     </div>
   </div>
 </section>`;
   }
 
-  const align = layout === "bold-overlay" ? "" : "center";
-  const overlayExtra = layout === "bold-overlay" ? ' style="opacity:0.8"' : "";
-  const wash =
-    layout === "minimal"
-      ? ""
-      : `<div class="site-hero-wash" aria-hidden="true"></div>`;
+  const align =
+    composition.contentAlignment === "center" ? "center" : "";
+  const wash = composition.accents.showAccentWash
+    ? `<div class="site-hero-wash" aria-hidden="true"></div>`
+    : "";
+  const grid = composition.accents.showGrid
+    ? `<div class="site-hero-grid" aria-hidden="true"></div>`
+    : "";
 
-  return `<section id="home" class="site-hero site-hero-${layout}">
+  return `<section id="home" class="site-hero site-hero-${plan.legacyLayoutKey}" data-testid="publish-hero" data-hero-placeholder="${hero.isPlaceholder ? "true" : "false"}" ${dataAttrs} style="${escapeAttr(styleAttrs)}">
   <div class="site-hero-media" aria-hidden="true">
     <img src="${escapeAttr(hero.imageUrl)}" alt="" />
-    <div class="site-hero-overlay"${overlayExtra}></div>
+    <div class="site-hero-overlay"></div>
     <div class="site-hero-gradient" aria-hidden="true"></div>
     <div class="site-hero-text-scrim" aria-hidden="true"></div>
     ${wash}
+    ${grid}
   </div>
-  <div class="site-shell site-hero-content ${align}">
-    <p class="site-eyebrow">${escapeHtml(hero.eyebrow)}</p>
+  <div class="site-shell site-hero-content ${align}" data-hero-content="true">
+    ${eyebrow}
     <h1 class="site-heading">${escapeHtml(hero.headline)}</h1>
     <p class="lede">${escapeHtml(hero.subheadline)}</p>
     <div class="site-hero-actions ${align}">${primary}${secondary}</div>
@@ -468,7 +497,7 @@ function renderSection(
 ): string {
   switch (sectionId) {
     case "hero":
-      return renderHero(content.hero, template.heroLayout);
+      return renderHero(content.hero, content, template);
     case "about":
       return renderAbout(content.businessName, content.about, template.cardStyle);
     case "services":

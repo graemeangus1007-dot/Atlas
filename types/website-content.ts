@@ -1,5 +1,6 @@
 import type { BusinessType } from "@/types/business";
 import type { GalleryInteraction } from "@/types/gallery";
+import type { HeroComposition } from "@/lib/hero-composition/types";
 
 /** A service card shown on the generated site. */
 export type WebsiteService = {
@@ -55,6 +56,11 @@ export type GeneratedWebsiteContent = {
     imageUrl: string;
     isPlaceholder: boolean;
   };
+  /**
+   * Resolved hero composition for Editor / Preview / Publish parity.
+   * Always present — inferred from template when project has no stored composition.
+   */
+  heroComposition: HeroComposition;
   about: {
     title: string;
     description: string;

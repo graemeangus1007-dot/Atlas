@@ -116,6 +116,16 @@ import {
   verifyHeroFitChange,
 } from "@/lib/ai/hero-image-presentation";
 import {
+  isExecutableHeroPatternId,
+  isHeroPatternApplicationRequest,
+  isHeroPatternRedesignRequest,
+  matchExplicitHeroPatternRequest,
+  planHeroPatternApplication,
+  verifyHeroPatternApplication,
+  type ExecutableHeroPatternId,
+} from "@/lib/ai/hero-pattern-application";
+import { composeDesignPatterns } from "@/lib/ai/design-patterns/composition";
+import {
   isGalleryLightboxRequest,
   isGalleryLightboxSoftContinuation,
   planGalleryInteractionContinuation,
@@ -1632,6 +1642,288 @@ function tryApplyHeroFit(input: {
   };
 }
 
+function strategyHeroPatternForProject(
+  project: BusinessProject,
+): ExecutableHeroPatternId | null {
+  const composed = composeDesignPatterns({
+    industry: project.businessType || project.businessName,
+    businessDescription: project.description,
+    hasHeroImage: Boolean(project.heroImageId),
+    galleryFilledSlots: project.galleryImageIds.filter(Boolean).length,
+    libraryCount: project.mediaLibrary.length,
+    hasTestimonials: Boolean(project.designSections?.testimonials?.length),
+    primaryGoal: project.goals?.[0] ? String(project.goals[0]) : undefined,
+  });
+  for (const id of composed.patternIds) {
+    if (isExecutableHeroPatternId(id)) return id;
+  }
+  return null;
+}
+
+function tryApplyHeroPattern(input: {
+  project: BusinessProject;
+  request: string;
+  requestId?: string | null;
+}): AtlasBrainResult | null {
+  if (!isHeroPatternApplicationRequest(input.request)) return null;
+  // Fit / readability refinements must preserve the pattern — never steal those turns.
+  if (isHeroFitRequest(input.request)) return null;
+  if (
+    !matchExplicitHeroPatternRequest(input.request) &&
+    !isHeroPatternRedesignRequest(input.request)
+  ) {
+    return null;
+  }
+
+  const explicit = matchExplicitHeroPatternRequest(input.request);
+  const strategyPattern = isHeroPatternRedesignRequest(input.request)
+    ? strategyHeroPatternForProject(input.project)
+    : null;
+  const patternId = explicit ?? strategyPattern;
+  if (!patternId) {
+    // Redesign without an executable strategy pattern — let professional composition run.
+    if (isHeroPatternRedesignRequest(input.request) && !explicit) {
+      return null;
+    }
+    return null;
+  }
+
+  const planned = planHeroPatternApplication({
+    project: input.project,
+    patternId,
+    request: input.request,
+    strategyContext: strategyPattern
+      ? { patternIds: [strategyPattern] }
+      : null,
+  });
+
+  if (planned.blocked) {
+    return {
+      ok: true,
+      explanation:
+        planned.blockReason ||
+        "I couldn’t apply that hero composition without a clearer pattern choice.",
+      operations: [],
+      changes: [],
+      project: input.project,
+      applyStatus: "no_changes",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.7,
+        selectedAgents: ["editor_agent"],
+        needsClarification: true,
+        executionPlan: {
+          goal: "Apply hero pattern",
+          steps: [],
+          estimatedImpact: "medium",
+        },
+        explanation: planned.blockReason || planned.explanation,
+        followUpSuggestions: [
+          "Use a cinematic hero",
+          "Make this a premium minimal hero",
+        ],
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
+      },
+      followUpSuggestions: [
+        "Use a cinematic hero",
+        "Make this a premium minimal hero",
+      ],
+    };
+  }
+
+  if (planned.alreadySatisfied) {
+    let project = touchActiveVisualTask(input.project, {
+      kind: "hero_composition",
+      lastUserGoal: input.request,
+    });
+    project = rememberExecution(
+      project,
+      input.request,
+      {
+        success: true,
+        verified: true,
+        operationType: "applyHeroPattern",
+        verificationFailures: [],
+        createdEntities: [],
+        modifiedEntities: [],
+        warnings: [],
+        explanation: planned.explanation,
+      },
+      [],
+      { scope: "hero", paletteBefore: captureBrandPalette(input.project) },
+    );
+    return {
+      ok: true,
+      explanation: planned.explanation,
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "applied",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.99,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: {
+          goal: "Apply hero pattern",
+          steps: [
+            {
+              id: "cmd.hero-pattern",
+              agent: "editor_agent",
+              label: "Hero pattern already active",
+            },
+          ],
+          estimatedImpact: "low",
+        },
+        explanation: planned.explanation,
+        followUpSuggestions: [
+          "Show the entire picture",
+          "Keep the words readable",
+        ],
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
+        shouldExecuteEdits: true,
+      },
+      followUpSuggestions: [
+        "Show the entire picture",
+        "Keep the words readable",
+      ],
+    };
+  }
+
+  const ops = validateEditOperations(
+    filterOperationsForBrandPreservation(
+      planned.operations,
+      defaultHeroPreservationContext(),
+    ),
+  );
+  const before = input.project;
+  const applied = applyEditOperations(before, ops);
+  const paletteSafe = restoreBrandPalette(
+    applied.project,
+    captureBrandPalette(before),
+  );
+  const check = verifyHeroPatternApplication({
+    before,
+    after: paletteSafe,
+    expected: planned.composition,
+  });
+
+  if (!check.verified) {
+    return {
+      ok: true,
+      explanation:
+        "I kept your brand colors and couldn’t verify that hero composition. Try another pattern or refine the photo first.",
+      operations: [],
+      changes: [],
+      project: rememberExecution(
+        before,
+        input.request,
+        {
+          success: false,
+          verified: true,
+          operationType: "applyHeroPattern",
+          verificationFailures: check.failures,
+          createdEntities: [],
+          modifiedEntities: [],
+          warnings: [],
+          explanation: "Hero pattern application could not be verified.",
+        },
+        ops,
+        { scope: "hero", paletteBefore: captureBrandPalette(before) },
+      ),
+      applyStatus: "no_changes",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.9,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: {
+          goal: "Apply hero pattern",
+          steps: [],
+          estimatedImpact: "medium",
+        },
+        explanation: "Hero pattern blocked.",
+        followUpSuggestions: [
+          "Use a coastal service hero",
+          "Make this a premium minimal hero",
+        ],
+        decisionStage: "explicit_command",
+        commandKind: "hero_balance",
+      },
+      followUpSuggestions: [
+        "Use a coastal service hero",
+        "Make this a premium minimal hero",
+      ],
+    };
+  }
+
+  let project = touchActiveVisualTask(paletteSafe, {
+    kind: "hero_composition",
+    lastUserGoal: input.request,
+  });
+  project = rememberExecution(
+    project,
+    input.request,
+    {
+      success: true,
+      verified: true,
+      operationType: "applyHeroPattern",
+      verificationFailures: [],
+      createdEntities: [],
+      modifiedEntities: [
+        "heroComposition",
+        "heroOverlay",
+        "heroTreatment",
+        "heroImagePresentation",
+      ],
+      warnings: [],
+      explanation: planned.explanation,
+    },
+    ops,
+    { scope: "hero", paletteBefore: captureBrandPalette(before) },
+  );
+
+  return {
+    ok: true,
+    explanation: planned.explanation,
+    operations: ops,
+    changes: applied.changes,
+    project,
+    applyStatus: "applied",
+    decision: {
+      intent: "command_readability",
+      confidence: 0.97,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      executionPlan: {
+        goal: "Apply hero pattern",
+        steps: [
+          {
+            id: "cmd.hero-pattern",
+            agent: "editor_agent",
+            label: "Apply hero pattern composition",
+          },
+        ],
+        estimatedImpact: "high",
+      },
+      explanation: planned.explanation,
+      followUpSuggestions: [
+        "Show the entire picture",
+        "Keep the words readable",
+      ],
+      decisionStage: "explicit_command",
+      commandKind: "hero_balance",
+      shouldExecuteEdits: true,
+    },
+    followUpSuggestions: [
+      "Show the entire picture",
+      "Keep the words readable",
+    ],
+  };
+}
+
 function tryApplyHeroProfessionalComposition(input: {
   project: BusinessProject;
   request: string;
@@ -2495,6 +2787,22 @@ export async function runAtlasBrain(
   }
 
   // 3–4) Active hero visual task + explicit hero edits.
+  const heroPattern = tryApplyHeroPattern({
+    project: projectForTurn,
+    request,
+    requestId: input.atlasRequestId,
+  });
+  if (heroPattern) {
+    return {
+      ...heroPattern,
+      followUpSuggestions: followUpsForProject(
+        heroPattern.project,
+        heroPattern.followUpSuggestions ?? [],
+      ),
+      atlasMemory: heroPattern.project.atlasMemory,
+    };
+  }
+
   const heroProfessional = tryApplyHeroProfessionalComposition({
     project: projectForTurn,
     request,
