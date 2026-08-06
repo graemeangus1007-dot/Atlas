@@ -10,6 +10,7 @@ import {
   compositionScorePasses,
   evaluateHeroComposition,
   HERO_COMPOSITION_VERSION,
+  IMAGE_IMPACT_FLOOR,
   refineHeroComposition,
   type HeroComposition,
   type HeroCompositionRefineDiagnostics,
@@ -108,10 +109,10 @@ export function heroPatternPreset(
           overlay: 25,
           gradient: {
             direction: "bottom",
-            strength: 0.45,
-            coverage: 0.62,
+            strength: 0.38,
+            coverage: 0.48,
           },
-          textScrim: { enabled: true, opacity: 0.3, blur: 8 },
+          textScrim: { enabled: true, opacity: 0.22, blur: 6 },
         },
         typography: {
           headingScale: "xl",
@@ -809,6 +810,51 @@ export function verifyHeroPatternApplication(input: {
     );
   }
 
+  const hasHeroImage = Boolean(
+    input.after.heroImageId &&
+      input.after.mediaLibrary.some(
+        (a) => a.id === input.after.heroImageId && Boolean(a.url),
+      ),
+  );
+  const impactFloor =
+    IMAGE_IMPACT_FLOOR[input.expected.patternId ?? ""] ?? 56;
+  // Image-impact floors apply only when a hero photo is actually assigned.
+  if (hasHeroImage && evaluation.imageImpact < impactFloor) {
+    failures.push(
+      `image_impact_too_low:${evaluation.imageImpact}<${impactFloor}`,
+    );
+  }
+
+  const shallowFail =
+    hasHeroImage &&
+    evaluation.problems.some((p) =>
+      [
+        "shallow_image_strip",
+        "banner_strip_contain",
+        "contain_mode_breaks_composition",
+        "excessive_non_image_hero_area",
+        "dead_overlay_region",
+        "cinematic_pattern_not_cinematic",
+      ].includes(p),
+    );
+  if (shallowFail) {
+    failures.push("shallow_or_dead_region_failure");
+  }
+
+  const clusterBroken =
+    hasHeroImage &&
+    evaluation.problems.some((p) =>
+      [
+        "content_detached_from_image",
+        "cta_detached_from_copy",
+        "headline_on_visual_boundary",
+        "detached_cta",
+      ].includes(p),
+    );
+  if (clusterBroken) {
+    failures.push("content_cluster_incoherent");
+  }
+
   const alreadySatisfied =
     Boolean(input.allowAlreadySatisfied) &&
     input.before.heroComposition?.patternId === input.expected.patternId &&
@@ -816,7 +862,10 @@ export function verifyHeroPatternApplication(input: {
       input.before.heroComposition!,
       input.expected,
     ) &&
-    compositionScorePasses(evaluation.overallScore);
+    compositionScorePasses(evaluation.overallScore) &&
+    evaluation.imageImpact >= impactFloor &&
+    !shallowFail &&
+    !clusterBroken;
 
   return {
     verified: alreadySatisfied ? true : failures.length === 0,

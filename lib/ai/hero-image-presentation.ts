@@ -9,6 +9,13 @@ import {
   type ActiveVisualTask,
 } from "@/lib/ai/active-visual-task";
 import type { AtlasActionMemory } from "@/lib/ai/atlas-action-memory";
+import { hasGalleryLightboxEvidence } from "@/lib/ai/gallery-interaction";
+import {
+  isExecutableHeroPatternId,
+  prepareHeroPatternComposition,
+  type ExecutableHeroPatternId,
+} from "@/lib/ai/hero-pattern-application";
+import type { HeroComposition } from "@/lib/hero-composition";
 import type { BusinessProject } from "@/types/business-project";
 
 export type HeroImageFit = "cover" | "contain" | "full";
@@ -71,7 +78,13 @@ export function fitsAreEquivalent(
 }
 
 const FULL_PICTURE =
-  /\b(?:use\s+the\s+(?:full|entire|whole)\s+(?:hero\s+)?(?:picture|photo|image)|show\s+(?:me\s+)?(?:more\s+of\s+)?the\s+(?:full\s+|entire\s+|whole\s+)?(?:hero\s+)?(?:picture|photo|image)|show\s+more\s+of\s+the\s+(?:photo|image|picture)|don'?t\s+crop(?:\s+it)?|stop\s+cropping|fit\s+the\s+entire\s+(?:image|photo|picture)|full[- ]?photo\s+fit|(?:it'?s|is)\s+being\s+cut\s+off|(?:hero\s+)?(?:image|photo|picture)\s+is\s+(?:being\s+)?(?:cut\s+off|cropped)|(?:being\s+)?cut\s+off)\b/i;
+  /\b(?:use\s+the\s+(?:full|entire|whole)\s+(?:hero\s+)?(?:picture|photo|image)|show\s+(?:me\s+)?(?:more\s+of\s+)?the\s+(?:full\s+|entire\s+|whole\s+)?(?:hero\s+)?(?:picture|photo|image)|(?:i\s+need\s+to\s+|need\s+to\s+|want\s+to\s+)?see\s+(?:the\s+)?(?:full|entire|whole)\s+(?:hero\s+)?(?:picture|photo|image)|show\s+more\s+of\s+the\s+(?:hero\s+)?(?:photo|image|picture)|don'?t\s+crop(?:\s+it)?|stop\s+cropping|fit\s+the\s+entire\s+(?:image|photo|picture)|full[- ]?photo\s+fit|(?:it'?s|is)\s+being\s+cut\s+off|(?:hero\s+)?(?:image|photo|picture)\s+is\s+(?:being\s+)?(?:cut\s+off|cropped)|(?:being\s+)?cut\s+off)\b/i;
+
+const PHOTO_LED_PATTERNS = new Set<ExecutableHeroPatternId>([
+  "hero.cinematic_full_width",
+  "hero.coastal_service",
+  "hero.contractor_left",
+]);
 
 const FILL_CROP =
   /\b(fill\s+the\s+hero|crop\s+it\s+tighter|zoom\s+in|tighter\s+crop)\b/i;
@@ -133,7 +146,14 @@ function normalizePosition(
 }
 
 export function isHeroFullPictureRequest(request: string): boolean {
-  return FULL_PICTURE.test(request.trim());
+  const text = request.trim();
+  if (!text || !FULL_PICTURE.test(text)) return false;
+  // Gallery lightbox phrases often include “see the full image” — require hero
+  // ownership (or no gallery evidence) so they do not steal the gallery turn.
+  if (hasGalleryLightboxEvidence(text) && !/\bhero\b/i.test(text)) {
+    return false;
+  }
+  return true;
 }
 
 export function isHeroFillCropRequest(request: string): boolean {
@@ -171,6 +191,113 @@ export function planHeroFullPicturePresentation(): HeroImagePresentation {
     focalPoint: { x: 0.5, y: 0.5 },
     zoom: 1,
     position: "center",
+  };
+}
+
+function activePhotoLedPatternId(
+  project: BusinessProject,
+): ExecutableHeroPatternId | null {
+  const id = project.heroComposition?.patternId;
+  if (id && isExecutableHeroPatternId(id) && PHOTO_LED_PATTERNS.has(id)) {
+    return id;
+  }
+  return null;
+}
+
+/**
+ * Professional full-image policy (P1.6).
+ * Photo-led patterns: reveal more via cover + height/focal — never banner contain.
+ */
+export function planProfessionalHeroFullPicture(input: {
+  project: BusinessProject;
+}): {
+  presentation: HeroImagePresentation;
+  operations: EditOperation[];
+  professionalCompromise: boolean;
+  explanation: string;
+  composition: HeroComposition | null;
+} {
+  const patternId = activePhotoLedPatternId(input.project);
+  if (!patternId) {
+    const presentation = planHeroFullPicturePresentation();
+    return {
+      presentation,
+      operations: [
+        {
+          operation: "setHeroImagePresentation",
+          fit: presentation.fit,
+          focalPoint: presentation.focalPoint,
+          zoom: presentation.zoom,
+          position: presentation.position,
+        },
+      ],
+      professionalCompromise: false,
+      explanation:
+        "Done. I changed the hero image to show the full photo instead of cropping it. The text treatment remains localized so the headline stays readable.",
+      composition: null,
+    };
+  }
+
+  const base = input.project.heroComposition!;
+  const patched: HeroComposition = {
+    ...base,
+    patternId,
+    minHeight:
+      patternId === "hero.cinematic_full_width" ? "viewport" : "tall",
+    verticalAlignment:
+      patternId === "hero.cinematic_full_width" ? "bottom" : base.verticalAlignment,
+    image: {
+      ...base.image,
+      fit: "cover",
+      zoom: 1,
+      focalPoint: { x: 0.5, y: 0.42 },
+      position: "center",
+    },
+    treatment: {
+      overlay: Math.min(base.treatment.overlay, 25),
+      gradient: {
+        direction: "bottom",
+        strength: 0.38,
+        coverage: 0.48,
+      },
+      textScrim: {
+        enabled: true,
+        opacity: 0.22,
+        blur: 6,
+      },
+    },
+    cta: {
+      ...base.cta,
+      alignment: base.contentAlignment,
+      arrangement: "row",
+    },
+  };
+
+  const prepared = prepareHeroPatternComposition({
+    project: input.project,
+    composition: patched,
+  });
+
+  const presentation: HeroImagePresentation = {
+    fit: "cover",
+    focalPoint: prepared.composition.image.focalPoint,
+    zoom: prepared.composition.image.zoom,
+    position: "center",
+  };
+
+  return {
+    presentation,
+    operations: [
+      {
+        operation: "applyHeroPattern",
+        patternId,
+        composition: prepared.composition,
+      },
+    ],
+    professionalCompromise: true,
+    explanation:
+      "I showed more of the photo while preserving a tall cinematic frame. Displaying every edge would weaken the composition, so I used a lighter crop rather than reducing it to a banner.",
+    composition: prepared.composition,
   };
 }
 
@@ -230,24 +357,74 @@ export function planHeroFitOperations(input: {
     };
   }
 
-  const presentation = isHeroFillCropRequest(input.request)
-    ? planHeroFillCropPresentation(before)
-    : planHeroFullPicturePresentation();
+  if (isHeroFillCropRequest(input.request)) {
+    const presentation = planHeroFillCropPresentation(before);
+    const alreadySatisfied =
+      fitsAreEquivalent(before.fit, presentation.fit) &&
+      before.zoom === presentation.zoom &&
+      before.position === presentation.position &&
+      Math.abs(before.focalPoint.x - presentation.focalPoint.x) < 0.001 &&
+      Math.abs(before.focalPoint.y - presentation.focalPoint.y) < 0.001;
 
-  const alreadySatisfied =
-    fitsAreEquivalent(before.fit, presentation.fit) &&
-    before.zoom === presentation.zoom &&
-    before.position === presentation.position &&
-    Math.abs(before.focalPoint.x - presentation.focalPoint.x) < 0.001 &&
-    Math.abs(before.focalPoint.y - presentation.focalPoint.y) < 0.001;
+    if (alreadySatisfied) {
+      return {
+        operations: [],
+        presentation,
+        needsTargetClarification: false,
+        explanation: "The hero image is already using the tighter crop.",
+        before,
+        alreadySatisfied: true,
+      };
+    }
+
+    return {
+      operations: [
+        {
+          operation: "setHeroImagePresentation",
+          fit: presentation.fit,
+          focalPoint: presentation.focalPoint,
+          zoom: presentation.zoom,
+          position: presentation.position,
+        },
+      ],
+      presentation,
+      needsTargetClarification: false,
+      explanation:
+        "Done. I cropped the hero image tighter while keeping the text treatment localized.",
+      before,
+      alreadySatisfied: false,
+    };
+  }
+
+  const professional = planProfessionalHeroFullPicture({
+    project: input.project,
+  });
+  const presentation = professional.presentation;
+
+  // Professional compromise: cover + tall frame counts as resolved full-picture intent.
+  const alreadySatisfied = professional.professionalCompromise
+    ? before.fit === "cover" &&
+      before.zoom <= 1.05 &&
+      (input.project.heroComposition?.minHeight === "viewport" ||
+        input.project.heroComposition?.minHeight === "tall") &&
+      (input.project.heroOverlay ?? 50) <= 25 &&
+      fitsAreEquivalent(
+        input.project.heroComposition?.image.fit,
+        "cover",
+      )
+    : fitsAreEquivalent(before.fit, presentation.fit) &&
+      before.zoom === presentation.zoom &&
+      before.position === presentation.position &&
+      Math.abs(before.focalPoint.x - presentation.focalPoint.x) < 0.001 &&
+      Math.abs(before.focalPoint.y - presentation.focalPoint.y) < 0.001;
 
   if (alreadySatisfied) {
     return {
       operations: [],
       presentation,
       needsTargetClarification: false,
-      explanation: isHeroFillCropRequest(input.request)
-        ? "The hero image is already using the tighter crop."
+      explanation: professional.professionalCompromise
+        ? "The hero already shows more of the photo in a tall cinematic frame — displaying every edge would weaken the composition."
         : "The hero image already shows the full photo — nothing else to change.",
       before,
       alreadySatisfied: true,
@@ -255,20 +432,10 @@ export function planHeroFitOperations(input: {
   }
 
   return {
-    operations: [
-      {
-        operation: "setHeroImagePresentation",
-        fit: presentation.fit,
-        focalPoint: presentation.focalPoint,
-        zoom: presentation.zoom,
-        position: presentation.position,
-      },
-    ],
+    operations: professional.operations,
     presentation,
     needsTargetClarification: false,
-    explanation: isHeroFillCropRequest(input.request)
-      ? "Done. I cropped the hero image tighter while keeping the text treatment localized."
-      : "Done. I changed the hero image to show the full photo instead of cropping it. The text treatment remains localized so the headline stays readable.",
+    explanation: professional.explanation,
     before,
     alreadySatisfied: false,
   };

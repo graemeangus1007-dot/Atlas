@@ -47,7 +47,7 @@ export type ActiveVisualTask = {
 };
 
 const HERO_CONTINUATION =
-  /\b(make\s+it\s+clearer|a\s+little\s+(more\s+)?(visible|easier|lighter|clearer)|still\s+(too\s+dark|bad|hard)|use\s+the\s+(full|entire|whole)\s+(hero\s+)?(picture|photo|image)|show\s+(more\s+of\s+)?the\s+(full\s+|entire\s+|whole\s+)?(hero\s+)?(photo|image|picture)|don'?t\s+crop|stop\s+cropping|fit\s+the\s+entire|show\s+the\s+whole|make\s+it\s+(look\s+)?professional|fill\s+the\s+hero|crop\s+it\s+tighter|zoom\s+in|hero\s+image|(being\s+)?cut\s+off|is\s+cropped)\b/i;
+  /\b(make\s+it\s+clearer|a\s+little\s+(more\s+)?(visible|easier|lighter|clearer)|still\s+(too\s+dark|bad|hard|looks?\s+like\s+a\s+(grey|gray)\s+block)|use\s+the\s+(full|entire|whole)\s+(hero\s+)?(picture|photo|image)|show\s+(more\s+of\s+)?the\s+(full\s+|entire\s+|whole\s+)?(hero\s+)?(photo|image|picture)|(?:i\s+need\s+to\s+|need\s+to\s+)?see\s+(?:the\s+)?(?:full|entire|whole)\s+(?:hero\s+)?(?:picture|photo|image)|don'?t\s+crop|stop\s+cropping|fit\s+the\s+entire|show\s+the\s+whole|make\s+it\s+(look\s+)?professional|fill\s+the\s+hero|crop\s+it\s+tighter|zoom\s+in|hero\s+image|(being\s+)?cut\s+off|is\s+cropped|grey\s+area|gray\s+area|grey\s+layer|gray\s+layer|covering\s+the\s+hero|get\s+rid\s+of\s+that\s+(grey|gray)|remove\s+the\s+(grey|gray))\b/i;
 
 const TOPIC_SWITCH =
   /\b(complete\s+my\s+website|finish\s+my\s+website|review\s+my\s+(website|site)|apply\s+all|change\s+the\s+(colors?|fonts?|typography)|redesign\s+(the\s+)?(whole\s+)?(site|website)|about\s+section|services\s+section|contact\s+section|gallery)\b/i;

@@ -7,6 +7,14 @@ import type { BusinessProject } from "@/types/business-project";
 
 export const HERO_COMPOSITION_PASS_THRESHOLD = 68;
 
+/** Pattern-specific image-impact floors (P1.6). Cinematic is stricter. */
+export const IMAGE_IMPACT_FLOOR: Record<string, number> = {
+  "hero.cinematic_full_width": 72,
+  "hero.coastal_service": 64,
+  "hero.contractor_left": 64,
+  "hero.premium_minimal": 48,
+};
+
 export type HeroImageAspectClass =
   | "panoramic"
   | "landscape"
@@ -28,7 +36,17 @@ export type HeroCompositionProblem =
   | "heavy_coastal"
   | "contractor_not_left"
   | "minimal_empty"
-  | "weak_hierarchy";
+  | "weak_hierarchy"
+  | "shallow_image_strip"
+  | "image_utilization_too_low"
+  | "content_detached_from_image"
+  | "cta_detached_from_copy"
+  | "dead_overlay_region"
+  | "headline_on_visual_boundary"
+  | "cinematic_pattern_not_cinematic"
+  | "contain_mode_breaks_composition"
+  | "excessive_non_image_hero_area"
+  | "weak_first_impression";
 
 export type HeroCompositionAdjustment =
   | "increase_hero_height"
@@ -151,10 +169,25 @@ export function evaluateHeroComposition(
 
   // --- Image impact ---
   let imageImpact = image ? 72 : 48;
-  if (image && c.image.fit === "contain" && heightRank(c.minHeight) <= 2) {
-    imageImpact -= 28;
+  const containFit = c.image.fit === "contain";
+
+  // Contain inside a tall frame letterboxes → grey dead region (production failure).
+  if (image && containFit && heightRank(c.minHeight) >= 3) {
+    imageImpact -= 36;
+    problems.push("contain_mode_breaks_composition");
+    problems.push("excessive_non_image_hero_area");
+    problems.push("shallow_image_strip");
+    problems.push("image_utilization_too_low");
+    suggested.push("prefer_cover_fit");
+    suggested.push("increase_hero_height");
+    heroHeightDecision = "reject_contain_letterbox_in_tall_frame";
+  }
+  if (image && containFit && heightRank(c.minHeight) <= 2) {
+    imageImpact -= 32;
     problems.push("banner_strip_contain");
+    problems.push("shallow_image_strip");
     problems.push("hero_too_shallow");
+    problems.push("image_utilization_too_low");
     suggested.push("increase_hero_height");
     suggested.push("prefer_cover_fit");
     heroHeightDecision = "reject_shallow_contain_banner";
@@ -162,6 +195,7 @@ export function evaluateHeroComposition(
   if (aspectClass === "panoramic" && heightRank(c.minHeight) < 3) {
     imageImpact -= 22;
     problems.push("hero_too_shallow");
+    problems.push("shallow_image_strip");
     suggested.push("increase_hero_height");
     heroHeightDecision = "panoramic_needs_taller_frame";
   }
@@ -175,6 +209,13 @@ export function evaluateHeroComposition(
   if (c.image.fit === "cover" && c.minHeight === "viewport") {
     imageImpact += 8;
   }
+  // Only cinematic must stay tall; coastal/contractor may use medium frames.
+  if (pattern === "hero.cinematic_full_width" && heightRank(c.minHeight) <= 2) {
+    imageImpact -= 24;
+    problems.push("shallow_image_strip");
+    problems.push("image_utilization_too_low");
+    suggested.push("increase_hero_height");
+  }
 
   // --- Readability / local contrast ---
   let readability = 70;
@@ -184,10 +225,30 @@ export function evaluateHeroComposition(
     c.treatment.gradient && c.treatment.gradient.strength > 0.15,
   );
   if (image && overlay >= 75) {
-    readability -= 12;
+    readability -= 16;
     problems.push("overlay_abuse");
+    problems.push("dead_overlay_region");
     suggested.push("localize_contrast");
     suggested.push("reduce_global_overlay");
+  } else if (image && overlay >= 50 && !hasScrim && !hasGradient) {
+    readability -= 12;
+    problems.push("overlay_abuse");
+    problems.push("dead_overlay_region");
+    suggested.push("localize_contrast");
+    suggested.push("reduce_global_overlay");
+  }
+  const gradientCoverage = c.treatment.gradient?.coverage ?? 0;
+  const gradientStrength = c.treatment.gradient?.strength ?? 0;
+  // Broad wash: global overlay + wide gradient covering most of the photo.
+  if (
+    image &&
+    overlay >= 40 &&
+    gradientCoverage >= 0.6 &&
+    gradientStrength >= 0.45
+  ) {
+    imageImpact -= 14;
+    problems.push("dead_overlay_region");
+    suggested.push("localize_contrast");
   }
   if (image && overlay <= 15 && !hasScrim && !hasGradient) {
     readability -= 18;
@@ -292,6 +353,7 @@ export function evaluateHeroComposition(
   if (c.cta.alignment !== c.contentAlignment) {
     ctaVisibility -= 14;
     problems.push("detached_cta");
+    problems.push("cta_detached_from_copy");
     suggested.push("align_cta_with_copy");
     suggested.push("group_cta");
   }
@@ -302,7 +364,30 @@ export function evaluateHeroComposition(
   if (c.verticalAlignment === "top" && c.minHeight === "viewport") {
     ctaVisibility -= 10;
     problems.push("detached_cta");
+    problems.push("content_detached_from_image");
+    problems.push("headline_on_visual_boundary");
     suggested.push("lower_text_block");
+  }
+  // Content sits on the image/letterbox boundary (contain + bottom or center).
+  if (image && containFit && c.verticalAlignment !== "bottom") {
+    balance -= 16;
+    problems.push("headline_on_visual_boundary");
+    problems.push("content_detached_from_image");
+    suggested.push("lower_text_block");
+    suggested.push("prefer_cover_fit");
+  }
+  if (
+    image &&
+    containFit &&
+    c.verticalAlignment === "bottom" &&
+    heightRank(c.minHeight) >= 3
+  ) {
+    // Text sits in the grey band under the contained strip.
+    balance -= 20;
+    problems.push("content_detached_from_image");
+    problems.push("headline_on_visual_boundary");
+    problems.push("cta_detached_from_copy");
+    problems.push("excessive_non_image_hero_area");
   }
   if (ctaLen > 28) {
     ctaVisibility -= 6;
@@ -338,14 +423,34 @@ export function evaluateHeroComposition(
 
   // Pattern-specific first impression boosts/penalties
   let firstImpression = 70;
+  if (
+    image &&
+    containFit &&
+    c.verticalAlignment === "bottom" &&
+    heightRank(c.minHeight) >= 3
+  ) {
+    firstImpression -= 22;
+    problems.push("weak_first_impression");
+  }
   if (pattern === "hero.cinematic_full_width") {
-    if (heightRank(c.minHeight) >= 3 && c.verticalAlignment !== "top") {
+    if (
+      heightRank(c.minHeight) >= 3 &&
+      c.verticalAlignment !== "top" &&
+      !containFit
+    ) {
       firstImpression += 12;
     } else {
-      firstImpression -= 14;
-      if (!problems.includes("hero_too_shallow")) {
+      firstImpression -= 18;
+      problems.push("cinematic_pattern_not_cinematic");
+      problems.push("weak_first_impression");
+      if (!problems.includes("hero_too_shallow") && heightRank(c.minHeight) < 3) {
         problems.push("hero_too_shallow");
       }
+    }
+    if (containFit) {
+      firstImpression -= 16;
+      imageImpact -= 10;
+      problems.push("cinematic_pattern_not_cinematic");
     }
   }
   if (pattern === "hero.coastal_service" && overlay <= 25 && hasGradient) {

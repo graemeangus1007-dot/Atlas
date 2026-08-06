@@ -735,9 +735,17 @@ export type {
 } from "@/lib/ai/hero-pattern-application";
 export {
   HERO_COMPOSITION_PASS_THRESHOLD,
+  IMAGE_IMPACT_FLOOR,
   evaluateHeroComposition,
   refineHeroComposition,
 } from "@/lib/hero-composition";
+export {
+  diagnoseGreyAreaSource,
+  galleryMayOwnRequest,
+  isActiveHeroTask,
+  isHeroDomainRequest,
+  isHeroGreyAreaComplaint,
+} from "@/lib/ai/hero-intent";
 export {
   DEFAULT_GALLERY_INTERACTION,
   isGalleryLightboxRequest,

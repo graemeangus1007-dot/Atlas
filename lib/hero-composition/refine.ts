@@ -33,6 +33,16 @@ export type HeroCompositionRefineDiagnostics = {
   aspectClass: HeroImageAspectClass;
   problemsBefore: string[];
   problemsAfter: string[];
+  initialCompositionScore?: number;
+  finalCompositionScore?: number;
+  initialImageImpact?: number;
+  finalImageImpact?: number;
+  shallowStripDetected?: boolean;
+  deadRegionDetected?: boolean;
+  contentClusterScore?: number;
+  selectedRefinement?: string | null;
+  professionalCompromiseUsed?: boolean;
+  verificationFailures?: string[];
 };
 
 export type RefineHeroCompositionResult = {
@@ -160,17 +170,19 @@ function applyPatternRules(
       primaryEmphasis: "strong",
     };
     next.treatment.overlay = Math.min(next.treatment.overlay, 25);
+    // Localized lower-third contrast — never a full-frame grey wash.
     next.treatment.gradient = {
       direction: "bottom",
-      strength: 0.45,
-      coverage: 0.62,
+      strength: 0.38,
+      coverage: 0.48,
     };
     next.treatment.textScrim = {
       enabled: true,
-      opacity: 0.3,
-      blur: 8,
+      opacity: 0.22,
+      blur: 6,
     };
     next.image.fit = "cover";
+    next.image.zoom = Math.min(next.image.zoom, 1.08);
     next.mobile = { layout: "keep_overlay", minHeight: "tall" };
   }
 
@@ -316,6 +328,28 @@ export function refineHeroComposition(input: {
     keepRefined &&
     JSON.stringify(chosen) !== JSON.stringify(input.composition);
 
+  const shallow = (problems: string[]) =>
+    problems.some((p) =>
+      [
+        "shallow_image_strip",
+        "banner_strip_contain",
+        "contain_mode_breaks_composition",
+        "image_utilization_too_low",
+      ].includes(p),
+    );
+  const dead = (problems: string[]) =>
+    problems.some((p) =>
+      ["dead_overlay_region", "excessive_non_image_hero_area"].includes(p),
+    );
+  const clusterScore = (evaluation: HeroCompositionEvaluation) => {
+    let score = 80;
+    if (evaluation.problems.includes("content_detached_from_image")) score -= 25;
+    if (evaluation.problems.includes("cta_detached_from_copy")) score -= 20;
+    if (evaluation.problems.includes("headline_on_visual_boundary")) score -= 20;
+    if (evaluation.problems.includes("detached_cta")) score -= 15;
+    return Math.max(0, score);
+  };
+
   return {
     composition: chosen,
     evaluation: chosenEval,
@@ -339,6 +373,16 @@ export function refineHeroComposition(input: {
       aspectClass,
       problemsBefore: beforeEval.problems,
       problemsAfter: afterEval.problems,
+      initialCompositionScore: beforeEval.overallScore,
+      finalCompositionScore: chosenEval.overallScore,
+      initialImageImpact: beforeEval.imageImpact,
+      finalImageImpact: chosenEval.imageImpact,
+      shallowStripDetected: shallow(chosenEval.problems),
+      deadRegionDetected: dead(chosenEval.problems),
+      contentClusterScore: clusterScore(chosenEval),
+      selectedRefinement: changed ? "pattern_professional_rules" : null,
+      professionalCompromiseUsed: false,
+      verificationFailures: [],
     },
   };
 }
@@ -363,5 +407,16 @@ export function logHeroCompositionDiagnostics(
     scoreBefore: diagnostics.scoreBefore,
     scoreAfter: diagnostics.scoreAfter,
     aspectClass: diagnostics.aspectClass,
+    initialCompositionScore: diagnostics.initialCompositionScore ?? null,
+    finalCompositionScore: diagnostics.finalCompositionScore ?? null,
+    initialImageImpact: diagnostics.initialImageImpact ?? null,
+    finalImageImpact: diagnostics.finalImageImpact ?? null,
+    shallowStripDetected: diagnostics.shallowStripDetected ?? false,
+    deadRegionDetected: diagnostics.deadRegionDetected ?? false,
+    contentClusterScore: diagnostics.contentClusterScore ?? null,
+    selectedRefinement: diagnostics.selectedRefinement ?? null,
+    professionalCompromiseUsed:
+      diagnostics.professionalCompromiseUsed ?? false,
+    verificationFailures: diagnostics.verificationFailures ?? [],
   });
 }

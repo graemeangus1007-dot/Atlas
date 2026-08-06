@@ -76,7 +76,7 @@ const TEXT_READABILITY_FLOOR = 62;
 const CTA_CONTRAST_FLOOR = 3.5;
 
 const IMAGE_VISIBILITY_PHRASE =
-  /\b(image|photo|picture|hero\s+image|hero\s+photo)\b[\s\S]{0,48}\b(hard\s+to\s+see|too\s+dark|disappeared|covered|hidden|washed\s+out|lost|easier\s+to\s+see|clearer|more\s+visible)\b|\b(hard\s+to\s+see|too\s+dark|covered|disappeared|easier\s+to\s+see|clearer|more\s+visible)\b[\s\S]{0,48}\b(image|photo|picture)\b|\b(overlay\s+is\s+too\s+strong|covered\s+too\s+much|show\s+more\s+of\s+the\s+(photo|image)|keep\s+the\s+(text|words)\s+readable\s+but\s+show|i\s+can\s+read\s+the\s+text\s+now|make\s+the\s+image\s+clearer\s+while\s+keeping|still\s+too\s+dark|a\s+little\s+(more\s+)?(visible|easier\s+to\s+see))\b/i;
+  /\b(image|photo|picture|hero\s+image|hero\s+photo)\b[\s\S]{0,48}\b(hard\s+to\s+see|too\s+dark|disappeared|covered|covering|hidden|washed\s+out|lost|easier\s+to\s+see|clearer|more\s+visible)\b|\b(hard\s+to\s+see|too\s+dark|covered|covering|disappeared|easier\s+to\s+see|clearer|more\s+visible)\b[\s\S]{0,48}\b(image|photo|picture)\b|\b(overlay\s+is\s+too\s+strong|covered\s+too\s+much|covering\s+the\s+hero|grey\s+area|gray\s+area|grey\s+layer|gray\s+layer|grey\s+block|gray\s+block|get\s+rid\s+of\s+that\s+(grey|gray)|remove\s+the\s+(grey|gray)|show\s+more\s+of\s+the\s+(photo|image)|keep\s+the\s+(text|words)\s+readable\s+but\s+show|the\s+picture\s+is\s+still\s+being\s+covered|i\s+can\s+read\s+the\s+text\s+now|make\s+the\s+image\s+clearer\s+while\s+keeping|still\s+too\s+dark|a\s+little\s+(more\s+)?(visible|easier\s+to\s+see))\b/i;
 
 /**
  * Corrective follow-up after a hero overlay/readability pass.
@@ -118,11 +118,18 @@ function imageVisibilityScore(project: BusinessProject): number {
   const treatment = project.heroTreatment;
   const hasGradient = Boolean(treatment?.gradient);
   const hasScrim = Boolean(treatment?.textScrim?.enabled);
+  const fit =
+    project.heroComposition?.image?.fit ??
+    project.heroImagePresentation?.fit ??
+    "cover";
   let score = 100 - overlay * 0.9;
   if (hasGradient) score += 14;
   if (hasScrim) score += 6;
   if (overlay >= 100) score -= 12;
   if (overlay >= 75 && !hasGradient) score -= 10;
+  // Contain/full letterboxing hides impact behind site background.
+  if (fit === "contain" || fit === "full") score -= 22;
+  if (fit === "cover") score += 8;
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
@@ -222,6 +229,11 @@ export function planHeroBalanceRepair(input: {
   const before = analyzeHeroVisualBalance(input.project);
   const paletteBefore = captureBrandPalette(input.project);
   const currentOverlay = clampOverlay(input.project.heroOverlay ?? 50);
+  const fit =
+    input.project.heroComposition?.image?.fit ??
+    input.project.heroImagePresentation?.fit ??
+    "cover";
+  const letterboxed = fit === "contain" || fit === "full";
 
   // Minimum overlay floor so we don't recreate the original readability bug.
   const floor: HeroOverlayStep = before.textReadabilityScore >= 80 ? 25 : 50;
@@ -232,6 +244,54 @@ export function planHeroBalanceRepair(input: {
   const alreadyLocalized =
     before.hasDirectionalGradient && before.hasTextScrim;
   const cannotReduce = targetOverlay >= currentOverlay;
+
+  // Grey letterbox from contain/full — switch to cover + localize contrast.
+  if (letterboxed) {
+    const letterboxOverlay: HeroOverlayStep = 25;
+    const treatment: HeroTreatment = {
+      overlayOpacity: letterboxOverlay,
+      gradient: {
+        direction: "bottom",
+        strength: 0.38,
+        coverage: 0.48,
+      },
+      textScrim: {
+        enabled: true,
+        opacity: 0.22,
+        blur: 6,
+      },
+      textPosition: input.project.heroTreatment?.textPosition ?? "center",
+    };
+    const operations: EditOperation[] = [
+      {
+        operation: "setHeroImagePresentation",
+        fit: "cover",
+        focalPoint: { x: 0.5, y: 0.42 },
+        zoom: 1,
+        position: "center",
+      },
+      {
+        operation: "setHeroOverlay",
+        value: letterboxOverlay,
+      },
+      {
+        operation: "setHeroTreatment",
+        gradient: treatment.gradient,
+        textScrim: treatment.textScrim,
+        textPosition: treatment.textPosition,
+      },
+    ];
+    return {
+      operations,
+      assessmentBefore: before,
+      targetOverlay: letterboxOverlay,
+      treatment,
+      maxSafeBalance: false,
+      paletteBefore,
+      explanation:
+        "I removed the broad grey treatment, restored the photo as the dominant hero visual, and kept contrast localized behind the text.",
+    };
+  }
 
   if (cannotReduce && alreadyLocalized) {
     return {
@@ -250,13 +310,13 @@ export function planHeroBalanceRepair(input: {
     overlayOpacity: targetOverlay,
     gradient: {
       direction: "bottom",
-      strength: Math.min(0.85, 0.45 + (100 - targetOverlay) / 200),
-      coverage: 0.62,
+      strength: Math.min(0.72, 0.38 + (100 - targetOverlay) / 220),
+      coverage: 0.48,
     },
     textScrim: {
       enabled: true,
-      opacity: 0.42,
-      blur: 8,
+      opacity: 0.28,
+      blur: 6,
     },
     textPosition: input.project.heroTreatment?.textPosition ?? "center",
   };

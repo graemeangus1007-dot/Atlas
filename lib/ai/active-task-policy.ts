@@ -23,6 +23,11 @@ import {
 import { isHeroVisualContinuationRequest } from "@/lib/ai/active-visual-task";
 import { isGalleryLightboxRequest } from "@/lib/ai/gallery-interaction";
 import { isGalleryMetadataRequest } from "@/lib/ai/gallery-metadata";
+import {
+  isHeroDomainRequest,
+  isHeroGreyAreaComplaint,
+  mentionsHero,
+} from "@/lib/ai/hero-intent";
 import { isHeroPatternApplicationRequest } from "@/lib/ai/hero-pattern-application";
 import {
   isHeroFitRequest,
@@ -214,17 +219,27 @@ export function detectFreshTaskIntent(request: string): ActiveTaskIntent {
   if (shouldOverridePendingClarification(text)) return "critique";
   if (isExecutionDisputeRequest(text)) return "dispute";
   if (INFORMATIONAL.test(text)) return "informational";
-  if (isGalleryLightboxRequest(text)) return "gallery_interaction";
-  if (isGalleryMetadataRequest(text)) return "gallery_metadata";
-  if (isSurfaceStyleRequest(text)) return "surface_style";
-  if (isSectionOrderRequest(text)) return "section_layout";
+  // Hero domain before gallery — matching hero ownership beats lightbox detection.
   if (isHeroReadabilityRequest(text)) return "hero_readability";
-  if (isHeroImageVisibilityComplaint(text) || isSoftHeroVisibilityRequest(text)) {
+  if (
+    isHeroImageVisibilityComplaint(text) ||
+    isSoftHeroVisibilityRequest(text) ||
+    isHeroGreyAreaComplaint(text)
+  ) {
     return "hero_balance";
   }
   if (isHeroPatternApplicationRequest(text)) return "hero_composition";
   if (isHeroProfessionalCompositionRequest(text)) return "hero_composition";
-  if (isHeroFitRequest(text)) return "hero_image_fit";
+  if (isHeroFitRequest(text) || isHeroDomainRequest(text)) {
+    // Bare full-picture / covering language with no gallery evidence.
+    if (isHeroFitRequest(text) || !isGalleryLightboxRequest(text)) {
+      return isHeroFitRequest(text) ? "hero_image_fit" : "hero_composition";
+    }
+  }
+  if (isGalleryLightboxRequest(text)) return "gallery_interaction";
+  if (isGalleryMetadataRequest(text)) return "gallery_metadata";
+  if (isSurfaceStyleRequest(text)) return "surface_style";
+  if (isSectionOrderRequest(text)) return "section_layout";
   if (PLAN_CONTINUE.test(text)) return "plan_execution";
   if (
     /\b(use\s+this\s+as|put\s+this\s+in|make\s+this\s+the|add\s+these\s+to\s+the\s+gallery)\b/i.test(
@@ -309,13 +324,19 @@ export function canContinueActiveTask(
   }
 
   if (task.kind.startsWith("hero_")) {
+    // Explicit gallery commands with gallery evidence leave the hero task.
+    if (isGalleryLightboxRequest(text) && !mentionsHero(text)) {
+      return false;
+    }
     if (
       isHeroVisualContinuationRequest(text) ||
       isHeroFitRequest(text) ||
       isHeroReadabilityRequest(text) ||
       isHeroImageVisibilityComplaint(text) ||
       isSoftHeroVisibilityRequest(text) ||
-      isHeroProfessionalCompositionRequest(text)
+      isHeroProfessionalCompositionRequest(text) ||
+      isHeroGreyAreaComplaint(text) ||
+      isHeroDomainRequest(text)
     ) {
       return true;
     }

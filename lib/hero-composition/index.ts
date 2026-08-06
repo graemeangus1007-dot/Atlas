@@ -26,6 +26,7 @@ export {
 } from "@/lib/hero-composition/render-plan";
 export {
   HERO_COMPOSITION_PASS_THRESHOLD,
+  IMAGE_IMPACT_FLOOR,
   classifyImageAspect,
   compositionScorePasses,
   evaluateHeroComposition,

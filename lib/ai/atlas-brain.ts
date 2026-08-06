@@ -90,6 +90,15 @@ import {
   verifyHeroBalanceRepair,
 } from "@/lib/ai/hero-visual-balance";
 import {
+  buildHeroIntentDiagnostics,
+  diagnoseGreyAreaSource,
+  galleryMayOwnRequest,
+  isActiveHeroTask,
+  isHeroDomainRequest,
+  isHeroGreyAreaComplaint,
+  logHeroIntentDiagnostics,
+} from "@/lib/ai/hero-intent";
+import {
   getActiveVisualTask,
   shouldContinueActiveHeroTask,
   touchActiveVisualTask,
@@ -1087,7 +1096,8 @@ function tryApplyHeroBalanceRepair(input: {
 }): AtlasBrainResult | null {
   if (
     !isHeroImageVisibilityComplaint(input.request) &&
-    !isSoftHeroVisibilityRequest(input.request)
+    !isSoftHeroVisibilityRequest(input.request) &&
+    !isHeroGreyAreaComplaint(input.request)
   ) {
     return null;
   }
@@ -2105,6 +2115,20 @@ function tryApplyGalleryLightbox(input: {
   request: string;
 }): AtlasBrainResult | null {
   const activeTask = getInteractionState(input.project).activeTask;
+  // P1.6 — active hero task + hero-domain language never yields to gallery.
+  if (
+    isActiveHeroTask(activeTask) &&
+    isHeroDomainRequest(input.request) &&
+    !galleryMayOwnRequest(input.request)
+  ) {
+    return null;
+  }
+  if (
+    isHeroDomainRequest(input.request) &&
+    !galleryMayOwnRequest(input.request)
+  ) {
+    return null;
+  }
   const continuing =
     activeTask?.kind === "gallery_interaction" &&
     canContinueActiveTask(activeTask, input.request) &&
@@ -2760,7 +2784,70 @@ export async function runAtlasBrain(
     return typedResolved;
   }
 
-  // Gallery lightbox / metadata — first-class, never Action Memory.
+  const activeForIntent = getInteractionState(projectForTurn).activeTask;
+  const greyAreaSource = diagnoseGreyAreaSource(projectForTurn);
+  logHeroIntentDiagnostics(
+    buildHeroIntentDiagnostics({
+      request,
+      activeTask: activeForIntent,
+      requestId: input.atlasRequestId,
+      greyAreaSource,
+    }),
+  );
+
+  // P1.6 priority: active/hero-domain composition before gallery lightbox.
+  // Explicit gallery-with-evidence still owns the turn.
+  const preferHeroDomain =
+    (isActiveHeroTask(activeForIntent) || isHeroDomainRequest(request)) &&
+    !galleryMayOwnRequest(request);
+
+  const runHeroHandlers = (): AtlasBrainResult | null => {
+    const heroPattern = tryApplyHeroPattern({
+      project: projectForTurn,
+      request,
+      requestId: input.atlasRequestId,
+    });
+    if (heroPattern) return heroPattern;
+
+    const heroProfessional = tryApplyHeroProfessionalComposition({
+      project: projectForTurn,
+      request,
+      requestId: input.atlasRequestId,
+    });
+    if (heroProfessional) return heroProfessional;
+
+    const heroFit = tryApplyHeroFit({
+      project: projectForTurn,
+      request,
+      requestId: input.atlasRequestId,
+    });
+    if (heroFit) return heroFit;
+
+    const heroBalanced = tryApplyHeroBalanceRepair({
+      project: projectForTurn,
+      request,
+      requestId: input.atlasRequestId,
+    });
+    if (heroBalanced) return heroBalanced;
+
+    return null;
+  };
+
+  if (preferHeroDomain) {
+    const heroOwned = runHeroHandlers();
+    if (heroOwned) {
+      return {
+        ...heroOwned,
+        followUpSuggestions: followUpsForProject(
+          heroOwned.project,
+          heroOwned.followUpSuggestions ?? [],
+        ),
+        atlasMemory: heroOwned.project.atlasMemory,
+      };
+    }
+  }
+
+  // Gallery lightbox / metadata — requires gallery evidence (never bare full-picture).
   const galleryLightbox = tryApplyGalleryLightbox({
     project: projectForTurn,
     request,
@@ -2807,70 +2894,19 @@ export async function runAtlasBrain(
     };
   }
 
-  // 3–4) Active hero visual task + explicit hero edits.
-  const heroPattern = tryApplyHeroPattern({
-    project: projectForTurn,
-    request,
-    requestId: input.atlasRequestId,
-  });
-  if (heroPattern) {
-    return {
-      ...heroPattern,
-      followUpSuggestions: followUpsForProject(
-        heroPattern.project,
-        heroPattern.followUpSuggestions ?? [],
-      ),
-      atlasMemory: heroPattern.project.atlasMemory,
-    };
-  }
-
-  const heroProfessional = tryApplyHeroProfessionalComposition({
-    project: projectForTurn,
-    request,
-    requestId: input.atlasRequestId,
-  });
-  if (heroProfessional) {
-    return {
-      ...heroProfessional,
-      followUpSuggestions: followUpsForProject(
-        heroProfessional.project,
-        heroProfessional.followUpSuggestions ?? [],
-      ),
-      atlasMemory: heroProfessional.project.atlasMemory,
-    };
-  }
-
-  const heroFit = tryApplyHeroFit({
-    project: projectForTurn,
-    request,
-    requestId: input.atlasRequestId,
-  });
-  if (heroFit) {
-    return {
-      ...heroFit,
-      followUpSuggestions: followUpsForProject(
-        heroFit.project,
-        heroFit.followUpSuggestions ?? [],
-      ),
-      atlasMemory: heroFit.project.atlasMemory,
-    };
-  }
-
-  // Hero image visibility after overlay — balance repair (never empty Action Memory).
-  const heroBalanced = tryApplyHeroBalanceRepair({
-    project: projectForTurn,
-    request,
-    requestId: input.atlasRequestId,
-  });
-  if (heroBalanced) {
-    return {
-      ...heroBalanced,
-      followUpSuggestions: followUpsForProject(
-        heroBalanced.project,
-        heroBalanced.followUpSuggestions ?? [],
-      ),
-      atlasMemory: heroBalanced.project.atlasMemory,
-    };
+  // Fresh hero edits when not already preferred above.
+  if (!preferHeroDomain) {
+    const heroOwned = runHeroHandlers();
+    if (heroOwned) {
+      return {
+        ...heroOwned,
+        followUpSuggestions: followUpsForProject(
+          heroOwned.project,
+          heroOwned.followUpSuggestions ?? [],
+        ),
+        atlasMemory: heroOwned.project.atlasMemory,
+      };
+    }
   }
 
   // 5) Action Memory — explicit recommendation-plan continuation only.

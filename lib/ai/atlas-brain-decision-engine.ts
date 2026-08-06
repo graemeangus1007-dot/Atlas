@@ -678,8 +678,17 @@ export function stageExplicitCommand(
     }
   }
 
-  // Gallery lightbox / metadata — first-class interaction.
-  if (isGalleryLightboxRequest(request) || isGalleryMetadataRequest(request)) {
+  // Gallery lightbox / metadata — requires gallery evidence; never steals hero domain.
+  if (
+    (isGalleryLightboxRequest(request) || isGalleryMetadataRequest(request)) &&
+    !(
+      isHeroFitRequest(request) ||
+      isHeroImageVisibilityComplaint(request) ||
+      isSoftHeroVisibilityRequest(request) ||
+      (/\bhero\b/i.test(request) &&
+        /\b(grey|gray|overlay|picture|photo|image|covering)\b/i.test(request))
+    )
+  ) {
     return {
       stage: "explicit_command",
       commandKind: "images",

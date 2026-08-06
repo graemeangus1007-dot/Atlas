@@ -1,5 +1,6 @@
 /**
  * Gallery interaction — fullscreen lightbox (v1.3).
+ * P1.6 — lightbox ownership requires gallery-domain evidence.
  */
 
 import type { EditOperation } from "@/lib/ai/edit-operations";
@@ -14,18 +15,30 @@ import {
 export type { GalleryInteraction, GalleryInteractionMode };
 export { DEFAULT_GALLERY_INTERACTION, normalizeGalleryInteraction };
 
-const LIGHTBOX_REQUEST =
-  /\b((click|tap|open|view|see)\b[\s\S]{0,40}\b(full|entire|whole|larger|bigger|fullscreen|full[- ]?screen|lightbox)\b|\b(full|entire|whole)\s+(picture|photo|image)s?\b[\s\S]{0,40}\b(click|tap|open)\b|\b(lightbox|photo\s+viewer|image\s+viewer)\b|\b(gallery\s+images?\s+fullscreen|fullscreen\s+gallery|swipe\s+through\s+(the\s+)?photos?|open\s+gallery\s+photos?\s+larger|make\s+the\s+gallery\s+images?\s+fullscreen|let\s+(people|visitors)\s+(click|swipe))\b)/i;
+/** Gallery-specific evidence — not bare “entire picture” / “full image”. */
+const GALLERY_EVIDENCE =
+  /\b(gallery|thumbnail|photo\s+grid|lightbox|visitors?|people\s+click|let\s+(people|visitors)|swipe\s+through|click\s+(a\s+|the\s+|one\s+of\s+the\s+)?(gallery\s+)?(photos?|images?)|open\s+gallery|full[- ]?screen\s+viewer|photo\s+viewer|image\s+viewer)\b/i;
+
+const LIGHTBOX_ACTION =
+  /\b((click|tap|open|view)\b[\s\S]{0,48}\b(full|entire|whole|larger|bigger|fullscreen|full[- ]?screen|lightbox)\b|\b(full|entire|whole)\s+(picture|photo|image)s?\b[\s\S]{0,40}\b(click|tap|open)\b|\b(lightbox|photo\s+viewer|image\s+viewer)\b|\b(gallery\s+images?\s+fullscreen|fullscreen\s+gallery|swipe\s+through\s+(the\s+)?photos?|open\s+gallery\s+photos?\s+larger|make\s+the\s+gallery\s+images?\s+fullscreen|let\s+(people|visitors)\s+(click|swipe)|show\s+the\s+full\s+gallery\s+(photo|image)|add\s+a\s+lightbox)\b)/i;
+
+export function hasGalleryLightboxEvidence(request: string): boolean {
+  return GALLERY_EVIDENCE.test(request.trim());
+}
 
 export function isGalleryLightboxRequest(request: string): boolean {
-  return LIGHTBOX_REQUEST.test(request.trim());
+  const text = request.trim();
+  if (!text) return false;
+  // Bare “see the entire picture” / “full image” without gallery cues must never match.
+  if (!hasGalleryLightboxEvidence(text)) return false;
+  return LIGHTBOX_ACTION.test(text) || /\blightbox\b/i.test(text);
 }
 
 /** Soft follow-ups while a gallery_interaction active task is sticky. */
 export function isGalleryLightboxSoftContinuation(request: string): boolean {
   const text = request.trim();
   if (!text) return false;
-  if (LIGHTBOX_REQUEST.test(text)) return true;
+  if (isGalleryLightboxRequest(text)) return true;
   return /\b(hide|show)\b[\s\S]{0,20}\bcaptions?\b|\bturn\s+(that\s+|the\s+lightbox\s+|lightbox\s+)?off\b|\blightbox\s+off\b|\blet\s+them\s+swipe|\bswipe\s+too\b|\bnavigation\b/i.test(
     text,
   );
@@ -108,7 +121,7 @@ export function planGalleryInteractionContinuation(request: string): {
         "Done. Visitors can swipe through gallery photos in the full-screen viewer.",
     };
   }
-  if (LIGHTBOX_REQUEST.test(text)) {
+  if (isGalleryLightboxRequest(text)) {
     return planGalleryLightboxOperations();
   }
   return null;
