@@ -96,3 +96,13 @@ export {
   type RecommendationExecutionTrace,
   type EnrichedReviewRecommendation,
 } from "@/lib/strategy/review-plan";
+
+export {
+  buildReviewPresentation,
+  formatReviewPresentation,
+  toCustomerFacingImprovementTitle,
+  formatContainsEmptySectionHeadings,
+  reviewPresentationEmptySections,
+  logReviewPresentationDiagnostics,
+  type ReviewPresentation,
+} from "@/lib/strategy/review-presentation";

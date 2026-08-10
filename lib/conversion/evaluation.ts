@@ -121,6 +121,13 @@ export function evaluateConversion(input: {
     scores,
     signals,
     highestPriorityImprovement,
+    // Safe CTA refine needs a real contact/destination — not fabricated offers.
+    ctaCanRefineSafely:
+      scores.ctaStrength < 70 &&
+      (signals.formEnabled ||
+        Boolean(signals.contactPhone?.trim()) ||
+        Boolean(signals.contactEmail?.trim()) ||
+        signals.servicesCount >= 2),
   });
 
   const businessInputNeeded = recommendations

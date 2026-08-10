@@ -88,6 +88,7 @@ export const GOAL_EXPECTED_DIMENSIONS: Record<
   clarify_services: ["scanability", "informationArchitecture"],
   strengthen_proof: ["trust", "firstImpression"],
   sequence_proof_before_ask: ["narrativeFlow", "conversion"],
+  clarify_primary_cta: ["conversion", "firstImpression"],
   simplify_conversion: ["conversion", "firstImpression"],
   improve_rhythm: ["visualRhythm", "whitespace", "sectionBalance"],
   tighten_messaging: ["scanability", "firstImpression"],

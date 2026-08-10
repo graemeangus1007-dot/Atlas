@@ -23,6 +23,7 @@ export type TransformationGoalId =
   | "clarify_services"
   | "strengthen_proof"
   | "sequence_proof_before_ask"
+  | "clarify_primary_cta"
   | "simplify_conversion"
   | "improve_rhythm"
   | "tighten_messaging";

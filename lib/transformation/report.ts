@@ -307,7 +307,7 @@ export function formatTransformationExecutionReport(
   if (transformationTextExposesInternalIds(text)) {
     return text
       .replace(
-        /\b(set_page_direction|strengthen_hero|establish_trust|clarify_services|strengthen_proof|sequence_proof_before_ask|simplify_conversion|improve_rhythm|tighten_messaging)\b/gi,
+        /\b(set_page_direction|strengthen_hero|establish_trust|clarify_services|strengthen_proof|sequence_proof_before_ask|clarify_primary_cta|simplify_conversion|improve_rhythm|tighten_messaging)\b/gi,
         "that improvement",
       )
       .replace(

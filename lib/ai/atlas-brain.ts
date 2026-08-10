@@ -253,13 +253,18 @@ import {
   conversionTextExposesInternalIds,
   evaluateConversion,
   formatConversionDirectorReport,
+  formatPrimaryCtaExecutionCopy,
   isConversionDirectorRequest,
+  logPrimaryCtaDiagnostics,
+  planPrimaryCtaRefinement,
+  verifyPrimaryCtaRefinement,
 } from "@/lib/conversion";
 import {
   arbitrateReviewRecommendations,
   assessStrategicPriorities,
   buildExecutionTraceBase,
   buildReviewPlanSnapshot,
+  buildReviewPresentation,
   classifyStrategicRequest,
   enrichStoredRecommendation,
   formatApplyAllDispositionReport,
@@ -272,6 +277,7 @@ import {
   isStrategicAdvisoryRequest,
   isStrategicCompletionRequest,
   logReviewPlanDiagnostics,
+  logReviewPresentationDiagnostics,
   logStrategicCompletionDiagnostics,
   domainsAlignWithObjective,
   mutationDomainsFromOperations,
@@ -566,6 +572,118 @@ function executeReviewPlanApplyAll(input: {
         reason: pre.reason,
         actualMutationDomains: [],
         verificationResult: pre.verificationResult,
+      });
+      continue;
+    }
+
+    // v1.6.3 — CTA recommendations execute via verified Conversion Director plan.
+    const isCtaRec =
+      base.domain === "cta" ||
+      /clarify the primary cta|primary (cta|action)/i.test(rec.title);
+    if (isCtaRec) {
+      const strategicBefore = assessStrategicPriorities({ project });
+      const planned = planPrimaryCtaRefinement({ project });
+      if (planned.disposition === "already_satisfied") {
+        traces.push({
+          ...base,
+          disposition: "already_satisfied",
+          reason: "Primary CTA is already specific and appropriate.",
+          actualMutationDomains: [],
+          verificationResult: "already_satisfied",
+        });
+        continue;
+      }
+      if (planned.disposition !== "applyable" || !planned.plan) {
+        traces.push({
+          ...base,
+          disposition: "blocked_missing_input",
+          reason:
+            planned.assessment.blockedReason ??
+            "Needs a real destination before CTA refinement is safe.",
+          actualMutationDomains: [],
+          verificationResult: "blocked_destination",
+        });
+        logPrimaryCtaDiagnostics({
+          before: planned.assessment,
+          disposition: planned.disposition,
+          strategicPriorityBefore:
+            strategicBefore.highestPriorityOpportunity?.id ?? null,
+        });
+        continue;
+      }
+      const ctaTarget: import("@/lib/ai/creative-director-types").CreativeDirectorRecommendation =
+        {
+          id: rec.id,
+          kind: "conversion",
+          title: "Clarify the primary CTA",
+          explanation: planned.plan.reason,
+          impact: "high",
+          impactScore: 90,
+          confidence: 0.9,
+          operations: planned.plan.operations,
+          capabilityIds: [],
+          applyable: true,
+          estimatedTime: "<10 seconds",
+        };
+      const beforeProject = project;
+      const result = applyCreativeRecommendation({
+        project,
+        recommendation: ctaTarget,
+      });
+      if (!result.ok || result.status !== "applied") {
+        traces.push({
+          ...base,
+          disposition: "failed_verification",
+          reason: "CTA refinement did not apply.",
+          actualMutationDomains: [],
+          verificationResult: "apply_failed",
+        });
+        continue;
+      }
+      const verified = verifyPrimaryCtaRefinement({
+        before: beforeProject,
+        after: result.project,
+        plannedLabel: planned.plan.label,
+      });
+      const strategicAfter = assessStrategicPriorities({
+        project: result.project,
+      });
+      logPrimaryCtaDiagnostics({
+        before: planned.assessment,
+        after: planPrimaryCtaRefinement({ project: result.project }).assessment,
+        disposition: verified.verified ? "applied" : "failed_verification",
+        verified: verified.verified,
+        strategicPriorityBefore:
+          strategicBefore.highestPriorityOpportunity?.id ?? null,
+        strategicPriorityAfter:
+          strategicAfter.highestPriorityOpportunity?.id ?? null,
+        unrelatedMutationDomains: verified.unrelatedMutationDomains,
+      });
+      if (!verified.verified) {
+        traces.push({
+          ...base,
+          disposition: "failed_verification",
+          reason:
+            verified.reasons[0] ??
+            "CTA change was not demonstrably better — current version kept.",
+          actualMutationDomains: ["cta"],
+          verificationResult: "rolled_back",
+        });
+        continue;
+      }
+      project = result.project;
+      changes.push(...result.changes);
+      operations.push(...planned.plan.operations);
+      appliedIds.push(rec.id);
+      traces.push({
+        ...base,
+        disposition: "applied",
+        actualMutationDomains: ["cta"],
+        verificationResult: "verified",
+        reason: formatPrimaryCtaExecutionCopy({
+          beforeLabel: planned.assessment.currentLabel,
+          afterLabel: planned.plan.label,
+        }),
       });
       continue;
     }
@@ -3821,12 +3939,59 @@ export async function runAtlasBrain(
       !tx.skippedAsRepeat &&
       tx.operations.length > 0;
 
-    const explanation = formatStrategicCompletionReport({
+    let explanation = formatStrategicCompletionReport({
       assessment: strategic,
       strategicPreface,
       tx,
       idempotent,
     });
+
+    // v1.6.3 — Strategic feedback loop after CTA refinement.
+    const ctaBefore = (projectForTurn.primaryCta || "").trim();
+    const ctaAfter = (project.primaryCta || "").trim();
+    if (applied && ctaBefore && ctaAfter && ctaBefore !== ctaAfter) {
+      const verified = verifyPrimaryCtaRefinement({
+        before: projectForTurn,
+        after: project,
+        plannedLabel: ctaAfter,
+      });
+      const strategicAfter = assessStrategicPriorities({ project });
+      logPrimaryCtaDiagnostics({
+        before: planPrimaryCtaRefinement({ project: projectForTurn }).assessment,
+        after: planPrimaryCtaRefinement({ project }).assessment,
+        disposition: verified.verified ? "applied" : "failed_verification",
+        verified: verified.verified,
+        strategicPriorityBefore:
+          strategic.highestPriorityOpportunity?.id ?? null,
+        strategicPriorityAfter:
+          strategicAfter.highestPriorityOpportunity?.id ?? null,
+        unrelatedMutationDomains: verified.unrelatedMutationDomains,
+        requestId: input.atlasRequestId,
+      });
+      if (verified.verified) {
+        explanation = [
+          explanation,
+          "",
+          formatPrimaryCtaExecutionCopy({
+            beforeLabel: ctaBefore,
+            afterLabel: ctaAfter,
+          }),
+        ].join("\n");
+        if (
+          strategic.highestPriorityOpportunity?.id === "cta" &&
+          strategicAfter.highestPriorityOpportunity?.id !== "cta"
+        ) {
+          const next = strategicAfter.highestPriorityOpportunity;
+          if (next) {
+            explanation = [
+              explanation,
+              "",
+              `With the primary action clarified, the next strategic priority is ${next.title.toLowerCase()}.`,
+            ].join("\n");
+          }
+        }
+      }
+    }
 
     return {
       ok: true,
@@ -4194,9 +4359,59 @@ export async function runAtlasBrain(
       requestId: atlasRequestId,
       logDiagnostics: process.env.NODE_ENV === "development",
     });
-    const arbitrated = arbitrateReviewRecommendations({
+    const arbitratedBase = arbitrateReviewRecommendations({
       assessment: strategicAssessment,
       recommendations: critiqueResult.recommendations,
+    });
+    // v1.6.3 — attach verified CTA refinement ops when Conversion Director can refine safely.
+    const arbitrated = arbitratedBase.map((rec) => {
+      const isCta =
+        rec.domain === "cta" ||
+        /clarify the primary cta|primary (cta|action)|make the primary/i.test(
+          rec.title,
+        );
+      if (!isCta) return rec;
+      const planned = planPrimaryCtaRefinement({ project: projectForTurn });
+      if (planned.disposition === "applyable" && planned.plan) {
+        return {
+          ...rec,
+          domain: "cta",
+          owner: "conversion_director",
+          objective: "Clarify the primary CTA",
+          title: "Clarify the primary CTA",
+          applyable: true,
+          deferred: false,
+          operations: planned.plan.operations,
+          explanation: planned.plan.reason,
+          blockedReason: undefined,
+          supportStatus: "supported" as const,
+        };
+      }
+      if (planned.disposition === "already_satisfied") {
+        return {
+          ...rec,
+          domain: "cta",
+          owner: "conversion_director",
+          title: "Clarify the primary CTA",
+          applyable: false,
+          deferred: false,
+          operations: [],
+          blockedReason: "Primary CTA is already specific and appropriate.",
+          supportStatus: "coming_soon" as const,
+        };
+      }
+      return {
+        ...rec,
+        domain: "cta",
+        owner: "conversion_director",
+        title: "Clarify the primary CTA",
+        applyable: false,
+        operations: [],
+        blockedReason:
+          planned.assessment.blockedReason ??
+          "Needs a real destination before CTA refinement is safe.",
+        supportStatus: "needs_images" as const,
+      };
     });
     const postCompletionEvidence = hasRecentNoGainCompletion({
       lastAttempt: getActionMemory(projectForTurn).lastTransformationAttempt,
@@ -4211,11 +4426,28 @@ export async function runAtlasBrain(
       postCompletionEvidence,
     });
     const supportPlan = formatRecommendationSupportPlan(arbitrated);
+    const critiqueStrengthTitles =
+      critiqueResult.critique?.currentStrengths?.map((s) => s.title) ?? [];
+    const reviewPresentation = buildReviewPresentation({
+      assessment: strategicAssessment,
+      recommendations: arbitrated,
+      critiqueExplanation: critiqueResult.explanation,
+      businessName: projectForTurn.businessName,
+      critiqueStrengthTitles,
+    });
     const strategicReviewExplanation = formatStrategicallyPrioritizedReview({
       assessment: strategicAssessment,
       recommendations: arbitrated,
       critiqueExplanation: critiqueResult.explanation,
+      businessName: projectForTurn.businessName,
+      critiqueStrengthTitles,
     });
+    if (process.env.NODE_ENV === "development") {
+      logReviewPresentationDiagnostics({
+        presentation: reviewPresentation,
+        requestId: atlasRequestId,
+      });
+    }
     const applyable = arbitrated.filter((r) => r.applyable);
     const actionMemory = storeRecommendations(getActionMemory(projectForTurn), {
       stored: arbitrated.map(enrichStoredRecommendation),

@@ -14,6 +14,8 @@ export function buildConversionRecommendations(input: {
   scores: Record<ConversionDimensionId, number>;
   signals: ConversionSignals;
   highestPriorityImprovement: ConversionDimensionId | null;
+  /** When false, CTA can be refined without new business facts. */
+  ctaCanRefineSafely?: boolean;
 }): ConversionRecommendation[] {
   const recs: ConversionRecommendation[] = [];
   const { scores, signals } = input;
@@ -33,15 +35,17 @@ export function buildConversionRecommendations(input: {
   }
 
   if (scores.ctaStrength < 70) {
+    const canRefine = input.ctaCanRefineSafely === true;
     recs.push({
       owner: "conversion_director",
       domain: "cta",
       title: "Make the primary CTA specific",
-      explanation:
-        "The main call-to-action is too generic to feel like a clear next step. A more specific action (quote, booking, consult) would improve lead generation.",
+      explanation: canRefine
+        ? "The main call-to-action is too generic to feel like a clear next step. A more specific action matching the site’s real destinations would improve lead generation."
+        : "The main call-to-action is too generic to feel like a clear next step. A more specific action (quote, booking, consult) would improve lead generation once a safe destination exists.",
       priority: "high",
       estimatedImpact: 18,
-      requiresBusinessInput: true,
+      requiresBusinessInput: !canRefine,
       improves: ["ctaStrength", "contactFlow"],
     });
   }

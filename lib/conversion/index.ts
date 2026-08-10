@@ -30,3 +30,15 @@ export {
   conversionTextExposesInternalIds,
   CONVERSION_DIRECTOR_FOLLOW_UPS,
 } from "@/lib/conversion/presentation";
+
+export {
+  assessPrimaryCTA,
+  planPrimaryCtaRefinement,
+  verifyPrimaryCtaRefinement,
+  formatPrimaryCtaExecutionCopy,
+  listCtaDestinationCapabilities,
+  logPrimaryCtaDiagnostics,
+  type PrimaryCTAAssessment,
+  type RefinePrimaryCTAPlan,
+  type CtaDestinationCapability,
+} from "@/lib/conversion/primary-cta";

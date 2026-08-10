@@ -93,6 +93,21 @@ export function verifyGoalAgainstProject(
       }
       break;
     }
+    case "clarify_primary_cta": {
+      const label = (project.primaryCta || "").trim();
+      if (!label) {
+        passed = false;
+        notes.push("Primary CTA empty");
+      } else if (
+        /^(learn more|click here|submit|ok|get started|contact us|read more|see more)$/i.test(
+          label,
+        )
+      ) {
+        passed = false;
+        notes.push("Primary CTA still generic");
+      }
+      break;
+    }
     case "simplify_conversion":
       if (!(project.primaryCta || "").trim()) {
         passed = false;

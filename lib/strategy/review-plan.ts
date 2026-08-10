@@ -12,6 +12,10 @@ import type {
   StrategicOpportunity,
   StrategicOpportunityId,
 } from "@/lib/strategy/types";
+import {
+  buildReviewPresentation,
+  formatReviewPresentation,
+} from "@/lib/strategy/review-presentation";
 import type { BusinessProject } from "@/types/business-project";
 
 export type RecommendationDisposition =
@@ -529,43 +533,17 @@ export function formatStrategicallyPrioritizedReview(input: {
   assessment: StrategicAssessment;
   recommendations: EnrichedReviewRecommendation[];
   critiqueExplanation: string;
+  businessName?: string;
+  critiqueStrengthTitles?: string[];
 }): string {
-  const top = input.assessment.highestPriorityOpportunity;
-  const lines: string[] = [
-    top
-      ? `Strategic priority: ${top.title}. ${inferRecommendationOwner(top.domain) === "conversion_director" ? "Conversion Director" : "The leading specialist"} should lead.`
-      : "Strategic priority: refine the highest-impact remaining gaps.",
-    "",
-    "Prioritized improvements",
-  ];
-
-  for (let i = 0; i < input.recommendations.length; i++) {
-    const r = input.recommendations[i]!;
-    const flag = r.deferred
-      ? " — deferred until higher priorities land"
-      : !r.applyable
-        ? " — needs input or unsupported"
-        : "";
-    lines.push(`${i + 1}. ${r.title}${flag}`);
-    if (r.explanation) {
-      lines.push(`   ${r.explanation.slice(0, 160)}`);
-    }
-  }
-
-  lines.push(
-    "",
-    "Say Apply all when you’re ready, or pick any single improvement.",
-  );
-
-  // Keep a short slice of critique strengths if present.
-  const strengthBlock = input.critiqueExplanation
-    .split(/\n{2,}/)
-    .find((b) => /strength/i.test(b.slice(0, 40)));
-  if (strengthBlock && strengthBlock.length < 400) {
-    lines.unshift(strengthBlock, "");
-  }
-
-  return lines.join("\n");
+  const presentation = buildReviewPresentation({
+    assessment: input.assessment,
+    recommendations: input.recommendations,
+    critiqueExplanation: input.critiqueExplanation,
+    businessName: input.businessName ?? "",
+    critiqueStrengthTitles: input.critiqueStrengthTitles,
+  });
+  return formatReviewPresentation(presentation);
 }
 
 export function formatApplyAllDispositionReport(

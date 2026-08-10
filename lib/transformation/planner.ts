@@ -231,7 +231,46 @@ export function proposeTransformationGoals(input: {
   }
 
   const conversionScore = evaluation?.conversion.score ?? 55;
+  const ctaLabel = (input.strategyInput.primaryCta || "").trim();
+  const ctaGeneric =
+    !ctaLabel ||
+    /^(learn more|click here|submit|ok|get started|contact us|read more|see more)$/i.test(
+      ctaLabel,
+    );
+  const ctaClarity = evaluation?.conversion?.ctaClarity ?? (ctaGeneric ? 40 : 80);
+  const needsCtaClarify = ctaGeneric || ctaClarity < 70;
+  if (needsCtaClarify) {
+    goals.push(
+      goal({
+        id: "clarify_primary_cta",
+        objective: "Clarify the primary CTA",
+        reason:
+          "A specific primary action improves conversion more than additional visual polish when the label is generic.",
+        priority: "high",
+        phase: "conversion",
+        dependencies: ["sequence_proof_before_ask"],
+        affectedSections: ["hero", "cta"],
+        expectedImprovement: 12,
+        verificationCriteria: [
+          "CTA clarity improves",
+          "Destination remains valid",
+          "No brand palette change",
+          "Unrelated copy unchanged",
+        ],
+        visitorImpact: 84,
+        visualImpact: 20,
+        risk: "low",
+        effort: "low",
+        requiredAssets: [],
+        theme: "conversion",
+      }),
+    );
+  }
   if (conversionScore < 78) {
+    const conversionDeps: Array<
+      "sequence_proof_before_ask" | "strengthen_proof" | "clarify_primary_cta"
+    > = ["sequence_proof_before_ask", "strengthen_proof"];
+    if (needsCtaClarify) conversionDeps.push("clarify_primary_cta");
     goals.push(
       goal({
         id: "simplify_conversion",
@@ -240,7 +279,7 @@ export function proposeTransformationGoals(input: {
           "Once trust exists, every section should lead naturally to one clear next step.",
         priority: "high",
         phase: "conversion",
-        dependencies: ["sequence_proof_before_ask", "strengthen_proof"],
+        dependencies: conversionDeps,
         affectedSections: ["hero", "cta", "contact"],
         expectedImprovement: 11,
         verificationCriteria: [

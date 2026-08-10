@@ -203,7 +203,7 @@ describe("Sprint 28.4 — panel information architecture", () => {
     const conversation = screen.getByTestId("atlas-conversation-region");
     expect(within(conversation).getByTestId("atlas-critique-message")).toBeTruthy();
     expect(within(conversation).getByText("Homepage review")).toBeTruthy();
-    expect(within(conversation).getByText(/3 improvements found/i)).toBeTruthy();
+    expect(within(conversation).getByText(/3 improvements/i)).toBeTruthy();
     expect(
       within(conversation).queryByTestId("critique-improvement-card-1"),
     ).toBeNull();

@@ -17,6 +17,9 @@ import type {
   TransformationPlan,
   WebsiteVision,
 } from "@/lib/transformation/types";
+import {
+  planPrimaryCtaRefinement,
+} from "@/lib/conversion/primary-cta";
 import type { BusinessProject } from "@/types/business-project";
 
 const APPROVED_OPS = new Set<EditOperation["operation"]>([
@@ -338,15 +341,56 @@ export function mapTransformationGoalToOperations(
       return { ok: true, status: "ready", operations: filterApproved(ops) };
     }
 
+    case "clarify_primary_cta": {
+      const planned = planPrimaryCtaRefinement({ project });
+      if (planned.disposition === "already_satisfied") {
+        return {
+          ok: true,
+          status: "already_satisfied",
+          operations: [],
+          reason: "Primary CTA is already specific and appropriate.",
+        };
+      }
+      if (planned.disposition !== "applyable" || !planned.plan) {
+        return {
+          ok: false,
+          status: "blocked_missing_asset",
+          operations: [],
+          reason:
+            planned.assessment.blockedReason ??
+            "Primary CTA refinement needs a real destination on the site.",
+        };
+      }
+      return {
+        ok: true,
+        status: "ready",
+        operations: filterApproved(planned.plan.operations),
+      };
+    }
+
     case "simplify_conversion": {
       const ops: EditOperation[] = [];
-      const nextCta = industryCta(project);
-      if (nextCta !== (project.primaryCta || "").trim()) {
-        ops.push({
-          operation: "replaceText",
-          target: "hero.primaryCta",
-          value: nextCta,
-        });
+      // Prefer verified Conversion Director CTA plan over heuristic industry labels.
+      const planned = planPrimaryCtaRefinement({ project });
+      if (planned.disposition === "applyable" && planned.plan) {
+        ops.push(...planned.plan.operations);
+      } else {
+        const nextCta = industryCta(project);
+        if (nextCta !== (project.primaryCta || "").trim()) {
+          // Only apply heuristic when Conversion Director also considers it weak/generic.
+          const generic =
+            !project.primaryCta?.trim() ||
+            /^(learn more|get started|contact us|click here|submit|book now)$/i.test(
+              project.primaryCta.trim(),
+            );
+          if (generic && nextCta !== project.primaryCta?.trim()) {
+            ops.push({
+              operation: "replaceText",
+              target: "hero.primaryCta",
+              value: nextCta,
+            });
+          }
+        }
       }
       ops.push({
         operation: "setCreativePolish",
@@ -354,11 +398,14 @@ export function mapTransformationGoalToOperations(
         visualHierarchy: true,
       });
       const contactBtn = (project.contact?.buttonText || "").trim();
+      const ctaForButton =
+        planned.plan?.label ||
+        industryCta(project);
       if (!contactBtn || /submit|send/i.test(contactBtn)) {
         ops.push({
           operation: "replaceText",
           target: "contact.buttonText",
-          value: nextCta,
+          value: ctaForButton,
         });
       }
       if (ops.length === 0) {

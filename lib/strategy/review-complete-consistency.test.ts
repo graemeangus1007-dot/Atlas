@@ -260,7 +260,7 @@ describe("v1.6.2 Riverview production sequence", () => {
     expect(snapshot?.highestPriorityOpportunityId).toBe(
       strategicBeforeReview.highestPriorityOpportunity?.id ?? null,
     );
-    expect(review.explanation).toMatch(/Strategic priority/i);
+    expect(review.explanation).toMatch(/Highest priority/i);
     // Must not lead with landscape-led direction when CTA remains top.
     if (strategicBeforeReview.highestPriorityOpportunity?.id === "cta") {
       expect(review.explanation).not.toMatch(

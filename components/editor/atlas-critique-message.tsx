@@ -13,8 +13,8 @@ type AtlasCritiqueMessageProps = {
 };
 
 /**
- * Compact critique in conversation — summary + plan CTAs only.
- * Recommendation rows live in the Plan / Review secondary views.
+ * Compact critique in conversation — agency-quality review summary + plan CTAs.
+ * Empty sections are never rendered (v1.6.3 invariant).
  */
 export default function AtlasCritiqueMessage({
   content,
@@ -60,6 +60,9 @@ export default function AtlasCritiqueMessage({
   }
 
   const count = critique.improvements.length;
+  const strengths = critique.strengths ?? [];
+  const needsInput = critique.needsInput ?? [];
+  const highestPriority = critique.highestPriority?.trim() || null;
 
   return (
     <div
@@ -81,12 +84,63 @@ export default function AtlasCritiqueMessage({
         <p className="mt-1 text-sm leading-relaxed text-foreground">
           {critique.executiveSummary}
         </p>
-        {count > 0 ? (
-          <p className="mt-2 text-xs text-muted">
-            {count} improvement{count === 1 ? "" : "s"} found
-          </p>
-        ) : null}
       </div>
+
+      {strengths.length > 0 ? (
+        <section data-testid="atlas-review-strengths">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+            What&apos;s working
+          </h4>
+          <ul className="mt-1 space-y-1 text-sm leading-relaxed text-foreground">
+            {strengths.map((item) => (
+              <li key={item}>• {item}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {highestPriority ? (
+        <section data-testid="atlas-review-highest-priority">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+            Highest priority
+          </h4>
+          <p className="mt-1 text-sm font-medium leading-relaxed text-foreground">
+            {highestPriority}
+          </p>
+        </section>
+      ) : null}
+
+      {count > 0 ? (
+        <section data-testid="atlas-review-next-improvements">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+            Next improvements
+          </h4>
+          <ol className="mt-1 list-decimal space-y-1 pl-4 text-sm leading-relaxed text-foreground">
+            {critique.improvements.slice(0, 5).map((item) => (
+              <li key={`${item.index}-${item.title}`}>{item.title}</li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      {needsInput.length > 0 ? (
+        <section data-testid="atlas-review-needs-input">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+            Needs your input
+          </h4>
+          <ul className="mt-1 space-y-1 text-sm leading-relaxed text-foreground">
+            {needsInput.map((item) => (
+              <li key={item}>• {item}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {count > 0 ? (
+        <p className="text-xs text-muted">
+          {count} improvement{count === 1 ? "" : "s"} ready
+        </p>
+      ) : null}
 
       {showPlanActions && (critique.applyAllReady || count > 0) ? (
         <div className="flex flex-wrap gap-2">

@@ -51,9 +51,24 @@ export const CANONICAL_DEPENDENCIES: TransformationDependency[] = [
     reason: "Conversion path follows proof-before-ask sequencing.",
   },
   {
+    from: "sequence_proof_before_ask",
+    to: "clarify_primary_cta",
+    reason: "CTA clarity follows proof-before-ask sequencing when both apply.",
+  },
+  {
+    from: "clarify_primary_cta",
+    to: "simplify_conversion",
+    reason: "Broad conversion polish follows a verified primary CTA.",
+  },
+  {
     from: "simplify_conversion",
     to: "improve_rhythm",
     reason: "Rhythm polish comes after structural conversion fixes.",
+  },
+  {
+    from: "clarify_primary_cta",
+    to: "improve_rhythm",
+    reason: "Rhythm polish comes after CTA clarity when conversion polish is skipped.",
   },
   {
     from: "clarify_services",

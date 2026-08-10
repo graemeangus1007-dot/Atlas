@@ -17,6 +17,10 @@ export type ParsedCritiqueMessage = {
   executiveSummary: string;
   designDirection: string | null;
   strengths: string[];
+  /** v1.6.3 — strategic highest priority title when present. */
+  highestPriority?: string | null;
+  /** v1.6.3 — items that need real business input. */
+  needsInput?: string[];
   improvements: CritiqueImprovementCard[];
   expectedOutcome: string | null;
   /** Full original body for collapsed “View full critique”. */
@@ -28,7 +32,7 @@ export type ParsedCritiqueMessage = {
 };
 
 const SECTION_HEADINGS =
-  /^(Overall direction|Biggest problem|Current impression|Customer|Desired emotion|Design goals|Missing trust signals|Execution plan|Design direction|Strengths|Top improvements|Expected outcome|Plan:)$/i;
+  /^(Overall direction|Biggest problem|Current impression|Customer|Desired emotion|Design goals|Missing trust signals|Execution plan|Design direction|Strengths|What's working|Highest priority|Next improvements|Needs your input|Top improvements|Expected outcome|Plan:)$/i;
 
 /** Collapse plain messages well below a “wall of text” threshold. */
 const LONG_MESSAGE_WORDS = 80;
@@ -163,6 +167,9 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
 
   const hasCritiqueShape =
     /\bTop improvements\b/i.test(fullText) ||
+    /\bNext improvements\b/i.test(fullText) ||
+    /\bHighest priority\b/i.test(fullText) ||
+    /\bWhat's working\b/i.test(fullText) ||
     /\bExpected outcome\b/i.test(fullText) ||
     /\bDesign direction\b/i.test(fullText) ||
     /\bOverall direction\b/i.test(fullText) ||
@@ -170,7 +177,8 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
     /\bExecution plan\b/i.test(fullText) ||
     /\bDesign goals\b/i.test(fullText) ||
     /\bWhy it matters\b/i.test(fullText) ||
-    (/^\d+\.\s+/m.test(fullText) && /\bPlan:\b/i.test(fullText));
+    (/^\d+\.\s+/m.test(fullText) && /\bPlan:\b/i.test(fullText)) ||
+    (/\bimprovements? ready\b/i.test(fullText) && /\bApply all\b/i.test(fullText));
 
   // Multi-heading structured bodies should never render as a raw wall.
   const headingHits = fullText
@@ -187,6 +195,8 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
       executiveSummary: toExecutiveSummary(fullText),
       designDirection: null,
       strengths: [],
+      highestPriority: null,
+      needsInput: [],
       improvements: [],
       expectedOutcome: null,
       fullText,
@@ -223,7 +233,7 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
   flushSection();
 
   let improvements = parseImprovementBlock(
-    sections["top improvements"] ?? "",
+    sections["next improvements"] ?? sections["top improvements"] ?? "",
   );
   // Strategy-only bodies: surface execution plan steps as compact cards.
   if (improvements.length === 0 && sections["execution plan"]) {
@@ -232,7 +242,11 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
   if (improvements.length === 0 && sections.plan) {
     improvements = parseImprovementBlock(sections.plan);
   }
-  const strengths = parseStrengths(sections.strengths ?? "");
+  const strengths = parseStrengths(
+    sections["what's working"] ?? sections.strengths ?? "",
+  );
+  const highestPriority = (sections["highest priority"] ?? "").trim() || null;
+  const needsInput = parseStrengths(sections["needs your input"] ?? "");
   const designDirection =
     sections["overall direction"] || sections["design direction"] || null;
   const expectedOutcome = sections["expected outcome"] || null;
@@ -248,6 +262,8 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
     executiveSummary: toExecutiveSummary(summarySource),
     designDirection,
     strengths,
+    highestPriority,
+    needsInput,
     improvements,
     expectedOutcome,
     fullText,
