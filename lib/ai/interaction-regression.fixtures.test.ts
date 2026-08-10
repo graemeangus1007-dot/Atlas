@@ -90,7 +90,7 @@ describe("fixture: hero placement → entire picture → refresh → entire pict
     expect(placed.applyStatus).toBe("applied");
     assertHeroPlacementTask(placed.project, "photo-1");
     expect(getActiveVisualTask(getInteractionState(placed.project))?.kind).toBe(
-      "hero_image_fit",
+      "hero_composition",
     );
 
     const fit = await runAtlasBrain({

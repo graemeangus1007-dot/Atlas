@@ -292,6 +292,13 @@ export function formatTransformationExecutionReport(
     );
   }
 
+  if (result.tastePolishApplied) {
+    lines.push(
+      "",
+      "I finished with one restrained polish pass so the page feels more deliberate without changing brand, content, or structure.",
+    );
+  }
+
   const text = lines
     .filter((l, i, arr) => !(l === "" && arr[i - 1] === ""))
     .join("\n")

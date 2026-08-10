@@ -21,6 +21,10 @@ import {
   isSectionOrderRequest,
   parseSectionMoveRequest,
 } from "@/lib/ai/section-order";
+import {
+  isVisualCompositionExplanationRequest,
+  isVisualCompositionRefinementRequest,
+} from "@/lib/composition/intent";
 import type { BusinessProject } from "@/types/business-project";
 
 export const NL_EDIT_PLANNER_VERSION = "28.3.0";
@@ -469,6 +473,41 @@ export function extractNaturalLanguageEditPlan(input: {
       explanation: "",
       categories: [],
       matchedSignals: ["surface_style"],
+      plannerVersion: NL_EDIT_PLANNER_VERSION,
+    };
+  }
+
+  // Visual composition refinement is hero-owned — never site-wide polish.
+  if (
+    isVisualCompositionExplanationRequest(request) ||
+    isVisualCompositionRefinementRequest(request)
+  ) {
+    return {
+      intent: "ambiguous",
+      confidence: 0.15,
+      steps: [],
+      operations: [],
+      explanation: "",
+      categories: [],
+      matchedSignals: ["visual_composition"],
+      plannerVersion: NL_EDIT_PLANNER_VERSION,
+    };
+  }
+
+  // Taste polish is a guarded finishing pass — not NL multi-edit.
+  if (
+    /\b(polish\s+(the\s+)?(website|site|page|design)|make\s+it\s+feel\s+more\s+professional|agency[- ]quality\s+pass)\b/i.test(
+      request,
+    )
+  ) {
+    return {
+      intent: "ambiguous",
+      confidence: 0.15,
+      steps: [],
+      operations: [],
+      explanation: "",
+      categories: [],
+      matchedSignals: ["taste_polish"],
       plannerVersion: NL_EDIT_PLANNER_VERSION,
     };
   }

@@ -43,3 +43,6 @@ export {
 
 // Re-export benchmark advisory surface used by Creative Director consumers
 export type { BenchmarkComparison } from "@/lib/benchmarks/types";
+
+// Taste Engine — final polish judge (consumed by Creative Director)
+export type { TasteEvaluation } from "@/lib/taste/types";

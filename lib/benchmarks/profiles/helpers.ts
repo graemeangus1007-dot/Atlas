@@ -16,6 +16,8 @@ const DEFAULT_WEIGHTS: Record<BenchmarkDimensionId, number> = {
   imagery_quality: 1.1,
   polish: 1.1,
   professionalism: 1.15,
+  taste: 1.15,
+  restraint: 1.1,
 };
 
 const CHARACTERISTICS: Record<BenchmarkDimensionId, string> = {
@@ -41,6 +43,10 @@ const CHARACTERISTICS: Record<BenchmarkDimensionId, string> = {
     "Coordinated craft — spacing, hierarchy, and detail that read as finished work",
   professionalism:
     "An overall sense of competence visitors associate with a premium operator",
+  taste:
+    "Professional design taste — rhythm, hierarchy, balance, and finishing beyond mere correctness",
+  restraint:
+    "Fewer competing accents, effects, and signals so the page feels curated",
 };
 
 export function dimensionTargets(

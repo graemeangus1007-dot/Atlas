@@ -84,7 +84,7 @@ describe("Benchmark Library registry", () => {
       expect(blob).not.toMatch(/grid-cols|flex-row|#([0-9a-f]{6})/);
       expect(blob).not.toMatch(/lorem ipsum|copy this headline/);
       expect(profile.qualities.length).toBeGreaterThan(0);
-      expect(profile.dimensions.length).toBe(11);
+      expect(profile.dimensions.length).toBe(13);
     }
     // First profile captures the required quality set
     const premium = getBenchmarkProfile("premium_modern_service")!;
@@ -117,7 +117,7 @@ describe("Benchmark comparison", () => {
     expect(cmp.version).toBe(BENCHMARK_LIBRARY_VERSION);
     expect(cmp.benchmarkId).toBe("premium_landscaping");
     expect(typeof cmp.matchPercentage).toBe("number");
-    expect(cmp.dimensionMatches.length).toBe(11);
+    expect(cmp.dimensionMatches.length).toBe(13);
     expect(cmp.highestGap).toBeTruthy();
     expect(cmp.strongestMatch).toBeTruthy();
     expect(cmp.recommendedFocus.length).toBeGreaterThan(10);

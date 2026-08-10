@@ -40,6 +40,13 @@ import { isSurfaceStyleRequest } from "@/lib/ai/surface-styling";
 import { isSectionOrderRequest } from "@/lib/ai/section-order";
 import { shouldOverridePendingClarification } from "@/lib/ai/critique-request";
 import { isExecutionDisputeRequest } from "@/lib/ai/edit-execution-result";
+import {
+  isExplicitVisualCompositionCommand,
+  isVisualCompositionExplanationRequest,
+  isVisualCompositionRefinementRequest,
+} from "@/lib/composition/intent";
+import { isConversionDirectorRequest } from "@/lib/conversion/presentation";
+import { isStrategicAdvisoryRequest } from "@/lib/strategy/presentation";
 import type { BusinessProject } from "@/types/business-project";
 
 export type ActiveTaskIntent =
@@ -216,6 +223,16 @@ export function getActiveTaskPolicy(
 export function detectFreshTaskIntent(request: string): ActiveTaskIntent {
   const text = request.trim();
   if (!text) return "unknown";
+  // Owned directors before critique override labeling.
+  if (isConversionDirectorRequest(text)) return "informational";
+  if (isStrategicAdvisoryRequest(text)) return "informational";
+  if (isVisualCompositionExplanationRequest(text)) return "hero_composition";
+  if (
+    isVisualCompositionRefinementRequest(text) ||
+    isExplicitVisualCompositionCommand(text)
+  ) {
+    return "hero_composition";
+  }
   if (shouldOverridePendingClarification(text)) return "critique";
   if (isExecutionDisputeRequest(text)) return "dispute";
   if (INFORMATIONAL.test(text)) return "informational";
@@ -272,6 +289,7 @@ export function isExplicitTopicSwitch(
   if (!current) return false;
   const text = request.trim();
   if (!text) return false;
+  if (isVisualCompositionExplanationRequest(text)) return false;
   if (INFORMATIONAL.test(text)) return false;
   if (canContinueActiveTask(current, text)) return false;
   if (GLOBAL_TOPIC_SWITCH.test(text)) return true;
@@ -298,7 +316,17 @@ export function canContinueActiveTask(
   const text = request.trim();
   if (!text) return false;
   if (shouldOverridePendingClarification(text)) return false;
-  if (INFORMATIONAL.test(text)) return false;
+  // Composition why-questions stay on the hero task for the next corrective turn.
+  if (isVisualCompositionExplanationRequest(text)) {
+    return (
+      task.target.type === "hero" ||
+      task.kind.startsWith("hero_") ||
+      task.kind === "image_placement"
+    );
+  }
+  if (INFORMATIONAL.test(text) && !isVisualCompositionRefinementRequest(text)) {
+    return false;
+  }
 
   const policy = getActiveTaskPolicy(task.kind);
   if (policy.topicSwitchSignals.test(text)) return false;
@@ -336,7 +364,19 @@ export function canContinueActiveTask(
       isSoftHeroVisibilityRequest(text) ||
       isHeroProfessionalCompositionRequest(text) ||
       isHeroGreyAreaComplaint(text) ||
-      isHeroDomainRequest(text)
+      isVisualCompositionRefinementRequest(text) ||
+      isHeroDomainRequest(text) ||
+      /^fix\s+it[.!?]?$/i.test(text)
+    ) {
+      return true;
+    }
+  }
+
+  if (task.kind === "image_placement") {
+    if (
+      isVisualCompositionRefinementRequest(text) ||
+      isVisualCompositionExplanationRequest(text) ||
+      /^fix\s+it[.!?]?$/i.test(text)
     ) {
       return true;
     }

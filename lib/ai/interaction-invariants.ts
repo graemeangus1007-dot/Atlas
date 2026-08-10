@@ -28,7 +28,8 @@ export type MutationScope =
   | "hero_composition"
   | "gallery_metadata"
   | "gallery_interaction"
-  | "surface_style";
+  | "surface_style"
+  | "taste_polish";
 
 /** Project fields considered part of each scoped edit domain. */
 const SCOPE_ALLOWED_ROOTS: Record<MutationScope, readonly string[]> = {
@@ -84,6 +85,16 @@ const SCOPE_ALLOWED_ROOTS: Record<MutationScope, readonly string[]> = {
   ],
   surface_style: [
     "componentSurfaces",
+    "atlasActionMemory",
+    "atlasMemory",
+    "updatedAt",
+    "designAssistant",
+  ],
+  taste_polish: [
+    "creativePolish",
+    "heroOverlay",
+    "heroTreatment",
+    "buttonStyle",
     "atlasActionMemory",
     "atlasMemory",
     "updatedAt",
@@ -180,6 +191,35 @@ const SCOPE_FORBIDDEN_ROOTS: Record<MutationScope, readonly string[]> = {
     "heroImagePresentation",
     "headingFont",
     "bodyFont",
+  ],
+  taste_polish: [
+    "primaryColor",
+    "secondaryColor",
+    "accentColor",
+    "backgroundColor",
+    "headingFont",
+    "bodyFont",
+    "businessName",
+    "businessType",
+    "description",
+    "heroHeadline",
+    "heroSubheadline",
+    "primaryCta",
+    "secondaryCta",
+    "services",
+    "contact",
+    "seo",
+    "sectionOrder",
+    "templateId",
+    "siteWidth",
+    "heroImageId",
+    "heroComposition",
+    "galleryImageIds",
+    "galleryInteraction",
+    "mediaLibrary",
+    "designSections",
+    "componentSurfaces",
+    "publish",
   ],
 };
 

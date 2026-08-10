@@ -136,6 +136,8 @@ export type TransformationExecutionResult = {
   failedGoals: TransformationGoalResult[];
   revisionsCreated: string[];
   refinementApplied: boolean;
+  /** At most one Taste Engine polish pass after verified transformation. */
+  tastePolishApplied: boolean;
   summary: string;
   project: BusinessProject;
   operations: EditOperation[];
@@ -185,6 +187,8 @@ export type TransformationExecutorInput = {
   logDiagnostics?: boolean;
   /** Skip optional refinement (tests). */
   allowRefinement?: boolean;
+  /** Skip optional Taste polish after verified transformation (tests). */
+  allowTastePolish?: boolean;
 };
 
 export type TransformationExecutionDiagnostics = {
@@ -219,6 +223,7 @@ export type TransformationExecutionDiagnostics = {
   evaluatorConfidence: number;
   finalVerdict: string;
   refinementApplied: boolean;
+  tastePolishApplied: boolean;
   blockedReasons: string[];
   rollbackPerformed: boolean;
   rollbackScope: "full" | "selective" | "none";

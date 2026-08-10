@@ -403,7 +403,7 @@ export function looksLikePlanReference(request: string): boolean {
  * must not short-circuit into Apply All.
  */
 export const APPLY_ALL_PHRASES =
-  /\b(apply\s+all|apply\s+everything|apply\s+the\s+full\s+plan|do\s+all\s+of\s+it|do\s+all\s+of\s+(them|'?em)|all\s+of\s+(them|it)|all\s+of\s+'?em|let'?s\s+do\s+(it|that)|make\s+it\s+so|complete\s+my\s+website|finish\s+my\s+website|make\s+it\s+launch[- ]ready)\b/i;
+  /\b(apply\s+all|apply\s+everything|apply\s+the\s+full\s+plan|do\s+all\s+of\s+it|do\s+all\s+of\s+(them|'?em)|all\s+of\s+(them|it)|all\s+of\s+'?em|let'?s\s+do\s+(it|that)|make\s+it\s+so)\b/i;
 
 /**
  * Bare affirmations that only count as Apply All when the whole message is short.
@@ -412,9 +412,16 @@ export const APPLY_ALL_PHRASES =
 const APPLY_ALL_SHORT_AFFIRMATIONS =
   /^(yes+|yep|yeah|sure|ok(ay)?|do\s+it|go\s+ahead|everything|all\s+of\s+(them|it)|proceed|sounds\s+good)[.!]?$/i;
 
-/** First-class completion / launch-ready phrases (Sprint 28.0B). */
+/**
+ * Explicit site-completion execution (Strategic Director → Transformation).
+ * Distinct from Apply All on a stored Review plan.
+ */
 export const COMPLETE_WEBSITE_PHRASES =
-  /\b(complete\s+my\s+website|finish\s+my\s+website|make\s+it\s+launch[- ]ready|apply\s+everything|apply\s+the\s+full\s+plan|do\s+all\s+of\s+it)\b/i;
+  /\b(complete\s+((my|the)\s+)?(website|site)|finish\s+((my|the)\s+)?(website|site)|make\s+((the|my)\s+)?(website|site)\s+complete|make\s+it\s+launch[- ]ready)\b/i;
+
+/** Apply stored Review / plan recommendations — not site completion. */
+export const APPLY_STORED_PLAN_PHRASES =
+  /\b(apply\s+everything|apply\s+the\s+full\s+plan|do\s+all\s+of\s+it)\b/i;
 
 export function isCompleteWebsiteRequest(request: string): boolean {
   return COMPLETE_WEBSITE_PHRASES.test(request.trim());
@@ -610,9 +617,10 @@ export function detectActionConfirmation(request: string): ActionConfirmation {
     };
   }
 
+  // Complete my website is Strategic→Transformation execution — not Review Apply All.
   if (
     APPLY_ALL_PHRASES.test(text) ||
-    COMPLETE_WEBSITE_PHRASES.test(text) ||
+    APPLY_STORED_PLAN_PHRASES.test(text) ||
     /\bapply\s+all\b/i.test(text) ||
     APPLY_ALL_SHORT_AFFIRMATIONS.test(text)
   ) {
@@ -1140,7 +1148,10 @@ function hasApplyableRecommendations(
 function isExplicitPlanContinuation(request: string): boolean {
   const text = request.trim();
   if (!text) return false;
+  // Site completion never continues a Review plan — it has its own handoff.
+  if (COMPLETE_WEBSITE_PHRASES.test(text)) return false;
   if (APPLY_ALL_PHRASES.test(text)) return true;
+  if (APPLY_STORED_PLAN_PHRASES.test(text)) return true;
   if (APPLY_ONE_PHRASES.test(text)) return true;
   if (looksLikePlanReference(text)) return true;
   if (
@@ -1168,6 +1179,11 @@ export function shouldExecuteActionMemory(
   memory: AtlasActionMemory | null | undefined,
 ): boolean {
   if (shouldOverridePendingClarification(request)) {
+    return false;
+  }
+
+  // Complete my website → Strategic Director → Transformation (never Review Apply All).
+  if (isCompleteWebsiteRequest(request)) {
     return false;
   }
 

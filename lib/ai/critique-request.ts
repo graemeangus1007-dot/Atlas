@@ -54,6 +54,26 @@ const HYPOTHETICAL_QUESTION =
 const EXPLANATION_QUESTION =
   /\b(why\s+did\s+you\s+(choose|pick|use|go\s+with)|why\s+is\s+(the|this)\s+design|explain\s+(the|your|this)\s+design\s+choice)\b/i;
 
+/** Hero blur / wash questions — owned by Visual Composition, not Homepage Review. */
+const VISUAL_COMPOSITION_QUESTION =
+  /\bwhy\s+(is|was|did)\b[\s\S]{0,48}\b(blur|blurred|blurring|grey\s+layer|gray\s+layer|overlay|darken|covered|half\s+of\s+(the\s+)?(image|photo))\b|\bwhy\s+is\s+(half|part)\s+of\s+(the\s+)?(image|photo|picture)\b|\bwhy\s+is\s+(the\s+)?(image|photo)\s+(so\s+)?dark\b/i;
+
+/** Hero-local composition fixes — not whole-site redesign. */
+const VISUAL_COMPOSITION_FIX =
+  /\b(keep\s+the\s+(photo|image)\s+clear|move\s+the\s+(text|words).{0,40}(easier|quieter)|put\s+the\s+(words|text)\s+in\s+a\s+quieter|less\s+blur|remove\s+(the\s+)?blur|stop\s+covering\s+the\s+(photo|image))\b/i;
+
+/** Final polish / agency-quality pass — Taste Engine, not Homepage Review. */
+const TASTE_POLISH_REQUEST =
+  /\b(polish\s+(the\s+)?(website|site|page|design)|final\s+(agency[- ]quality\s+)?pass|agency[- ]quality\s+pass|make\s+it\s+feel\s+more\s+professional|refine\s+(the\s+)?(spacing|typography|design)|make\s+the\s+design\s+feel\s+more\s+consistent)\b/i;
+
+/** Lead-generation / conversion analysis — Conversion Director, not critique. */
+const CONVERSION_DIRECTOR_REQUEST =
+  /\b(how\s+do\s+we\s+improve\s+conversion|how\s+can\s+(this\s+site\s+)?convert\s+better|improve\s+(lead\s+generation|conversion)|increase\s+(inquir(?:y|ies)|leads?|conversions?)|how\s+do\s+we\s+get\s+more\s+leads|get\s+more\s+leads|lead\s+generation)\b/i;
+
+/** Prioritization / sequencing — Strategic Director, not Homepage Review. */
+const STRATEGIC_DIRECTOR_REQUEST =
+  /\b(what'?s\s+the\s+biggest\s+weakness|what\s+should\s+i\s+fix\s+first|where\s+should\s+i\s+spend\s+another\s+hour|what\s+matters\s+most|what\s+would\s+improve\s+(this\s+site|it|the\s+site)\s+the\s+most|biggest\s+(opportunity|weakness|priority)|highest[- ]impact\s+(improvement|opportunity))\b/i;
+
 /** Genuinely vague — clarification allowed. */
 const AMBIGUOUS_BETTER =
   /^(make\s+it\s+better|improve\s+it|make\s+this\s+better|can\s+you\s+improve\s+(it|this))[.!?]?$/i;
@@ -224,7 +244,18 @@ export function classifyCritiqueRequest(request: string): CritiqueClassification
     };
   }
 
-  if (AMBIGUOUS_BETTER.test(text) || EXPLANATION_QUESTION.test(text)) {
+  if (
+    AMBIGUOUS_BETTER.test(text) ||
+    EXPLANATION_QUESTION.test(text) ||
+    VISUAL_COMPOSITION_QUESTION.test(text) ||
+    VISUAL_COMPOSITION_FIX.test(text) ||
+    TASTE_POLISH_REQUEST.test(text) ||
+    CONVERSION_DIRECTOR_REQUEST.test(text) ||
+    STRATEGIC_DIRECTOR_REQUEST.test(text) ||
+    /^(improve\s+conversion|increase\s+inquiries|what\s+should\s+i\s+fix\s+first|what\s+matters\s+most)[.!?]?$/i.test(
+      text,
+    )
+  ) {
     return {
       kind: "none",
       intent: null,
@@ -329,8 +360,29 @@ export function isCritiqueOrRedesignRequest(request: string): boolean {
 }
 
 /**
- * True when a pending clarification must yield to a new critique/redesign ask.
+ * True when a pending clarification must yield to a new owned director ask.
  */
 export function shouldOverridePendingClarification(request: string): boolean {
-  return isCritiqueOrRedesignRequest(request);
+  const text = request.trim();
+  if (!text) return false;
+  if (isCritiqueOrRedesignRequest(text)) return true;
+  if (TASTE_POLISH_REQUEST.test(text)) return true;
+  if (VISUAL_COMPOSITION_QUESTION.test(text) || VISUAL_COMPOSITION_FIX.test(text)) {
+    return true;
+  }
+  if (
+    CONVERSION_DIRECTOR_REQUEST.test(text) ||
+    /^(improve\s+conversion|increase\s+inquiries)[.!?]?$/i.test(text)
+  ) {
+    return true;
+  }
+  if (STRATEGIC_DIRECTOR_REQUEST.test(text)) return true;
+  if (
+    /\b(complete\s+((my|the)\s+)?(website|site)|finish\s+((my|the)\s+)?(website|site)|make\s+((the|my)\s+)?(website|site)\s+complete|make\s+it\s+launch[- ]ready)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  return false;
 }

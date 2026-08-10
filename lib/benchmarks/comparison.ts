@@ -80,7 +80,17 @@ export function deriveSiteBenchmarkScores(input: {
       d.whitespace,
       ev.consistency.score,
       inv?.visualHierarchy ? 80 : 64,
+      ev.tasteEvaluation?.polish ?? d.professionalism,
     ]),
+  );
+
+  const taste = clamp(
+    ev.tasteEvaluation?.overallTaste ??
+      avg([polish, d.visualHierarchy, d.whitespace, d.professionalism]),
+  );
+  const restraint = clamp(
+    ev.tasteEvaluation?.restraint ??
+      avg([d.whitespace, ev.consistency.score, polish]),
   );
 
   return {
@@ -91,14 +101,28 @@ export function deriveSiteBenchmarkScores(input: {
     section_rhythm: clamp(
       avg([d.visualRhythm, ev.rhythm.score, d.sectionBalance]),
     ),
-    spacing_discipline: clamp(d.whitespace),
-    typography,
+    spacing_discipline: clamp(
+      avg([d.whitespace, ev.tasteEvaluation?.spacingHarmony ?? d.whitespace]),
+    ),
+    typography: clamp(
+      avg([
+        typography,
+        ev.tasteEvaluation?.typographyHarmony ?? typography,
+      ]),
+    ),
     cta_confidence: clamp(
-      avg([d.conversion, ev.conversion.ctaClarity, ev.conversion.score]),
+      avg([
+        d.conversion,
+        ev.conversion.ctaClarity,
+        ev.conversion.score,
+        ev.tasteEvaluation?.ctaPresence ?? d.conversion,
+      ]),
     ),
     imagery_quality: imagery,
     polish,
     professionalism: clamp(d.professionalism),
+    taste,
+    restraint,
   };
 }
 
@@ -198,6 +222,10 @@ function recommendFocus(
       "Increase overall polish — coordinated spacing, hierarchy, and detail.",
     professionalism:
       "Raise professionalism signals so the site reads as a premium operator.",
+    taste:
+      "Raise professional taste — clearer hierarchy, calmer rhythm, and finished craft.",
+    restraint:
+      "Apply more restraint — fewer competing accents, effects, and visual signals.",
   };
   const base = map[dimension];
   // Keep focus quality-oriented; never suggest copying the benchmark’s appearance.
@@ -240,6 +268,8 @@ export function labelDimension(id: BenchmarkDimensionId): string {
     imagery_quality: "imagery quality",
     polish: "polish",
     professionalism: "professionalism",
+    taste: "taste",
+    restraint: "restraint",
   };
   return labels[id];
 }
@@ -271,6 +301,10 @@ export function benchmarkGapToThemes(
       return ["rhythm", "hierarchy"];
     case "professionalism":
       return ["trust", "hierarchy"];
+    case "taste":
+      return ["rhythm", "hierarchy", "messaging"];
+    case "restraint":
+      return ["rhythm", "hierarchy", "messaging"];
     default:
       return [];
   }

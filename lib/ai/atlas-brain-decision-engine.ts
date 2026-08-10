@@ -49,16 +49,40 @@ import {
   matchExplicitHeroPatternRequest,
 } from "@/lib/ai/hero-pattern-application";
 import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
-import { shouldContinueActiveHeroTask } from "@/lib/ai/active-visual-task";
+import {
+  getActiveVisualTask,
+  shouldContinueActiveHeroTask,
+} from "@/lib/ai/active-visual-task";
 import { isGalleryLightboxRequest } from "@/lib/ai/gallery-interaction";
 import { isGalleryMetadataRequest } from "@/lib/ai/gallery-metadata";
 import { isSectionOrderRequest } from "@/lib/ai/section-order";
+import {
+  classifyVisualCompositionIntent,
+  isExplicitVisualCompositionCommand,
+  isVisualCompositionExplanationRequest,
+  isVisualCompositionRefinementRequest,
+} from "@/lib/composition/intent";
+import { explainHeroComposition } from "@/lib/composition/explain";
+import { isTastePolishRequest } from "@/lib/taste/polish-presentation";
+import {
+  CONVERSION_DIRECTOR_FOLLOW_UPS,
+  isConversionDirectorRequest,
+} from "@/lib/conversion/presentation";
+import {
+  STRATEGIC_DIRECTOR_FOLLOW_UPS,
+  isStrategicAdvisoryRequest,
+  isStrategicCompletionRequest,
+} from "@/lib/strategy/presentation";
+import { filterFollowUpsForOwner } from "@/lib/scope";
 import type { BusinessProject } from "@/types/business-project";
 
 /** Pipeline stages in priority order (highest first). Sprint 28.2 order. */
 export const DECISION_STAGES = [
   "continuation",
+  "visual_composition",
   "explicit_command",
+  "conversion_director",
+  "strategic_director",
   "nl_edit",
   "critique",
   "explicit_design",
@@ -84,6 +108,10 @@ export const COMMAND_KINDS = [
   "spacing",
   "hero_readability",
   "hero_balance",
+  "visual_composition",
+  "taste_polish",
+  "conversion_director",
+  "strategic_director",
   "readability",
   "surface_style",
   "branding",
@@ -236,6 +264,24 @@ const COMMAND_RULES: CommandRule[] = [
         id: "cmd.read",
         agent: "editor_agent",
         label: "Improve typography, spacing, contrast, and copy clarity",
+      },
+    ],
+  },
+  {
+    kind: "taste_polish",
+    pattern:
+      /\b(polish\s+(the\s+)?(website|site|page|design)|final\s+(agency[- ]quality\s+)?pass|agency[- ]quality\s+pass|make\s+it\s+feel\s+more\s+professional|refine\s+(the\s+)?(spacing(\s+and\s+typography)?|typography|design)|make\s+the\s+design\s+feel\s+more\s+consistent|give\s+it\s+a\s+final)\b/i,
+    confidence: 0.97,
+    agents: ["editor_agent", "creative_director"],
+    intent: "explicit_design_edit",
+    goal: "Apply final visual polish",
+    explanation:
+      "I’ll apply one restrained polish pass — spacing, hierarchy, and finishing — without changing brand, content, or structure.",
+    steps: [
+      {
+        id: "cmd.taste_polish",
+        agent: "editor_agent",
+        label: "Apply guarded taste polish",
       },
     ],
   },
@@ -484,6 +530,50 @@ export function stageExplicitCommand(
   input: AtlasDecisionEngineInput,
 ): AtlasDecisionEngineResult | null {
   const request = input.request.trim();
+
+  // Visual composition owns blur / clear-photo / relocate-copy (stage above).
+  if (
+    isVisualCompositionExplanationRequest(request) ||
+    isVisualCompositionRefinementRequest(request)
+  ) {
+    return null;
+  }
+
+  // Taste polish — finishing pass (before critique / feel redesign).
+  if (isTastePolishRequest(request)) {
+    return {
+      stage: "explicit_command",
+      commandKind: "taste_polish",
+      decision: withConfidencePolicy({
+        intent: "explicit_design_edit",
+        confidence: 0.97,
+        selectedAgents: ["editor_agent", "creative_director"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Apply final visual polish",
+          [
+            {
+              id: "cmd.taste_polish",
+              agent: "editor_agent",
+              label: "Apply guarded taste polish",
+            },
+          ],
+          "medium",
+        ),
+        explanation:
+          "I’ll apply one restrained polish pass — spacing, hierarchy, and finishing — without changing brand, content, or structure.",
+        followUpSuggestions: filterFollowUpsForOwner("taste", [
+          "Review my website",
+          "Improve SEO",
+          "Open the spacing",
+        ]).allowed,
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "explicit_command",
+        commandKind: "taste_polish",
+        shouldExecuteEdits: true,
+      }),
+    };
+  }
 
   // Hero fit / full-picture / crop — before Image Agent (use+picture would steal it).
   if (isHeroFitRequest(request)) {
@@ -881,6 +971,195 @@ export function stageExplicitCommand(
 }
 
 /**
+ * Stage 2b — Visual composition explanation / hero-local refinement.
+ * Beats whole-site review, NL polish, and transformation plans.
+ */
+export function stageVisualComposition(
+  input: AtlasDecisionEngineInput,
+): AtlasDecisionEngineResult | null {
+  const request = input.request.trim();
+  const intent = classifyVisualCompositionIntent(request);
+  if (!intent) return null;
+
+  const active = getActiveVisualTask(getActionMemory(input.project));
+  const heroContext =
+    Boolean(active?.target === "hero") ||
+    Boolean(input.project.heroImageId) ||
+    shouldContinueActiveHeroTask(request, getActionMemory(input.project));
+
+  if (intent.kind === "visual_composition_explanation") {
+    const explanation = explainHeroComposition(input.project);
+    return {
+      stage: "visual_composition",
+      commandKind: "visual_composition",
+      decision: withConfidencePolicy({
+        intent: "question",
+        confidence: intent.confidence,
+        selectedAgents: ["creative_director", "editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Explain current hero composition treatment",
+          [
+            {
+              id: "vc.explain",
+              agent: "creative_director",
+              label: "Explain hero blur / contrast treatment",
+            },
+          ],
+          "medium",
+        ),
+        explanation,
+        followUpSuggestions: [
+          "Fix it. Keep the photo clear and move the text somewhere easier to read.",
+          "Keep the photo clear",
+          "Use less blur",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "visual_composition",
+        commandKind: "visual_composition",
+        shouldExecuteEdits: false,
+        matchedSignals: intent.matchedSignals,
+      }),
+    };
+  }
+
+  // Bare "Fix it." needs active hero / image context.
+  if (
+    intent.confidence < 0.9 &&
+    !heroContext &&
+    !isExplicitVisualCompositionCommand(request)
+  ) {
+    return null;
+  }
+
+  if (
+    intent.kind === "visual_composition_refinement" ||
+    isVisualCompositionRefinementRequest(request)
+  ) {
+    return {
+      stage: "visual_composition",
+      commandKind: "visual_composition",
+      decision: withConfidencePolicy({
+        intent: "command_readability",
+        confidence: Math.max(intent.confidence, 0.96),
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        executionPlan: plan(
+          "Refine hero visual composition",
+          [
+            {
+              id: "vc.refine",
+              agent: "editor_agent",
+              label: "Relocate copy and clear photography",
+            },
+          ],
+          "high",
+        ),
+        explanation:
+          "I’ll keep the photo clear, move the hero copy into a quieter part of the image, and use only localized contrast behind the text.",
+        followUpSuggestions: [
+          "Use less blur",
+          "Make the text a bit clearer",
+          "Review my website",
+        ],
+        memoryPatch: inferMemoryFromMessage(request),
+        decisionStage: "visual_composition",
+        commandKind: "visual_composition",
+        shouldExecuteEdits: true,
+        matchedSignals: intent.matchedSignals,
+      }),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Stage 2c — Conversion Director (advisory lead-generation analysis).
+ * Beats NL polish, critique, business goals, and generic questions.
+ * Phase 1: analysis only — never Apply All / Review Plan / edits.
+ */
+export function stageConversionDirector(
+  input: AtlasDecisionEngineInput,
+): AtlasDecisionEngineResult | null {
+  const request = input.request.trim();
+  if (!isConversionDirectorRequest(request)) return null;
+
+  return {
+    stage: "conversion_director",
+    commandKind: "conversion_director",
+    decision: withConfidencePolicy({
+      intent: "question",
+      confidence: 0.97,
+      selectedAgents: ["business_advisor", "creative_director"],
+      needsClarification: false,
+      executionPlan: plan(
+        "Analyze conversion opportunities",
+        [
+          {
+            id: "conversion.analyze",
+            agent: "business_advisor",
+            label: "Run Conversion Director evaluation",
+          },
+        ],
+        "high",
+      ),
+      explanation:
+        "I’ll review conversion — trust, offer, CTA, proof, and contact flow — without changing the site.",
+      followUpSuggestions: [...CONVERSION_DIRECTOR_FOLLOW_UPS],
+      memoryPatch: inferMemoryFromMessage(request),
+      decisionStage: "conversion_director",
+      commandKind: "conversion_director",
+      shouldExecuteEdits: false,
+      matchedSignals: ["conversion_director"],
+    }),
+  };
+}
+
+/**
+ * Stage 2d — Strategic Director (prioritization / sequencing).
+ * Advisory only here — Complete my website hands off to Transformation in atlas-brain.
+ */
+export function stageStrategicDirector(
+  input: AtlasDecisionEngineInput,
+): AtlasDecisionEngineResult | null {
+  const request = input.request.trim();
+  // Completion is handled in atlas-brain before Action Memory / this stage.
+  if (isStrategicCompletionRequest(request)) return null;
+  if (!isStrategicAdvisoryRequest(request)) return null;
+
+  return {
+    stage: "strategic_director",
+    commandKind: "strategic_director",
+    decision: withConfidencePolicy({
+      intent: "question",
+      confidence: 0.97,
+      selectedAgents: ["creative_director", "business_advisor"],
+      needsClarification: false,
+      executionPlan: plan(
+        "Prioritize the highest-impact improvement",
+        [
+          {
+            id: "strategy.assess",
+            agent: "creative_director",
+            label: "Run Strategic Director assessment",
+          },
+        ],
+        "high",
+      ),
+      explanation:
+        "I’ll identify the single highest-impact opportunity and which specialist should lead — without changing the site yet.",
+      followUpSuggestions: [...STRATEGIC_DIRECTOR_FOLLOW_UPS],
+      memoryPatch: inferMemoryFromMessage(request),
+      decisionStage: "strategic_director",
+      commandKind: "strategic_director",
+      shouldExecuteEdits: false,
+      matchedSignals: ["strategic_director"],
+    }),
+  };
+}
+
+/**
  * Stage 3 — Natural Language Edit Planner (after explicit commands, before critique).
  * High-confidence multi-edit plans execute without clarification.
  */
@@ -888,6 +1167,15 @@ export function stageNaturalLanguageEdit(
   input: AtlasDecisionEngineInput,
 ): AtlasDecisionEngineResult | null {
   const request = input.request.trim();
+  // Never let NL polish steal visual-composition, conversion, or strategic ownership.
+  if (
+    isVisualCompositionExplanationRequest(request) ||
+    isVisualCompositionRefinementRequest(request) ||
+    isConversionDirectorRequest(request) ||
+    isStrategicAdvisoryRequest(request)
+  ) {
+    return null;
+  }
   const editPlan = extractNaturalLanguageEditPlan({
     request,
     project: input.project,
@@ -1159,6 +1447,9 @@ export function stageBusinessGoal(
   const request = input.request.trim();
   // Latest critique request always beats stored business goals / memory.
   if (classifyCritiqueRequest(request).kind !== "none") return null;
+  // Conversion Director owns lead-generation / conversion analysis.
+  if (isConversionDirectorRequest(request)) return null;
+  if (isStrategicAdvisoryRequest(request)) return null;
 
   const intentRoute = routeIntent({
     request,
@@ -1228,6 +1519,10 @@ export function stageQuestion(
 ): AtlasDecisionEngineResult | null {
   const request = input.request.trim();
   if (classifyCritiqueRequest(request).kind !== "none") return null;
+  // Visual composition why-questions are handled earlier.
+  if (isVisualCompositionExplanationRequest(request)) return null;
+  if (isConversionDirectorRequest(request)) return null;
+  if (isStrategicAdvisoryRequest(request)) return null;
 
   const intentRoute = routeIntent({
     request,
@@ -1339,8 +1634,8 @@ export function stageClarification(
 }
 
 /**
- * Run the full decision pipeline in priority order (Sprint 28.2).
- * continuation → explicit command → nl edit → critique → design → business → question → clarify
+ * Run the full decision pipeline in priority order.
+ * continuation → visual composition → explicit command → conversion → strategic → nl edit → critique → …
  */
 export function decideWithAtlasBrainEngine(
   input: AtlasDecisionEngineInput,
@@ -1352,7 +1647,10 @@ export function decideWithAtlasBrainEngine(
 
   return (
     stageContinuation(input) ??
+    stageVisualComposition(input) ??
     stageExplicitCommand(input) ??
+    stageConversionDirector(input) ??
+    stageStrategicDirector(input) ??
     stageNaturalLanguageEdit(input) ??
     stageCritique(input) ??
     stageExplicitDesign(input) ??

@@ -63,3 +63,27 @@ export {
   formatCompositionSummary,
   compositionTextSoundsLikeOverlayDefault,
 } from "@/lib/composition/presentation";
+
+export {
+  classifyVisualCompositionIntent,
+  isVisualCompositionExplanationRequest,
+  isVisualCompositionRefinementRequest,
+  isExplicitVisualCompositionCommand,
+  type VisualCompositionIntent,
+  type VisualCompositionIntentKind,
+} from "@/lib/composition/intent";
+
+export {
+  explainHeroComposition,
+  explainHeroCompositionShort,
+  captureHeroCompositionExplainSnapshot,
+} from "@/lib/composition/explain";
+
+export {
+  planVisualCompositionRefinement,
+  applyVisualCompositionRefinementPlan,
+  verifyVisualCompositionRefinement,
+  logVisualCompositionRoutingDiagnostics,
+  type VisualCompositionRefinementPlan,
+  type VisualCompositionRefinementGoals,
+} from "@/lib/composition/execute-refinement";

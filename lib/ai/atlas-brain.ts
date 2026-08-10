@@ -14,7 +14,6 @@ import {
   detectActionConfirmation,
   getActionMemory,
   hasActiveRecommendations,
-  hasActiveTransformationPlan,
   hasPendingClarification,
   isCompleteWebsiteRequest,
   looksLikePlanReference,
@@ -120,6 +119,16 @@ import {
   shouldContinueActiveHeroTask,
   touchActiveVisualTask,
 } from "@/lib/ai/active-visual-task";
+import {
+  applyVisualCompositionRefinementPlan,
+  classifyVisualCompositionIntent,
+  explainHeroComposition,
+  isExplicitVisualCompositionCommand,
+  isVisualCompositionExplanationRequest,
+  isVisualCompositionRefinementRequest,
+  logVisualCompositionRoutingDiagnostics,
+  planVisualCompositionRefinement,
+} from "@/lib/composition";
 import {
   canContinueActiveTask,
   clearActiveTask,
@@ -233,6 +242,35 @@ import {
   designSystemInputFromProject,
   resolveDesignSystem,
 } from "@/lib/ai/design-system-intelligence";
+import {
+  executeTastePolish,
+  isTastePolishRequest,
+  tastePolishMentionsInternalIds,
+} from "@/lib/taste";
+import {
+  CONVERSION_DIRECTOR_FOLLOW_UPS,
+  conversionTextExposesInternalIds,
+  evaluateConversion,
+  formatConversionDirectorReport,
+  isConversionDirectorRequest,
+} from "@/lib/conversion";
+import {
+  assessStrategicPriorities,
+  classifyStrategicRequest,
+  formatStrategicCompletionReport,
+  formatStrategicDirectorReport,
+  isIdempotentCompletion,
+  isStrategicAdvisoryRequest,
+  isStrategicCompletionRequest,
+  logStrategicCompletionDiagnostics,
+  strategicTextExposesInternalIds,
+  STRATEGIC_COMPLETION_FOLLOW_UPS,
+  STRATEGIC_DIRECTOR_FOLLOW_UPS,
+} from "@/lib/strategy";
+import {
+  filterFollowUpsForOwner,
+  logScopeDiagnostics,
+} from "@/lib/scope";
 import type { BusinessProject } from "@/types/business-project";
 
 /** Avoid circular import with editor-agent — registered at module load. */
@@ -382,6 +420,7 @@ function skippedRepeatTransformationResult(input: {
     failedGoals: [],
     revisionsCreated: [],
     refinementApplied: false,
+    tastePolishApplied: false,
     summary: "",
     project: input.project,
     operations: [],
@@ -427,9 +466,8 @@ function applyActionMemoryRecommendations(input: {
   recommendationIds?: string[];
 }): AtlasBrainResult {
   const confirmationEarly = detectActionConfirmation(input.request);
-  const wantsFullPlan =
-    confirmationEarly.kind === "apply_all" ||
-    isCompleteWebsiteRequest(input.request);
+  // Complete my website never reaches here — handled by Strategic→Transformation handoff.
+  const wantsFullPlan = confirmationEarly.kind === "apply_all";
   const activeTxPlan = input.memory.activePlan?.transformationPlan ?? null;
 
   // Apply All / Complete → coordinated Transformation Engine when a plan is active.
@@ -1318,6 +1356,256 @@ function tryRestoreBrandPalette(input: {
   };
 }
 
+function tryExplainVisualComposition(input: {
+  project: BusinessProject;
+  request: string;
+  requestId?: string | null;
+}): AtlasBrainResult | null {
+  const intent = classifyVisualCompositionIntent(input.request);
+  if (!intent || intent.kind !== "visual_composition_explanation") {
+    if (!isVisualCompositionExplanationRequest(input.request)) return null;
+  }
+
+  const explanation = explainHeroComposition(input.project);
+  logVisualCompositionRoutingDiagnostics({
+    requestId: input.requestId,
+    detectedIntent: "visual_composition_explanation",
+    activeTaskKind:
+      getActiveVisualTask(getActionMemory(input.project))?.kind ?? null,
+    target: "hero",
+    explanationOnly: true,
+    visualCompositionOwner: true,
+    wholeSiteReviewTriggered: false,
+    unrelatedDomainsChanged: false,
+    verified: true,
+  });
+
+  let project = touchActiveVisualTask(input.project, {
+    kind: "hero_composition",
+    lastUserGoal: input.request,
+    assetId: input.project.heroImageId,
+  });
+  project = withMemory(project, input.request);
+
+  return {
+    ok: true,
+    explanation,
+    operations: [],
+    changes: [],
+    project,
+    applyStatus: "no_changes",
+    decision: {
+      intent: "question",
+      confidence: 0.98,
+      selectedAgents: ["creative_director", "editor_agent"],
+      needsClarification: false,
+      shouldExecuteEdits: false,
+      executionPlan: {
+        goal: "Explain current hero composition treatment",
+        steps: [
+          {
+            id: "vc.explain",
+            agent: "creative_director",
+            label: "Explain hero blur / contrast treatment",
+          },
+        ],
+        estimatedImpact: "medium",
+      },
+      explanation,
+      followUpSuggestions: [
+        "Fix it. Keep the photo clear and move the text somewhere easier to read.",
+        "Keep the photo clear",
+        "Use less blur",
+      ],
+      decisionStage: "visual_composition",
+      commandKind: "visual_composition",
+    },
+    followUpSuggestions: [
+      "Fix it. Keep the photo clear and move the text somewhere easier to read.",
+      "Keep the photo clear",
+      "Use less blur",
+    ],
+  };
+}
+
+function tryApplyVisualCompositionRefinement(input: {
+  project: BusinessProject;
+  request: string;
+  requestId?: string | null;
+}): AtlasBrainResult | null {
+  const intent = classifyVisualCompositionIntent(input.request);
+  const isRefine =
+    intent?.kind === "visual_composition_refinement" ||
+    isVisualCompositionRefinementRequest(input.request);
+  if (!isRefine) return null;
+
+  const interactionTask = getInteractionState(input.project).activeTask;
+  const active = getActiveVisualTask(getInteractionState(input.project));
+  const heroContext =
+    Boolean(active) ||
+    interactionTask?.target?.type === "hero" ||
+    interactionTask?.kind === "image_placement" ||
+    Boolean(interactionTask?.kind?.startsWith("hero_"));
+  const bareFix = /^fix\s+it[.!?]?$/i.test(input.request.trim());
+  if (bareFix && !heroContext) {
+    return null;
+  }
+  if (intent && intent.confidence < 0.9 && !heroContext) {
+    // Weak match without hero/image context — let other handlers try
+    if (!isExplicitVisualCompositionCommand(input.request)) return null;
+  }
+
+  const before = input.project;
+  const plan = planVisualCompositionRefinement({
+    project: before,
+    request: input.request,
+    goals: {
+      preservePhotography: true,
+      improveReadability: true,
+      relocateContent: true,
+      reduceBlur: true,
+    },
+  });
+
+  const applied = applyVisualCompositionRefinementPlan(
+    before,
+    plan,
+    (project, ops) => applyEditOperations(project, validateEditOperations(ops)),
+  );
+
+  logVisualCompositionRoutingDiagnostics({
+    requestId: input.requestId,
+    detectedIntent: "visual_composition_refinement",
+    activeTaskKind: active?.kind ?? interactionTask?.kind ?? null,
+    target: "hero",
+    explanationOnly: false,
+    visualCompositionOwner: true,
+    blurBefore: plan.diagnostics.blurBefore,
+    blurAfter: plan.diagnostics.blurAfter,
+    contentZoneBefore: plan.diagnostics.contentZoneBefore,
+    contentZoneAfter: plan.diagnostics.contentZoneAfter,
+    photographyPreservationBefore:
+      plan.diagnostics.photographyPreservationBefore,
+    photographyPreservationAfter:
+      plan.diagnostics.photographyPreservationAfter,
+    wholeSiteReviewTriggered: false,
+    unrelatedDomainsChanged: applied.failures.some((f) =>
+      /brand|typography|section_order|motion/.test(f),
+    ),
+    verified: applied.verified,
+  });
+
+  if (!applied.verified) {
+    let project = touchActiveVisualTask(before, {
+      kind: "hero_composition",
+      lastUserGoal: input.request,
+      assetId: before.heroImageId,
+    });
+    project = withMemory(project, input.request);
+    return {
+      ok: true,
+      explanation:
+        "I tried to clear the hero photo and relocate the copy, but I couldn’t verify a safe composition change. Tell me whether the blur or the text position is the bigger problem.",
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: {
+        intent: "command_readability",
+        confidence: 0.9,
+        selectedAgents: ["editor_agent"],
+        needsClarification: false,
+        shouldExecuteEdits: false,
+        executionPlan: {
+          goal: "Refine hero visual composition",
+          steps: [
+            {
+              id: "vc.refine",
+              agent: "editor_agent",
+              label: "Relocate copy and clear photography",
+            },
+          ],
+          estimatedImpact: "high",
+        },
+        explanation: plan.explanation,
+        followUpSuggestions: [
+          "Keep the photo clear",
+          "Move the text somewhere easier to read",
+        ],
+        decisionStage: "visual_composition",
+        commandKind: "visual_composition",
+      },
+      followUpSuggestions: [
+        "Keep the photo clear",
+        "Move the text somewhere easier to read",
+      ],
+    };
+  }
+
+  let project = touchActiveVisualTask(applied.project, {
+    kind: "hero_composition",
+    lastUserGoal: input.request,
+    assetId: applied.project.heroImageId,
+  });
+  project = rememberExecution(
+    project,
+    input.request,
+    {
+      success: true,
+      verified: true,
+      operationType: "visual_composition_refinement",
+      verificationFailures: [],
+      createdEntities: [],
+      modifiedEntities: ["heroComposition", "heroOverlay", "heroTreatment"],
+      warnings: [],
+      explanation: plan.explanation,
+    },
+    plan.operations,
+    { scope: "hero" },
+  );
+  project = withMemory(project, input.request);
+
+  return {
+    ok: true,
+    explanation: plan.explanation,
+    operations: plan.operations,
+    changes: applied.changes,
+    project,
+    applyStatus: "applied",
+    decision: {
+      intent: "command_readability",
+      confidence: 0.98,
+      selectedAgents: ["editor_agent"],
+      needsClarification: false,
+      shouldExecuteEdits: true,
+      executionPlan: {
+        goal: "Refine hero visual composition",
+        steps: [
+          {
+            id: "vc.refine",
+            agent: "editor_agent",
+            label: "Relocate copy and clear photography",
+          },
+        ],
+        estimatedImpact: "high",
+      },
+      explanation: plan.explanation,
+      followUpSuggestions: [
+        "Make the text a bit clearer",
+        "Use less blur",
+        "Review my website",
+      ],
+      decisionStage: "visual_composition",
+      commandKind: "visual_composition",
+    },
+    followUpSuggestions: [
+      "Make the text a bit clearer",
+      "Use less blur",
+      "Review my website",
+    ],
+  };
+}
+
 function tryApplyHeroBalanceRepair(input: {
   project: BusinessProject;
   request: string;
@@ -1327,6 +1615,13 @@ function tryApplyHeroBalanceRepair(input: {
     !isHeroImageVisibilityComplaint(input.request) &&
     !isSoftHeroVisibilityRequest(input.request) &&
     !isHeroGreyAreaComplaint(input.request)
+  ) {
+    return null;
+  }
+  // Visual-composition ownership beats classic balance when phrases match.
+  if (
+    isVisualCompositionExplanationRequest(input.request) ||
+    isVisualCompositionRefinementRequest(input.request)
   ) {
     return null;
   }
@@ -3031,6 +3326,21 @@ export async function runAtlasBrain(
     !galleryMayOwnRequest(request);
 
   const runHeroHandlers = (): AtlasBrainResult | null => {
+    // Visual Composition Engine owns blur / photo-clear / relocate-copy turns.
+    const vcExplain = tryExplainVisualComposition({
+      project: projectForTurn,
+      request,
+      requestId: input.atlasRequestId,
+    });
+    if (vcExplain) return vcExplain;
+
+    const vcRefine = tryApplyVisualCompositionRefinement({
+      project: projectForTurn,
+      request,
+      requestId: input.atlasRequestId,
+    });
+    if (vcRefine) return vcRefine;
+
     const heroPattern = tryApplyHeroPattern({
       project: projectForTurn,
       request,
@@ -3138,28 +3448,29 @@ export async function runAtlasBrain(
     }
   }
 
-  // 5) Action Memory — explicit recommendation-plan continuation only.
-  const continued = await tryContinueActionMemory({
-    project: projectForTurn,
-    request,
-  });
-  if (continued) {
-    return continued;
-  }
+  // Complete my website — BEFORE Action Memory Apply All.
+  // Authorization is explicit: Strategic assessment → Transformation execution.
+  // Never pause at Review Plan / Apply All.
+  if (
+    isCompleteWebsiteRequest(request) ||
+    isStrategicCompletionRequest(request)
+  ) {
+    const completeMemory = getActionMemory(projectForTurn);
+    const strategic = assessStrategicPriorities({
+      project: projectForTurn,
+      logDiagnostics: process.env.NODE_ENV === "development",
+    });
+    const strategicPreface = formatStrategicDirectorReport(strategic, {
+      mode: "execute_completion",
+    });
 
-  // Complete my website with no applyable plan → fresh Transformation Engine run.
-  const completeMemory = getActionMemory(projectForTurn);
-  const hasApplyable =
-    (completeMemory.activePlan?.recommendations ?? []).some((r) => r.applyable) ||
-    hasActiveTransformationPlan(completeMemory);
-  if (isCompleteWebsiteRequest(request) && !hasApplyable) {
     const completionExecutionPlan = {
       goal: "Complete the website for launch",
       steps: [
         {
           id: "complete.strategy",
           agent: "creative_director" as const,
-          label: "Form the design strategy",
+          label: "Strategic Director prioritizes specialists",
         },
         {
           id: "complete.transform",
@@ -3175,7 +3486,7 @@ export async function runAtlasBrain(
       estimatedImpact: "high" as const,
     };
 
-    const { plan, strategy } = buildTransformationPlanForProject(
+    const { plan } = buildTransformationPlanForProject(
       projectForTurn,
       "Complete my website for launch",
     );
@@ -3188,6 +3499,7 @@ export async function runAtlasBrain(
       memory: completeMemory,
       fingerprint,
     });
+    const executionStarted = !prior;
     const tx = prior
       ? skippedRepeatTransformationResult({
           project: projectForTurn,
@@ -3198,13 +3510,37 @@ export async function runAtlasBrain(
           project: projectForTurn,
           plan,
           logDiagnostics: process.env.NODE_ENV === "development",
+          allowTastePolish: true,
         });
 
-    void reviewCreativeDirector({
-      project: tx.project,
-      limit: 1,
+    const idempotent = isIdempotentCompletion({
+      assessment: strategic,
+      tx,
+      skippedAsRepeat: Boolean(prior),
     });
+
+    logStrategicCompletionDiagnostics(
+      {
+        strategicRequestMode: "execute_completion",
+        strategicAdvisoryQuestion: null,
+        selectedLeader: strategic.recommendedLeader,
+        highestPriorityOpportunity:
+          strategic.highestPriorityOpportunity?.title ?? null,
+        transformationHandoff: true,
+        transformationPlanId: tx.planId ?? null,
+        executionStarted,
+        executionResult: idempotent
+          ? "skipped_idempotent"
+          : tx.status,
+        blockedWork: strategic.blockedWork.map((b) => b.title),
+        tastePassTriggered: Boolean(tx.tastePolishApplied),
+        finalVerified: Boolean(tx.wholePage?.passed || tx.status === "applied"),
+      },
+      input.atlasRequestId,
+    );
+
     let project = withMemory(tx.project, request);
+    // Never leave a Review/Apply All plan after explicit completion.
     project = setInteractionState(
       project,
       clearRecommendations(getActionMemory(project)),
@@ -3223,20 +3559,23 @@ export async function runAtlasBrain(
     invalidateCritiquePipelineCache(creativeDirectorFingerprint(project));
 
     const applied =
+      !idempotent &&
       (tx.status === "applied" || tx.status === "partially_applied") &&
-      !tx.skippedAsRepeat;
+      !tx.skippedAsRepeat &&
+      tx.operations.length > 0;
+
+    const explanation = formatStrategicCompletionReport({
+      assessment: strategic,
+      strategicPreface,
+      tx,
+      idempotent,
+    });
+
     return {
       ok: true,
-      explanation: [
-        "Overall direction",
-        strategy.overallDirection,
-        "",
-        tx.summary,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      operations: tx.operations,
-      changes: tx.changes,
+      explanation,
+      operations: idempotent ? [] : tx.operations,
+      changes: idempotent ? [] : tx.changes,
       project,
       applyStatus: applied ? "applied" : "no_changes",
       decision: {
@@ -3246,21 +3585,35 @@ export async function runAtlasBrain(
         needsClarification: false,
         shouldExecuteEdits: applied,
         executionPlan: completionExecutionPlan,
-        explanation: "I completed the website using a coordinated transformation plan.",
+        explanation:
+          "Strategic Director prioritized the work; Transformation Engine executed the coordinated plan.",
         followUpSuggestions: followUpsForProject(project, [
-          "Add matching images",
-          "Improve SEO",
-          "Review my website",
+          ...STRATEGIC_COMPLETION_FOLLOW_UPS,
         ]),
+        decisionStage: "strategic_director",
+        commandKind: "strategic_director",
+        matchedSignals: [
+          "strategic_director",
+          "execute_completion",
+          `leader:${strategic.recommendedLeader}`,
+          "transformationHandoff",
+        ],
       },
       followUpSuggestions: followUpsForProject(project, [
-        "Add matching images",
-        "Improve SEO",
-        "Review my website",
+        ...STRATEGIC_COMPLETION_FOLLOW_UPS,
       ]),
       executionPlan: completionExecutionPlan,
       atlasMemory: project.atlasMemory,
     };
+  }
+
+  // 5) Action Memory — explicit recommendation-plan continuation only (Apply All).
+  const continued = await tryContinueActionMemory({
+    project: projectForTurn,
+    request,
+  });
+  if (continued) {
+    return continued;
   }
 
   let decision = decideAtlasBrain({
@@ -3375,6 +3728,152 @@ export async function runAtlasBrain(
       executionPlan: decision.executionPlan,
       atlasMemory: project.atlasMemory,
     };
+  }
+
+  // Strategic Director — advisory prioritization only. Completion handled above.
+  if (
+    (decision.commandKind === "strategic_director" ||
+      decision.decisionStage === "strategic_director" ||
+      isStrategicAdvisoryRequest(request)) &&
+    !isStrategicCompletionRequest(request)
+  ) {
+    const classified = classifyStrategicRequest(request);
+    const assessment = assessStrategicPriorities({
+      project: projectForTurn,
+      requestId: atlasRequestId,
+      logDiagnostics: process.env.NODE_ENV === "development",
+    });
+    let explanation = formatStrategicDirectorReport(assessment, {
+      mode: "advisory",
+      advisoryQuestion: classified?.advisoryQuestion ?? "general_priority",
+    });
+    if (strategicTextExposesInternalIds(explanation)) {
+      explanation =
+        "Here’s the strategic priority. The largest opportunity should lead; polish and secondary refinements wait until that foundation is sound.";
+    }
+    if (process.env.NODE_ENV === "development") {
+      console.info("[atlas:strategic-director:advisory]", {
+        requestId: atlasRequestId,
+        strategicRequestMode: "advisory",
+        strategicAdvisoryQuestion: classified?.advisoryQuestion ?? null,
+        selectedLeader: assessment.recommendedLeader,
+        highestPriorityOpportunity:
+          assessment.highestPriorityOpportunity?.title ?? null,
+        transformationHandoff: false,
+        executionStarted: false,
+        blockedWork: assessment.blockedWork.map((b) => b.title),
+      });
+    }
+    const project = withMemory(projectForTurn, request, decision.memoryPatch);
+    return {
+      ok: true,
+      explanation,
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: {
+        ...decision,
+        commandKind: "strategic_director",
+        decisionStage: "strategic_director",
+        shouldExecuteEdits: false,
+        needsClarification: false,
+        explanation,
+        matchedSignals: [
+          "strategic_director",
+          "advisory",
+          `leader:${assessment.recommendedLeader}`,
+          classified?.advisoryQuestion
+            ? `question:${classified.advisoryQuestion}`
+            : "question:general_priority",
+        ],
+      },
+      followUpSuggestions: [...STRATEGIC_DIRECTOR_FOLLOW_UPS],
+      executionPlan: decision.executionPlan,
+      atlasMemory: project.atlasMemory,
+    };
+  }
+
+  // Conversion Director — analysis only (Phase 1). Never edits / Apply All / chips.
+  if (
+    decision.commandKind === "conversion_director" ||
+    decision.decisionStage === "conversion_director" ||
+    isConversionDirectorRequest(request)
+  ) {
+    const evaluation = evaluateConversion({ project: projectForTurn });
+    let explanation = formatConversionDirectorReport(evaluation);
+    if (conversionTextExposesInternalIds(explanation)) {
+      explanation =
+        "Here’s a conversion-focused review — analysis only, no changes applied. Prioritize trust and proof before the ask, then tighten CTA and contact flow.";
+    }
+    const project = withMemory(projectForTurn, request, decision.memoryPatch);
+    if (process.env.NODE_ENV === "development") {
+      logScopeDiagnostics({
+        requestOwner: "conversion_director",
+        selectedDirector: "conversion_director",
+        scopeViolations: [],
+        blockedRecommendations: [],
+        conversionScore: evaluation.overallConversion,
+        highestPriorityImprovement: evaluation.highestPriorityImprovement,
+        requestId: atlasRequestId,
+      });
+    }
+    return {
+      ok: true,
+      explanation,
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: {
+        ...decision,
+        commandKind: "conversion_director",
+        decisionStage: "conversion_director",
+        shouldExecuteEdits: false,
+        needsClarification: false,
+        explanation,
+      },
+      followUpSuggestions: [...CONVERSION_DIRECTOR_FOLLOW_UPS],
+      executionPlan: decision.executionPlan,
+      atlasMemory: project.atlasMemory,
+    };
+  }
+
+  // Visual Composition Engine — never stub Q&A / never fall into critique or polish.
+  if (
+    decision.commandKind === "visual_composition" ||
+    decision.decisionStage === "visual_composition"
+  ) {
+    const vcExplain = tryExplainVisualComposition({
+      project: projectForTurn,
+      request,
+      requestId: atlasRequestId,
+    });
+    if (vcExplain) {
+      return {
+        ...vcExplain,
+        followUpSuggestions: followUpsForProject(
+          vcExplain.project,
+          vcExplain.followUpSuggestions ?? [],
+        ),
+        atlasMemory: vcExplain.project.atlasMemory,
+      };
+    }
+    const vcRefine = tryApplyVisualCompositionRefinement({
+      project: projectForTurn,
+      request,
+      requestId: atlasRequestId,
+    });
+    if (vcRefine) {
+      return {
+        ...vcRefine,
+        followUpSuggestions: followUpsForProject(
+          vcRefine.project,
+          vcRefine.followUpSuggestions ?? [],
+        ),
+        atlasMemory: vcRefine.project.atlasMemory,
+      };
+    }
   }
 
   // Informational questions — explain only; never critique pipeline or edits.
@@ -3984,6 +4483,66 @@ export async function runAtlasBrain(
     }
   }
 
+  // Taste Engine Phase 2 — one guarded final polish pass.
+  if (
+    decision.commandKind === "taste_polish" ||
+    isTastePolishRequest(request)
+  ) {
+    const polish = executeTastePolish({
+      project: projectForTurn,
+      requestId: atlasRequestId,
+      logDiagnostics: process.env.NODE_ENV === "development",
+    });
+    let explanation = polish.explanation;
+    if (tastePolishMentionsInternalIds(explanation)) {
+      explanation =
+        polish.applied
+          ? "I completed a final polish pass. The content, brand, and page structure stayed unchanged."
+          : polish.explanation.replace(
+              /\b(tasteEvaluation|eligibleToJudge|overallTaste|setCreativePolish)\b/g,
+              "the design",
+            );
+    }
+    const project = withMemory(polish.project, request, decision.memoryPatch);
+    return {
+      ok: true,
+      explanation,
+      operations: polish.operations,
+      changes:
+        polish.applied && polish.operations.length > 0
+          ? [
+              {
+                id: "taste.polish",
+                label: "Final visual polish",
+                ok: true as const,
+              },
+            ]
+          : [],
+      project,
+      applyStatus: polish.applied
+        ? "applied"
+        : polish.verdict === "already_polished"
+          ? "no_changes"
+          : polish.verdict === "ineligible"
+            ? "no_changes"
+            : "no_changes",
+      decision: {
+        ...decision,
+        commandKind: "taste_polish",
+        shouldExecuteEdits: polish.applied,
+        explanation,
+      },
+      followUpSuggestions: filterFollowUpsForOwner(
+        "taste",
+        polish.verdict === "ineligible"
+          ? ["Review my website", "Complete my website", "Improve SEO"]
+          : ["Review my website", "Improve SEO", "Open the spacing"],
+      ).allowed,
+      executionPlan: decision.executionPlan,
+      atlasMemory: project.atlasMemory,
+    };
+  }
+
   // Explicit polish commands — apply before broader specialists
   const isMotionCommand =
     decision.commandKind === "animations" ||
@@ -4155,8 +4714,14 @@ export async function runAtlasBrain(
           op.section !== "hero",
       );
       if (placedHero && project.heroImageId) {
+        // Hero placement owns composition follow-ups (blur / relocate copy).
+        // Keep fit continuations available via the hero_* task family.
+        const placementKind =
+          /use\s+(this|it)\s+as\s+the\s+hero|hero\s+image/i.test(request)
+            ? ("hero_composition" as const)
+            : ("hero_image_fit" as const);
         project = touchActiveTask(project, {
-          kind: "hero_image_fit",
+          kind: placementKind,
           target: { type: "hero" },
           assetId: project.heroImageId,
           userGoal: request,
@@ -4340,6 +4905,7 @@ export async function runAtlasBrain(
       decision.commandKind === "hero_readability" ||
       decision.commandKind === "hero_balance" ||
       decision.commandKind === "surface_style" ||
+      decision.commandKind === "taste_polish" ||
       decision.commandKind === "animations" ||
       decision.commandKind === "remove_animations" ||
       decision.intent === "command_animations");

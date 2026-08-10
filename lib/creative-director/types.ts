@@ -242,6 +242,16 @@ export type CreativeDirectorEvaluation = {
    * Quality reference only — never a layout/brand template.
    */
   benchmarkComparison?: import("@/lib/benchmarks/types").BenchmarkComparison | null;
+  /**
+   * Taste Engine evaluation — final polish judge after functional design.
+   * Principles only; never copies benchmark layouts.
+   */
+  tasteEvaluation?: import("@/lib/taste/types").TasteEvaluation | null;
+  /**
+   * Conversion Director evaluation — advisory lead-generation analysis.
+   * Referenced by Creative Director; never executes edits in Phase 1.
+   */
+  conversionDirectorEvaluation?: import("@/lib/conversion/types").ConversionEvaluation | null;
 };
 
 /** Deterministic inventory of what the homepage currently contains. */

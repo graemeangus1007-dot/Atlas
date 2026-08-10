@@ -37,6 +37,12 @@ import {
   evaluateBenchmarkComparison,
   labelDimension,
 } from "@/lib/benchmarks";
+import {
+  blendTasteIntoDesignScore,
+  evaluateTaste,
+  logTasteDiagnostics,
+} from "@/lib/taste";
+import { evaluateConversion } from "@/lib/conversion";
 import type { BusinessProject } from "@/types/business-project";
 
 function clamp(n: number): number {
@@ -296,13 +302,68 @@ export function evaluateWebsiteAsCreativeDirector(input: {
     },
   };
 
+  // Taste Engine — evaluate after functional dims/caps; judge only when sound.
+  const tasteEvaluation =
+    input.project != null
+      ? evaluateTaste({
+          project: input.project,
+          inventory,
+          evaluation: provisional,
+          qualityBand,
+          majorWeaknessCount: majorWeaknesses.filter(
+            (w) => w.severity === "critical" || w.severity === "major",
+          ).length,
+        })
+      : null;
+
+  if (tasteEvaluation?.eligibleToJudge) {
+    dimensions.overallDesignScore = blendTasteIntoDesignScore(
+      dimensions.overallDesignScore,
+      tasteEvaluation,
+    );
+    dimensions.professionalism = clamp(
+      dimensions.professionalism * 0.85 + tasteEvaluation.overallTaste * 0.15,
+    );
+    dimensions.whitespace = clamp(
+      dimensions.whitespace * 0.8 + tasteEvaluation.spacingHarmony * 0.2,
+    );
+    dimensions.visualRhythm = clamp(
+      dimensions.visualRhythm * 0.8 + tasteEvaluation.visualRhythm * 0.2,
+    );
+    provisional.dimensions = dimensions;
+  }
+
   const benchmarkComparison = evaluateBenchmarkComparison({
-    evaluation: provisional,
+    evaluation: {
+      ...provisional,
+      tasteEvaluation,
+    },
     inventory,
     industry: inventory.industry,
     businessType: input.project?.businessType,
     businessDescription: inventory.description,
   });
+
+  if (
+    tasteEvaluation?.eligibleToJudge &&
+    tasteEvaluation.recommendations[0] &&
+    tasteEvaluation.overallTaste < 80
+  ) {
+    const top = tasteEvaluation.recommendations[0];
+    if (!recommendations.some((r) => r.title === top.title)) {
+      recommendations = [
+        {
+          title: top.title,
+          creativeDirectorExplanation: top.explanation,
+          priority: top.priority,
+          theme: top.theme,
+          relatedSections: ["hero", "services"],
+          estimatedImpact: top.estimatedImpact,
+        },
+        ...recommendations,
+      ];
+    }
+  }
 
   if (
     benchmarkComparison.highestGap &&
@@ -367,6 +428,15 @@ export function evaluateWebsiteAsCreativeDirector(input: {
     executiveSummary,
   });
 
+  // Conversion Director — advisory reference (never executes from CD).
+  const conversionDirectorEvaluation =
+    input.project != null
+      ? evaluateConversion({
+          project: input.project,
+          strategyInput: input.strategyInput,
+        })
+      : null;
+
   if (input.logDiagnostics) {
     logCreativeDirectorDiagnostics(diagnostics, input.requestId);
     if (process.env.NODE_ENV === "development") {
@@ -382,6 +452,17 @@ export function evaluateWebsiteAsCreativeDirector(input: {
         matchPercentage: benchmarkComparison.matchPercentage,
         highestGap: benchmarkComparison.highestGap?.dimension ?? null,
       });
+      if (tasteEvaluation) {
+        logTasteDiagnostics(tasteEvaluation, input.requestId);
+      }
+      if (conversionDirectorEvaluation) {
+        console.info("[atlas:creative-director:conversion-director]", {
+          requestId: input.requestId ?? null,
+          overallConversion: conversionDirectorEvaluation.overallConversion,
+          highestPriorityImprovement:
+            conversionDirectorEvaluation.highestPriorityImprovement,
+        });
+      }
     }
   }
 
@@ -404,5 +485,7 @@ export function evaluateWebsiteAsCreativeDirector(input: {
     health,
     diagnostics,
     benchmarkComparison,
+    tasteEvaluation,
+    conversionDirectorEvaluation,
   };
 }

@@ -17,7 +17,10 @@ export type BenchmarkDimensionId =
   | "cta_confidence"
   | "imagery_quality"
   | "polish"
-  | "professionalism";
+  | "professionalism"
+  /** Taste Engine — professional craft beyond correctness. */
+  | "taste"
+  | "restraint";
 
 export type BenchmarkDimensionTarget = {
   id: BenchmarkDimensionId;

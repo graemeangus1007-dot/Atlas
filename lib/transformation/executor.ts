@@ -23,6 +23,7 @@ import type {
 import { mapTransformationGoalToOperations } from "@/lib/transformation/mapper";
 import { runTransformationPreflight } from "@/lib/transformation/preflight";
 import { maybeRefineTransformation } from "@/lib/transformation/refinement";
+import { executeTastePolish } from "@/lib/taste/polish-execute";
 import {
   formatTransformationExecutionReport,
   transformationPlanId,
@@ -75,6 +76,7 @@ function logDiagnostics(diag: TransformationExecutionDiagnostics): void {
     evaluatorConfidence: diag.evaluatorConfidence,
     finalVerdict: diag.finalVerdict,
     refinementApplied: diag.refinementApplied,
+    tastePolishApplied: diag.tastePolishApplied,
     blockedReasons: diag.blockedReasons,
     rollbackPerformed: diag.rollbackPerformed,
     rollbackScope: diag.rollbackScope,
@@ -159,6 +161,7 @@ export function executeTransformationPlan(
       failedGoals: [],
       revisionsCreated: [],
       refinementApplied: false,
+      tastePolishApplied: false,
       summary: "",
       project: baselineProject,
       operations: [],
@@ -199,6 +202,7 @@ export function executeTransformationPlan(
         evaluatorConfidence: 0,
         finalVerdict: "blocked",
         refinementApplied: false,
+        tastePolishApplied: false,
         blockedReasons: preflight.issues,
         rollbackPerformed: false,
         rollbackScope: "none",
@@ -590,7 +594,9 @@ export function executeTransformationPlan(
   }
 
   let refinementApplied = false;
+  let tastePolishApplied = false;
   const allowRefinement = input.allowRefinement !== false;
+  const allowTastePolish = input.allowTastePolish !== false;
 
   const appliedGoalModels: TransformationGoal[] = executedGoals
     .filter((g) => g.status === "applied")
@@ -849,6 +855,58 @@ export function executeTransformationPlan(
 
   appliedCount = executedGoals.filter((g) => g.status === "applied").length;
 
+  // Taste Engine Phase 2 — one guarded polish pass after verified transformation.
+  if (
+    allowTastePolish &&
+    !tastePolishApplied &&
+    wholePage.passed &&
+    appliedCount > 0 &&
+    !rollbackPerformed
+  ) {
+    const projectBeforePolish = cloneProject(project);
+    const opsBeforePolish = [...allOps];
+    const polish = executeTastePolish({
+      project,
+      requestId: input.requestId,
+      logDiagnostics: input.logDiagnostics,
+      criticalVerificationFailure: criticalDependencyFailed,
+    });
+    if (polish.applied) {
+      project = polish.project;
+      allOps.push(...polish.operations);
+      if (polish.revisionId) revisionsCreated.push(polish.revisionId);
+      tastePolishApplied = true;
+      const polishedVerify = verifyWholePageTransformation({
+        baselineProject,
+        finalProject: project,
+        plan,
+        brand,
+        criticalDependencyFailed: false,
+        appliedGoals: executedGoals
+          .filter((g) => g.status === "applied")
+          .map((g) => goalById(plan, g.goalId)),
+        blockedGoalIds: blockedGoals.map((g) => g.goalId),
+        batchCheckpoints,
+      });
+      // Taste must not undo a successful transformation — drop polish only if needed.
+      if (
+        !polishedVerify.passed ||
+        brandIntegrityViolations(brand, project).length > 0
+      ) {
+        project = projectBeforePolish;
+        allOps.length = 0;
+        allOps.push(...opsBeforePolish);
+        tastePolishApplied = false;
+        if (polish.revisionId) {
+          const idx = revisionsCreated.lastIndexOf(polish.revisionId);
+          if (idx >= 0) revisionsCreated.splice(idx, 1);
+        }
+      } else {
+        wholePage = polishedVerify;
+      }
+    }
+  }
+
   const onlySatisfied =
     appliedCount === 0 &&
     executedGoals.length > 0 &&
@@ -914,6 +972,7 @@ export function executeTransformationPlan(
     failedGoals,
     revisionsCreated,
     refinementApplied,
+    tastePolishApplied,
     summary: "",
     project,
     operations: allOps,
@@ -969,6 +1028,7 @@ export function executeTransformationPlan(
       evaluatorConfidence: oc?.confidence ?? 0,
       finalVerdict: oc?.verdict ?? "unknown",
       refinementApplied,
+      tastePolishApplied,
       blockedReasons: blockedGoals.map((g) => g.reason || g.goalId),
       rollbackPerformed,
       rollbackScope,
@@ -986,6 +1046,7 @@ export function executeFreshWebsiteTransformation(input: {
   request?: string;
   logDiagnostics?: boolean;
   allowRefinement?: boolean;
+  allowTastePolish?: boolean;
 }): TransformationExecutionResult {
   const { plan } = buildTransformationPlanForProject(
     input.project,
@@ -996,5 +1057,6 @@ export function executeFreshWebsiteTransformation(input: {
     plan,
     logDiagnostics: input.logDiagnostics,
     allowRefinement: input.allowRefinement,
+    allowTastePolish: input.allowTastePolish,
   });
 }

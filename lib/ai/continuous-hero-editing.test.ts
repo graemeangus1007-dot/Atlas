@@ -179,7 +179,7 @@ describe("Complete my website — no active plan", () => {
     );
     expect(result.decision.needsClarification).toBe(false);
     expect(result.explanation).toMatch(
-      /Overall direction|Biggest problem|Design goals|Execution plan|Done\.|Apply All|strategy|coordinated stage|redesign|design score/i,
+      /Highest priority|already in a strong|Execution|completed|Transformation|need your input|coordinated|design score|strategy/i,
     );
   });
 });
@@ -261,7 +261,7 @@ describe("production hero placement → entire picture", () => {
     expect(placed.applyStatus).toBe("applied");
     expect(placed.project.heroImageId).toBe("photo-1");
     expect(getActiveVisualTask(getActionMemory(placed.project))?.kind).toBe(
-      "hero_image_fit",
+      "hero_composition",
     );
     expect(getActiveVisualTask(getActionMemory(placed.project))?.assetId).toBe(
       "photo-1",

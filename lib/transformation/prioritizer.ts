@@ -117,6 +117,45 @@ export function scoreTransformationGoal(
     ) {
       score += 10;
     }
+
+    // Taste Engine — final polish judge. Boost polish/rhythm only when eligible.
+    const taste = evaluation.tasteEvaluation;
+    if (taste?.eligibleToJudge && taste.overallTaste < 82) {
+      const top = taste.highestPriorityImprovement;
+      const tasteThemes = taste.recommendations.slice(0, 2).map((r) => r.theme);
+      if (
+        goal.theme === "rhythm" ||
+        goal.id === "improve_rhythm" ||
+        goal.phase === "polish"
+      ) {
+        score += Math.min(14, 6 + Math.round((82 - taste.overallTaste) * 0.25));
+      }
+      if (
+        top &&
+        (top === "typographyHarmony" ||
+          top === "visualWeight" ||
+          top === "ctaPresence") &&
+        (goal.theme === "hero" || goal.theme === "messaging")
+      ) {
+        score += 8;
+      }
+      if (
+        tasteThemes.includes("hierarchy") &&
+        (goal.theme === "hero" || goal.id === "strengthen_hero")
+      ) {
+        score += 6;
+      }
+      // Deprioritize early structural goals when taste is the remaining gap
+      // and functional dims are already strong.
+      if (
+        taste.overallTaste < 70 &&
+        evaluation.dimensions.trust >= 75 &&
+        evaluation.dimensions.conversion >= 70 &&
+        goal.phase === "polish"
+      ) {
+        score += 10;
+      }
+    }
   }
 
   return score;

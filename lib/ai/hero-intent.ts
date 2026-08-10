@@ -11,6 +11,10 @@ import {
 } from "@/lib/ai/hero-image-presentation";
 import { isHeroReadabilityRequest } from "@/lib/ai/hero-readability";
 import { isHeroImageVisibilityComplaint } from "@/lib/ai/hero-visual-balance";
+import {
+  isVisualCompositionExplanationRequest,
+  isVisualCompositionRefinementRequest,
+} from "@/lib/composition/intent";
 
 /** Explicit gallery signals required for gallery interaction ownership. */
 export const GALLERY_EVIDENCE =
@@ -68,6 +72,13 @@ export function isHeroDomainRequest(request: string): boolean {
   if (isHeroImageVisibilityComplaint(text)) return true;
   if (isSoftHeroVisibilityRequest(text)) return true;
   if (isHeroGreyAreaComplaint(text)) return true;
+  if (isVisualCompositionExplanationRequest(text)) return true;
+  if (isVisualCompositionRefinementRequest(text)) return true;
+  if (/\b(blur|blurred|blurring)\b/i.test(text) &&
+    /\b(image|photo|picture|hero|half)\b/i.test(text)
+  ) {
+    return true;
+  }
   if (HERO_PATTERN_CUE.test(text)) return true;
   if (
     mentionsHero(text) &&
