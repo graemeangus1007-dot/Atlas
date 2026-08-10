@@ -153,7 +153,12 @@ function parseStrengths(block: string): string[] {
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
-    .map((l) => l.replace(/^[-•]\s*/, "").replace(/^\d+\.\s*/, ""))
+    .map((l) =>
+      l
+        .replace(/^[-–—*•●◦]\s*/, "")
+        .replace(/^\d+\.\s*/, "")
+        .trim(),
+    )
     .filter(Boolean);
 }
 

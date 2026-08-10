@@ -1,8 +1,16 @@
 /**
  * Strategic Director presentation — prioritization narrative, not a critique dump.
  * Mode is determined from the user command before assessment runs.
+ * v1.6.4 — customer-language boundary (no internal architecture terms).
  */
 
+import {
+  presentCapabilityGap,
+  presentStrategicExecution,
+  presentStrategicOpportunity,
+  sanitizeCustomerFacingText,
+  customerFacingTextExposesArchitecture,
+} from "@/lib/presentation/customer-language";
 import type { StrategicAssessment } from "@/lib/strategy/types";
 
 export type StrategicRequestMode = "advisory" | "execute_completion";
@@ -82,73 +90,82 @@ export function isStrategicCompletionRequest(request: string): boolean {
   return classifyStrategicRequest(request)?.mode === "execute_completion";
 }
 
-function opportunityPlainName(
-  assessment: StrategicAssessment,
-): { title: string; short: string } {
-  const highest = assessment.highestPriorityOpportunity;
-  if (!highest) {
-    return { title: "overall polish", short: "finishing details" };
+function weaknessLabel(assessment: StrategicAssessment): string {
+  const op = assessment.highestPriorityOpportunity;
+  if (!op) return "finishing polish";
+  const finding = presentStrategicOpportunity(op);
+  if (/focused|restraint|competing/i.test(finding.title + finding.explanation)) {
+    return "visual restraint";
   }
-  const title = highest.title.replace(/\.$/, "");
-  const short = /cta/i.test(title)
-    ? "the primary CTA"
-    : /trust|proof/i.test(title)
-      ? "trust and proof"
-      : /hero|composition|readability/i.test(title)
-        ? "hero composition"
-        : /spacing|polish/i.test(title)
-          ? "spacing and polish"
-          : title.toLowerCase();
-  return { title, short };
+  if (op.id === "cta") return "an unclear primary action";
+  if (op.id === "trust") return "thin trust signals";
+  if (op.id === "proof") return "proof arriving too late";
+  if (op.id === "hero_composition" || op.id === "hero_readability") {
+    return "a busy hero treatment";
+  }
+  return finding.title.toLowerCase();
 }
 
 function formatAdvisoryAnswer(
   assessment: StrategicAssessment,
   question: StrategicAdvisoryQuestion,
 ): string {
-  const { title, short } = opportunityPlainName(assessment);
-  const leader = labelLeader(assessment.recommendedLeader);
+  const op = assessment.highestPriorityOpportunity;
+  const finding = presentStrategicOpportunity(op);
+  const label = weaknessLabel(assessment);
 
   switch (question) {
     case "biggest_weakness":
-      return [
-        `The biggest weakness is ${short}.`,
-        assessment.highestPriorityOpportunity?.explanation ||
-          "Visitors can understand the business, but this gap is holding the experience back.",
-        `${leader} should lead the fix.`,
-      ].join(" ");
+      return sanitizeCustomerFacingText(
+        [
+          `The biggest weakness is ${label}.`,
+          finding.explanation,
+        ].join(" "),
+      );
 
     case "fix_first":
-      return [
-        `Fix ${short} first.`,
-        `Making progress on “${title}” should have more impact than additional visual polish right now.`,
-        `${leader} owns that work.`,
-      ].join(" ");
+      return sanitizeCustomerFacingText(
+        [
+          `Fix ${label} first.`,
+          finding.whyItMatters ||
+            `${finding.title} should have more impact than additional visual polish right now.`,
+        ].join(" "),
+      );
 
-    case "time_allocation":
-      return [
-        `Spend the next hour on the conversion and clarity path: start with ${short}.`,
-        assessment.executionSequence[1]
-          ? `Then continue with ${assessment.executionSequence[1].title.toLowerCase()}.`
-          : "Then confirm the contact path continues the same action clearly.",
-        `Defer lower-impact polish until that foundation is sound.`,
-      ].join(" ");
+    case "time_allocation": {
+      const next = assessment.executionSequence[1];
+      const nextTitle = next
+        ? presentStrategicOpportunity(
+            assessment.opportunities.find((o) => o.id === next.opportunityId) ??
+              null,
+          ).title.toLowerCase()
+        : "confirming the contact path stays clear";
+      return sanitizeCustomerFacingText(
+        [
+          `Spend the next hour on ${label}.`,
+          `Then continue with ${nextTitle}.`,
+          "Defer lower-impact polish until that foundation is sound.",
+        ].join(" "),
+      );
+    }
 
     case "highest_impact":
-      return [
-        `The highest-impact improvement is ${short}.`,
-        `It should make the next step unmistakable before you spend more time on lower-impact polish.`,
-        `${leader} should lead.`,
-      ].join(" ");
+      return sanitizeCustomerFacingText(
+        [
+          `The highest-impact improvement is ${label}.`,
+          finding.whyItMatters ||
+            "It should make the next step unmistakable before you spend more time on lower-impact polish.",
+        ].join(" "),
+      );
 
     case "general_priority":
     default:
-      return [
-        `What matters most right now is ${short}.`,
-        assessment.highestPriorityOpportunity?.explanation ||
-          assessment.summary,
-        `${leader} should lead that work.`,
-      ].join(" ");
+      return sanitizeCustomerFacingText(
+        [
+          `What matters most right now is ${label}.`,
+          finding.explanation,
+        ].join(" "),
+      );
   }
 }
 
@@ -168,55 +185,60 @@ export function formatStrategicDirectorReport(
     if (assessment.blockedWork.length > 0) {
       lines.push("", "Needs real business input before Atlas can finish it");
       for (const item of assessment.blockedWork.slice(0, 2)) {
+        const gap = presentCapabilityGap({
+          title: item.title,
+          reason: item.blockedReason,
+          nextStep: item.blockedReason,
+        });
         lines.push(
-          `• ${item.title}${item.blockedReason ? ` — ${item.blockedReason}` : ""}`,
+          `• ${gap.title}${gap.explanation && gap.explanation !== gap.title ? ` — ${gap.explanation}` : ""}`,
         );
       }
     }
 
-    return lines.join("\n");
+    return sanitizeCustomerFacingText(lines.join("\n"));
   }
 
-  // execute_completion preface — brief priority, then Transformation owns the rest.
-  const { short, title } = opportunityPlainName(assessment);
-  const lines: string[] = [
-    `Highest priority: ${title}.`,
-    `I’m executing the coordinated plan with ${labelLeader(assessment.recommendedLeader)} leading on ${short}.`,
-  ];
+  // execute_completion preface — customer language only.
+  const lines: string[] = [presentStrategicExecution(assessment)];
 
   if (assessment.executionSequence.length > 0) {
-    lines.push("", "Execution order");
+    lines.push("", "What I’ll focus on");
     for (const step of assessment.executionSequence.slice(0, 5)) {
-      const flag = step.blocked ? " — blocked until real inputs arrive" : "";
-      lines.push(`• ${step.order}. ${step.title}${flag}`);
+      const op =
+        assessment.opportunities.find((o) => o.id === step.opportunityId) ??
+        null;
+      const title = presentStrategicOpportunity(
+        op ??
+          ({
+            id: step.opportunityId,
+            title: step.title,
+            explanation: "",
+            leader: step.leader,
+            owner: step.leader,
+            domain: step.opportunityId,
+            sourceScore: 50,
+            businessImpact: 50,
+            expectedImprovement: 10,
+            implementationConfidence: 70,
+            verificationConfidence: 70,
+            blocked: step.blocked,
+            dependsOn: [],
+          } as StrategicAssessment["opportunities"][number]),
+      ).title;
+      const flag = step.blocked ? " — needs real business input first" : "";
+      lines.push(`• ${step.order}. ${title}${flag}`);
     }
   }
 
-  return lines.join("\n");
-}
-
-function labelLeader(leader: StrategicAssessment["recommendedLeader"]): string {
-  switch (leader) {
-    case "visual_composition":
-      return "Visual Composition";
-    case "conversion_director":
-      return "Conversion Director";
-    case "taste":
-      return "Taste";
-    case "creative_director":
-      return "Creative Director";
-    case "transformation":
-      return "Transformation";
-    case "capability_gap":
-      return "a capability gap";
-    default:
-      return "the right specialist";
-  }
+  return sanitizeCustomerFacingText(lines.join("\n"));
 }
 
 export function strategicTextExposesInternalIds(text: string): boolean {
-  return /\b(StrategicAssessment|priorityRanking|recommendedLeader|eligibleToJudge|overallTaste|strategicRequestMode|Apply All)\b/.test(
-    text,
+  return (
+    /\b(StrategicAssessment|priorityRanking|recommendedLeader|eligibleToJudge|overallTaste|strategicRequestMode|Apply All)\b/.test(
+      text,
+    ) || customerFacingTextExposesArchitecture(text)
   );
 }
 

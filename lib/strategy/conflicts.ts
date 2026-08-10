@@ -150,14 +150,14 @@ export function applyConflictResolutions(
         ...op,
         businessImpact: Math.max(20, op.businessImpact - 18),
         expectedImprovement: Math.max(10, op.expectedImprovement - 12),
-        explanation: `${op.explanation} Deferred until higher-priority specialist work lands.`,
+        explanation: `${op.explanation} Deferred until higher-priority foundations are sound.`,
       };
     }
     if (op.leader === "creative_director" && demote.has("creative_director")) {
       return {
         ...op,
         businessImpact: Math.max(24, op.businessImpact - 14),
-        explanation: `${op.explanation} Hero composition owns the first pass.`,
+        explanation: `${op.explanation} Start with the hero treatment before broader redesign.`,
       };
     }
     return op;

@@ -1,0 +1,15 @@
+export {
+  stripListMarkers,
+  sanitizeCustomerFacingText,
+  customerFacingTextExposesArchitecture,
+  humanizeRecommendationTitle,
+  presentStrategicOpportunity,
+  presentStrategicExecution,
+  presentRecommendation,
+  presentCapabilityGap,
+  presentSpecialistFinding,
+  presentBenchmarkGuidance,
+  dedupeReviewStrengths,
+  formatCustomerFacingFinding,
+  type CustomerFacingFinding,
+} from "@/lib/presentation/customer-language";

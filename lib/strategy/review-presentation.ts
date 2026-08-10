@@ -1,9 +1,17 @@
 /**
- * v1.6.3 — Agency-quality Strategic Review presentation.
+ * v1.6.3 / v1.6.4 — Agency-quality Strategic Review presentation.
  * Derives from existing specialist / Strategic outputs — no new evaluator.
+ * Customer-language boundary applied at format time.
  */
 
 import type { CreativeDirectorRecommendation } from "@/lib/ai/creative-director-types";
+import {
+  dedupeReviewStrengths,
+  humanizeRecommendationTitle,
+  presentStrategicOpportunity,
+  sanitizeCustomerFacingText,
+  stripListMarkers,
+} from "@/lib/presentation/customer-language";
 import type {
   EnrichedReviewRecommendation,
 } from "@/lib/strategy/review-plan";
@@ -19,29 +27,9 @@ export type ReviewPresentation = {
   recommendationCount: number;
 };
 
-/** Translate internal taxonomy into customer-facing language. */
+/** @deprecated Prefer humanizeRecommendationTitle — kept for callers. */
 export function toCustomerFacingImprovementTitle(title: string): string {
-  const t = title.trim();
-  const lower = t.toLowerCase();
-  if (/restraint|quality gap|close the remaining restraint/i.test(lower)) {
-    return "Simplify a few remaining visual treatments";
-  }
-  if (/apply final visual polish|visual polish|finishing polish/i.test(lower)) {
-    return "Tighten a few finishing details";
-  }
-  if (/refine spacing|open the spacing|spacing harmony/i.test(lower)) {
-    return "Open up the spacing for a calmer read";
-  }
-  if (/premium landscape-led|landscape-led direction|commit to a premium/i.test(lower)) {
-    return "Preserve the current photography-led direction";
-  }
-  if (/make the primary (cta|action)|clarify the primary cta/i.test(lower)) {
-    return "Clarify the primary CTA";
-  }
-  if (/sequence_proof|put proof before/i.test(lower)) {
-    return "Show proof before the ask";
-  }
-  return t;
+  return humanizeRecommendationTitle(title);
 }
 
 function extractStrengthLines(critiqueExplanation: string): string[] {
@@ -52,17 +40,9 @@ function extractStrengthLines(critiqueExplanation: string): string[] {
   if (!strengthBlock) return [];
   return strengthBlock
     .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => /^[-•]/.test(l) || /^\d+\./.test(l))
-    .map((l) =>
-      l
-        .replace(/^[-•]\s*/, "")
-        .replace(/^\d+\.\s*/, "")
-        .replace(/\s+[—–-]\s+.*$/, "")
-        .trim(),
-    )
+    .map((l) => stripListMarkers(l))
     .filter((l) => l.length >= 8 && !/^strengths?$/i.test(l))
-    .slice(0, 4);
+    .slice(0, 6);
 }
 
 function buildSummary(input: {
@@ -81,36 +61,50 @@ function buildSummary(input: {
         : `${name} has a workable starting point; the next gains come from focus, not more decoration.`;
 
   if (!top) {
-    return `${foundation} The remaining work is mostly refinement.`;
+    return sanitizeCustomerFacingText(
+      `${foundation} The remaining work is mostly refinement.`,
+    );
   }
 
+  const finding = presentStrategicOpportunity(top);
   if (top.id === "cta" || top.domain === "cta") {
-    return `${foundation} The biggest remaining opportunity is conversion clarity: visitors can understand the business, but the primary next step could be more specific.`;
+    return sanitizeCustomerFacingText(
+      `${foundation} The biggest remaining opportunity is conversion clarity: visitors can understand the business, but the primary next step could be more specific.`,
+    );
   }
   if (top.id === "trust" || top.id === "proof" || top.domain === "trust") {
-    return `${foundation} The biggest remaining opportunity is trust: visitors need clearer proof before they’re ready to act.`;
+    return sanitizeCustomerFacingText(
+      `${foundation} The biggest remaining opportunity is trust: visitors need clearer proof before they’re ready to act.`,
+    );
   }
   if (top.id === "hero_composition" || top.id === "hero_readability") {
-    return `${foundation} The biggest remaining opportunity is the first impression — the hero should do more work in the first few seconds.`;
+    return sanitizeCustomerFacingText(
+      `${foundation} The biggest remaining opportunity is the first impression — the hero should do more work in the first few seconds.`,
+    );
   }
-  return `${foundation} The biggest remaining opportunity is ${toCustomerFacingImprovementTitle(top.title).replace(/^Clarify the primary CTA$/i, "conversion clarity").toLowerCase()}.`;
+  if (/restraint|focused|competing/i.test(finding.title + finding.explanation)) {
+    return sanitizeCustomerFacingText(
+      `${foundation} The biggest remaining opportunity is visual restraint: a few treatments are competing for attention.`,
+    );
+  }
+  return sanitizeCustomerFacingText(
+    `${foundation} The biggest remaining opportunity is ${finding.title.toLowerCase()}.`,
+  );
 }
 
 function priorityReasonFor(
   assessment: StrategicAssessment,
 ): string | null {
-  const top = assessment.highestPriorityOpportunity;
-  if (!top) return null;
-  if (top.id === "cta" || top.domain === "cta") {
-    return "A more specific action would make the visitor’s next step unmistakable and should have more impact than additional visual polish.";
+  const finding = presentStrategicOpportunity(
+    assessment.highestPriorityOpportunity,
+  );
+  if (finding.whyItMatters) return finding.whyItMatters;
+  if (finding.explanation) {
+    return finding.explanation.length > 220
+      ? `${finding.explanation.slice(0, 217).trim()}…`
+      : finding.explanation;
   }
-  const explanation = (top.explanation || "").trim();
-  if (explanation.length > 20) {
-    return explanation.length > 220
-      ? `${explanation.slice(0, 217).trim()}…`
-      : explanation;
-  }
-  return `This should lead before lower-impact polish.`;
+  return "This should lead before lower-impact polish.";
 }
 
 export function buildReviewPresentation(input: {
@@ -124,30 +118,29 @@ export function buildReviewPresentation(input: {
   critiqueStrengthTitles?: string[];
 }): ReviewPresentation {
   const strengthsFromCritique = (input.critiqueStrengthTitles ?? [])
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 8)
-    .slice(0, 4);
-  const strengths =
-    strengthsFromCritique.length > 0
-      ? strengthsFromCritique
-      : extractStrengthLines(input.critiqueExplanation);
+    .map((s) => stripListMarkers(s))
+    .filter((s) => s.length >= 4);
+  const extracted = extractStrengthLines(input.critiqueExplanation);
+  const strengths = dedupeReviewStrengths(
+    strengthsFromCritique.length > 0 ? strengthsFromCritique : extracted,
+    { businessName: input.businessName },
+  );
 
   const top = input.assessment.highestPriorityOpportunity;
   const highestPriority = top
-    ? toCustomerFacingImprovementTitle(top.title)
+    ? presentStrategicOpportunity(top).title
     : null;
 
   const nextImprovements: string[] = [];
   const seen = new Set<string>();
   for (const rec of input.recommendations) {
-    const title = toCustomerFacingImprovementTitle(rec.title);
+    const title = humanizeRecommendationTitle(rec.title);
     const key = title.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     nextImprovements.push(title);
     if (nextImprovements.length >= 5) break;
   }
-  // Ensure highest priority leads the list when present.
   if (highestPriority) {
     const without = nextImprovements.filter(
       (t) => t.toLowerCase() !== highestPriority.toLowerCase(),
@@ -166,7 +159,7 @@ export function buildReviewPresentation(input: {
         rec.blockedReason ?? rec.explanation ?? "",
       );
     if (!rec.applyable && needsInput && !deferred) {
-      blockedByUserInput.push(toCustomerFacingImprovementTitle(rec.title));
+      blockedByUserInput.push(humanizeRecommendationTitle(rec.title));
     }
   }
 
@@ -186,6 +179,7 @@ export function buildReviewPresentation(input: {
 
 /**
  * Format for chat + Action Memory. Omits empty sections entirely (invariant).
+ * Strength/improvement items are plain text — UI owns list markers.
  */
 export function formatReviewPresentation(
   presentation: ReviewPresentation,
@@ -195,29 +189,32 @@ export function formatReviewPresentation(
   if (presentation.strengths.length > 0) {
     lines.push("", "What's working");
     for (const s of presentation.strengths) {
-      lines.push(`• ${s}`);
+      lines.push(`• ${stripListMarkers(s)}`);
     }
   }
 
   if (presentation.highestPriority) {
     lines.push("", "Highest priority");
-    lines.push(presentation.highestPriority);
+    lines.push(stripListMarkers(presentation.highestPriority));
     if (presentation.priorityReason) {
-      lines.push("", presentation.priorityReason);
+      lines.push(
+        "",
+        sanitizeCustomerFacingText(presentation.priorityReason),
+      );
     }
   }
 
   if (presentation.nextImprovements.length > 0) {
     lines.push("", "Next improvements");
     presentation.nextImprovements.forEach((title, i) => {
-      lines.push(`${i + 1}. ${title}`);
+      lines.push(`${i + 1}. ${stripListMarkers(title)}`);
     });
   }
 
   if (presentation.blockedByUserInput.length > 0) {
     lines.push("", "Needs your input");
     for (const item of presentation.blockedByUserInput) {
-      lines.push(`• ${item}`);
+      lines.push(`• ${stripListMarkers(item)}`);
     }
   }
 
@@ -233,7 +230,7 @@ export function formatReviewPresentation(
     "Say Apply all when you’re ready, or pick any single improvement.",
   );
 
-  return lines.join("\n");
+  return sanitizeCustomerFacingText(lines.join("\n"));
 }
 
 /** Empty-section invariant helper for tests and diagnostics. */
@@ -263,7 +260,6 @@ export function formatContainsEmptySectionHeadings(text: string): boolean {
   for (const s of sections) {
     if (s.heading.test(text) && !s.hasItems.test(text)) return true;
   }
-  // Heading followed immediately by another heading or end
   if (
     /(?:^|\n)(What's working|Strengths|Needs your input|Next improvements)\s*\n\s*(What's working|Highest priority|Next improvements|Needs your input|Say Apply|\d+ improvement|$)/im.test(
       text,

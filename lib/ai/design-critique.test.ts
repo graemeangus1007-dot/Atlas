@@ -518,7 +518,9 @@ describe("Atlas Brain routing — sprint prompts", () => {
     expect(result.applyStatus).toBe("no_changes");
     expect(result.operations).toHaveLength(0);
     expect(result.explanation).not.toMatch(/I reviewed your website\.\s*I reviewed/i);
-    expect(result.explanation).toMatch(/Strengths:|Top improvements:|emotional|premium/i);
+    expect(result.explanation).toMatch(
+      /What's working|Highest priority|Next improvements|emotional|premium|trust|foundation/i,
+    );
     const titles = (result.project.atlasActionMemory?.activePlan?.recommendations ?? []).map(
       (r) => r.title,
     );

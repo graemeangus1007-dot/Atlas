@@ -185,7 +185,9 @@ describe("Atlas Brain — critique routing execution", () => {
     expect(result.operations).toHaveLength(0);
     expect(result.explanation).not.toMatch(/Better visuals/i);
     expect(result.explanation).not.toMatch(/Understood\. What would you like/i);
-    expect(result.explanation).toMatch(/Strengths:|Top improvements:|emotional|premium|hierarchy/i);
+    expect(result.explanation).toMatch(
+      /What's working|Highest priority|Next improvements|emotional|premium|hierarchy|trust|foundation/i,
+    );
     expect(result.project.atlasActionMemory?.activePlan?.applyAllPending).toBe(true);
     expect(result.project.atlasActionMemory?.activePlan?.recommendations?.length).toBeGreaterThan(
       0,

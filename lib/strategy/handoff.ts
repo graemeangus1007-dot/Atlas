@@ -1,8 +1,13 @@
 /**
  * Strategic Director → Transformation Engine completion handoff.
  * Strategic Director never mutates the project; Transformation applies.
+ * v1.6.4 — customer-language boundary on user-facing completion copy.
  */
 
+import {
+  presentCapabilityGap,
+  sanitizeCustomerFacingText,
+} from "@/lib/presentation/customer-language";
 import type { StrategicAssessment } from "@/lib/strategy/types";
 import type { TransformationExecutionResult } from "@/lib/transformation/execution-types";
 
@@ -42,19 +47,36 @@ export function formatStrategicCompletionReport(input: {
   }
 
   const blocked = [
-    ...input.assessment.blockedWork.map(
-      (b) => b.blockedReason || b.title,
+    ...input.assessment.blockedWork.map((b) =>
+      presentCapabilityGap({
+        title: b.title,
+        reason: b.blockedReason,
+        nextStep: b.blockedReason,
+      }).explanation,
     ),
     ...(input.tx.capabilityGaps ?? [])
       .filter((g) => g.userInputRequired)
-      .map((g) => g.recommendedNextStep),
+      .map(
+        (g) =>
+          presentCapabilityGap({
+            title: g.problem,
+            nextStep: g.recommendedNextStep,
+          }).recommendedAction || g.recommendedNextStep,
+      ),
   ];
-  const uniqueBlocked = [...new Set(blocked)].slice(0, 3);
+  const uniqueBlocked = [...new Set(blocked.map((b) => sanitizeCustomerFacingText(b)))].slice(
+    0,
+    3,
+  );
 
   const applied =
     input.tx.status === "applied" || input.tx.status === "partially_applied";
 
-  const lines: string[] = [input.strategicPreface, "", input.tx.summary];
+  const lines: string[] = [
+    sanitizeCustomerFacingText(input.strategicPreface),
+    "",
+    sanitizeCustomerFacingText(input.tx.summary),
+  ];
 
   if (applied && uniqueBlocked.length > 0) {
     lines.push(
@@ -70,7 +92,7 @@ export function formatStrategicCompletionReport(input: {
     );
   }
 
-  return lines.filter(Boolean).join("\n");
+  return sanitizeCustomerFacingText(lines.filter(Boolean).join("\n"));
 }
 
 export function isIdempotentCompletion(input: {

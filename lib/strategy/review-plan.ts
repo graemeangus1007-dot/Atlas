@@ -13,6 +13,11 @@ import type {
   StrategicOpportunityId,
 } from "@/lib/strategy/types";
 import {
+  humanizeRecommendationTitle,
+  sanitizeCustomerFacingText,
+  stripListMarkers,
+} from "@/lib/presentation/customer-language";
+import {
   buildReviewPresentation,
   formatReviewPresentation,
 } from "@/lib/strategy/review-presentation";
@@ -563,6 +568,9 @@ export function formatApplyAllDispositionReport(
   const failed = traces.filter((t) => t.disposition === "failed_verification");
   const deferred = traces.filter((t) => t.disposition === "deferred_dependency");
 
+  const label = (title: string) =>
+    humanizeRecommendationTitle(stripListMarkers(title));
+
   const lines: string[] = [
     `I evaluated all ${traces.length} approved improvement${traces.length === 1 ? "" : "s"}.`,
   ];
@@ -596,7 +604,7 @@ export function formatApplyAllDispositionReport(
   if (applied.length) {
     lines.push("", "Kept");
     for (const t of applied.slice(0, 4)) {
-      lines.push(`• ${t.title}`);
+      lines.push(`• ${label(t.title)}`);
     }
   }
 
@@ -604,11 +612,14 @@ export function formatApplyAllDispositionReport(
   if (notable.length) {
     lines.push("", "Not applied");
     for (const t of notable) {
-      lines.push(`• ${t.title} — ${t.reason || t.disposition.replace(/_/g, " ")}`);
+      const reason = sanitizeCustomerFacingText(
+        stripListMarkers(t.reason || t.disposition.replace(/_/g, " ")),
+      );
+      lines.push(`• ${label(t.title)} — ${reason}`);
     }
   }
 
-  return lines.join("\n");
+  return sanitizeCustomerFacingText(lines.join("\n"));
 }
 
 export function logReviewPlanDiagnostics(input: {

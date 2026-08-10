@@ -3,6 +3,7 @@
 import { useId } from "react";
 import { parseCritiqueAssistantContent } from "@/lib/ai/critique-fallback-presentation";
 import { parseCritiqueMessage } from "@/lib/ai/critique-message-presentation";
+import { stripListMarkers } from "@/lib/presentation/customer-language";
 
 type AtlasCritiqueMessageProps = {
   content: string;
@@ -60,9 +61,9 @@ export default function AtlasCritiqueMessage({
   }
 
   const count = critique.improvements.length;
-  const strengths = critique.strengths ?? [];
-  const needsInput = critique.needsInput ?? [];
-  const highestPriority = critique.highestPriority?.trim() || null;
+  const strengths = (critique.strengths ?? []).map(stripListMarkers).filter(Boolean);
+  const needsInput = (critique.needsInput ?? []).map(stripListMarkers).filter(Boolean);
+  const highestPriority = stripListMarkers(critique.highestPriority ?? "") || null;
 
   return (
     <div
@@ -117,7 +118,9 @@ export default function AtlasCritiqueMessage({
           </h4>
           <ol className="mt-1 list-decimal space-y-1 pl-4 text-sm leading-relaxed text-foreground">
             {critique.improvements.slice(0, 5).map((item) => (
-              <li key={`${item.index}-${item.title}`}>{item.title}</li>
+              <li key={`${item.index}-${item.title}`}>
+                {stripListMarkers(item.title)}
+              </li>
             ))}
           </ol>
         </section>

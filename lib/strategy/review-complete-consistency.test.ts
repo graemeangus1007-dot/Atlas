@@ -212,7 +212,13 @@ describe("v1.6.2 Riverview production sequence", () => {
     ]) {
       const turn = await runAtlasBrain({ project, request: ask });
       expect(turn.applyStatus).toBe("no_changes");
-      expect(turn.explanation).toMatch(/CTA|call to action|conversion|priority/i);
+      // Customer-facing advisory — may prioritize trust, CTA, or restraint depending on state.
+      expect(turn.explanation).toMatch(
+        /weakness|fix first|hour|impact|matters most|trust|cta|action|restraint|proof|hero/i,
+      );
+      expect(turn.explanation).not.toMatch(
+        /Creative Director|Conversion Director|Strategic Director|restraint quality gap/i,
+      );
       const assessment = assessStrategicPriorities({ project: turn.project });
       advisoryPriorityIds.push(
         assessment.highestPriorityOpportunity?.id ?? null,

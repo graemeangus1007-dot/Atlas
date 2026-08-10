@@ -42,10 +42,10 @@ describe("v1.6.3 Review presentation", () => {
   it("translates internal restraint language to natural copy", () => {
     expect(
       toCustomerFacingImprovementTitle("Close the remaining restraint quality gap"),
-    ).toMatch(/simplify|visual treatments/i);
+    ).toBe("Make the design feel more focused");
     expect(
       toCustomerFacingImprovementTitle("Clarify the primary CTA"),
-    ).toBe("Clarify the primary CTA");
+    ).toBe("Make the main call to action clearer");
   });
 
   it("omits empty Strengths / Needs your input / Next improvements headings", () => {

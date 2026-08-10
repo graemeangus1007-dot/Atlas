@@ -54,7 +54,9 @@ describe("v1.6.3 Riverview Review UX + CTA execution", () => {
     expect(review.applyStatus).toBe("no_changes");
     expect(review.explanation).toMatch(/Riverview Bakery|conversion clarity|primary next step/i);
     expect(review.explanation).toMatch(/Highest priority/i);
-    expect(review.explanation).toMatch(/Clarify the primary CTA/i);
+    expect(review.explanation).toMatch(
+      /Make the main call to action clearer|Clarify the primary CTA/i,
+    );
     expect(review.explanation).toMatch(/Next improvements/i);
     expect(review.explanation).toMatch(/improvements? ready/i);
     expect(review.explanation).not.toMatch(/close the remaining restraint/i);

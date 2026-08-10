@@ -29,6 +29,11 @@ import { SECTION_IMAGE_SLOTS } from "@/lib/ai/image-operations";
 import { validateEditOperations } from "@/lib/ai/validate-edit-operations";
 import { validateImageOperations } from "@/lib/ai/validate-image-operations";
 import {
+  humanizeRecommendationTitle,
+  sanitizeCustomerFacingText,
+  stripListMarkers,
+} from "@/lib/presentation/customer-language";
+import {
   BODY_FONTS,
   BUTTON_STYLES,
   HEADING_FONTS,
@@ -543,13 +548,14 @@ export function formatRecommendationSupportPlan(
 ): string {
   if (recommendations.length === 0) return "";
   const lines = recommendations.map((r) => {
+    const title = humanizeRecommendationTitle(r.title);
     if (r.supportStatus === "supported" || r.applyable) {
-      return `✓ ${r.title}`;
+      return `✓ ${title}`;
     }
     if (r.supportStatus === "needs_images") {
-      return `⚠ ${r.title} — ${r.blockedReason ?? "Requires uploaded images"}`;
+      return `⚠ ${title} — ${sanitizeCustomerFacingText(stripListMarkers(r.blockedReason ?? "Requires uploaded images"))}`;
     }
-    return `⚠ ${r.title} — ${r.blockedReason ?? "Coming soon"}`;
+    return `⚠ ${title} — ${sanitizeCustomerFacingText(stripListMarkers(r.blockedReason ?? "Coming soon"))}`;
   });
-  return ["Plan:", ...lines].join("\n");
+  return sanitizeCustomerFacingText(["Plan:", ...lines].join("\n"));
 }

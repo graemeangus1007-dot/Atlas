@@ -1,8 +1,14 @@
 /**
  * Conversion Director presentation — analysis only, no Apply All / chips.
+ * v1.6.4 — customer-language titles/explanations.
  */
 
 import type { ConversionEvaluation } from "@/lib/conversion/types";
+import {
+  humanizeRecommendationTitle,
+  sanitizeCustomerFacingText,
+  stripListMarkers,
+} from "@/lib/presentation/customer-language";
 
 export function isConversionDirectorRequest(request: string): boolean {
   const text = request.trim();
@@ -38,23 +44,25 @@ export function formatConversionDirectorReport(
     lines.push("• Conversion fundamentals look solid — no urgent gaps.");
   } else {
     for (const r of recs) {
-      lines.push(`• ${r.title} — ${r.explanation}`);
+      lines.push(
+        `• ${humanizeRecommendationTitle(r.title)} — ${sanitizeCustomerFacingText(stripListMarkers(r.explanation))}`,
+      );
     }
   }
 
   if (evaluation.businessInputNeeded.length > 0) {
     lines.push("", "Needs real business input before changing");
     for (const item of evaluation.businessInputNeeded.slice(0, 3)) {
-      lines.push(`• ${item}`);
+      lines.push(`• ${humanizeRecommendationTitle(item)}`);
     }
   }
 
-  lines.push("", evaluation.summary);
-  return lines.join("\n");
+  lines.push("", sanitizeCustomerFacingText(evaluation.summary));
+  return sanitizeCustomerFacingText(lines.join("\n"));
 }
 
 export function conversionTextExposesInternalIds(text: string): boolean {
-  return /\b(ConversionEvaluation|overallConversion|conversion_director|eligibleToJudge|Apply All)\b/.test(
+  return /\b(ConversionEvaluation|overallConversion|conversion_director|eligibleToJudge|Apply All|Creative Director|Strategic Director)\b/.test(
     text,
   );
 }

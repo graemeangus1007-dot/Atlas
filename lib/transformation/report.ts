@@ -2,6 +2,7 @@
  * Agency-style user-facing transformation report (no internal IDs).
  */
 
+import { sanitizeCustomerFacingText } from "@/lib/presentation/customer-language";
 import type {
   TransformationExecutionResult,
   TransformationGoalResult,
@@ -304,8 +305,9 @@ export function formatTransformationExecutionReport(
     .join("\n")
     .replace(/\bDone\.\s*/g, "");
 
+  let cleaned = text;
   if (transformationTextExposesInternalIds(text)) {
-    return text
+    cleaned = text
       .replace(
         /\b(set_page_direction|strengthen_hero|establish_trust|clarify_services|strengthen_proof|sequence_proof_before_ask|clarify_primary_cta|simplify_conversion|improve_rhythm|tighten_messaging)\b/gi,
         "that improvement",
@@ -315,7 +317,7 @@ export function formatTransformationExecutionReport(
         "update",
       );
   }
-  return text;
+  return sanitizeCustomerFacingText(cleaned);
 }
 
 export function transformationPlanId(
