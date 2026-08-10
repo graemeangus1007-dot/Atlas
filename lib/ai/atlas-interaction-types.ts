@@ -101,6 +101,8 @@ export type ActiveInteractionPlan = {
   source?: "creative_director" | "business_advisor" | "design_critique" | "mixed";
   applyAllPending: boolean;
   lastSelectedId?: string | null;
+  /** v1.6.2 — immutable Review snapshot bound to strategic truth. */
+  reviewPlanSnapshot?: import("@/lib/strategy/review-plan").ReviewPlanSnapshot | null;
 };
 
 export type InteractionRepairState = {

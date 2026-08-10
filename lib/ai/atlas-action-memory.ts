@@ -49,6 +49,13 @@ export type AtlasStoredRecommendation = {
   applyable: boolean;
   operations: Array<EditOperation | ImageOperation>;
   explanation?: string;
+  /** v1.6.2 — strategic ownership / domain for Apply All verification. */
+  owner?: string;
+  domain?: string;
+  objective?: string;
+  blockedReason?: string;
+  supportStatus?: string;
+  deferred?: boolean;
 };
 
 export type ClarificationDestination =
@@ -141,6 +148,8 @@ export type AtlasActionMemory = {
     source?: "creative_director" | "business_advisor" | "design_critique" | "mixed";
     applyAllPending: boolean;
     lastSelectedId?: string | null;
+    /** v1.6.2 — immutable Review snapshot bound to strategic truth. */
+    reviewPlanSnapshot?: import("@/lib/strategy/review-plan").ReviewPlanSnapshot | null;
   } | null;
   repair?: {
     heroReadability?: {
@@ -735,6 +744,10 @@ export function storeRecommendations(
     creativeReport?: AtlasActionMemory["creativeReport"];
     executionPlan?: AtlasExecutionPlan;
     transformationPlan?: import("@/lib/transformation/types").TransformationPlan | null;
+    /** Pre-mapped stored recommendations (strategic Review path). */
+    stored?: AtlasStoredRecommendation[];
+    reviewPlanSnapshot?: import("@/lib/strategy/review-plan").ReviewPlanSnapshot | null;
+    sourceOverride?: AtlasActionMemory["source"];
   },
 ): AtlasActionMemory {
   const creative = (input.creative ?? []).map(
@@ -746,6 +759,12 @@ export function storeRecommendations(
       applyable: r.applyable,
       operations: r.operations,
       explanation: r.explanation,
+      owner: (r as { owner?: string }).owner,
+      domain: (r as { domain?: string }).domain,
+      objective: (r as { objective?: string }).objective ?? r.title,
+      blockedReason: r.blockedReason,
+      supportStatus: r.supportStatus,
+      deferred: (r as { deferred?: boolean }).deferred,
     }),
   );
   const advisor = (input.advisor ?? []).map(
@@ -759,15 +778,18 @@ export function storeRecommendations(
       explanation: r.noticed || r.narrative,
     }),
   );
-  const recommendations = [...creative, ...advisor];
+  const recommendations = input.stored?.length
+    ? input.stored
+    : [...creative, ...advisor];
   const source: AtlasActionMemory["source"] =
-    creative.length && advisor.length
+    input.sourceOverride ??
+    (creative.length && advisor.length
       ? "mixed"
-      : creative.length
-        ? "creative_director"
+      : creative.length || input.stored?.length
+        ? "design_critique"
         : advisor.length
           ? "business_advisor"
-          : undefined;
+          : undefined);
 
   const transformationPlan =
     input.transformationPlan !== undefined
@@ -780,6 +802,10 @@ export function storeRecommendations(
     input.creativeReport ?? memory?.activePlan?.creativeReport;
   const executionPlan =
     input.executionPlan ?? memory?.activePlan?.executionPlan;
+  const reviewPlanSnapshot =
+    input.reviewPlanSnapshot !== undefined
+      ? input.reviewPlanSnapshot
+      : memory?.activePlan?.reviewPlanSnapshot ?? null;
   const hasPlan =
     recommendations.length > 0 ||
     Boolean(executionPlan) ||
@@ -795,6 +821,7 @@ export function storeRecommendations(
         source,
         applyAllPending,
         lastSelectedId: null as string | null,
+        reviewPlanSnapshot,
       }
     : null;
 
@@ -809,6 +836,7 @@ export function storeRecommendations(
     activePlan,
     repair: base.repair ?? null,
     lastClarificationClear: base.lastClarificationClear ?? null,
+    lastTransformationAttempt: base.lastTransformationAttempt ?? null,
   };
 }
 
@@ -904,6 +932,7 @@ export function clearRecommendations(
     activePlan: null,
     repair: base.repair ?? null,
     lastClarificationClear: base.lastClarificationClear ?? null,
+    lastTransformationAttempt: base.lastTransformationAttempt ?? null,
   };
 }
 
@@ -1065,12 +1094,15 @@ export function removeAppliedRecommendations(
       recommendationIds: remaining.map((r) => r.id),
       executionPlan: base.activePlan?.executionPlan,
       creativeReport: base.activePlan?.creativeReport,
+      transformationPlan: base.activePlan?.transformationPlan ?? null,
+      reviewPlanSnapshot: base.activePlan?.reviewPlanSnapshot ?? null,
       source: base.activePlan?.source,
       applyAllPending,
       lastSelectedId: lastSelected,
     },
     repair: base.repair ?? null,
     lastClarificationClear: base.lastClarificationClear ?? null,
+    lastTransformationAttempt: base.lastTransformationAttempt ?? null,
   };
 }
 
@@ -1081,7 +1113,10 @@ export function toCreativeRecommendations(
   items: AtlasStoredRecommendation[],
 ): CreativeDirectorRecommendation[] {
   return items
-    .filter((r) => r.source === "creative_director")
+    .filter(
+      (r) =>
+        r.source === "creative_director" || r.source === "design_critique",
+    )
     .map((r) => ({
       id: r.id,
       kind: (["visual", "content", "motion", "conversion", "brand"].includes(

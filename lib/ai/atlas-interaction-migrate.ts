@@ -97,6 +97,7 @@ function planFromRecommendations(
     source: memory.source,
     applyAllPending: Boolean(memory.applyAllPending),
     lastSelectedId: memory.lastRecommendationSelected ?? null,
+    reviewPlanSnapshot: null,
   };
 }
 
@@ -128,6 +129,7 @@ function planFromLegacy(memory: AtlasActionMemory): ActiveInteractionPlan | null
         memory.activePlan.lastSelectedId ??
         memory.lastRecommendationSelected ??
         null,
+      reviewPlanSnapshot: memory.activePlan.reviewPlanSnapshot ?? null,
     };
   }
   return fromRecs;

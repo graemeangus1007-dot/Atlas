@@ -193,6 +193,7 @@ import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import { reviewBusinessProject } from "@/lib/ai/business-advisor";
 import {
   applyAllCreativeRecommendations,
+  applyCreativeRecommendation,
 } from "@/lib/ai/apply-creative-recommendation";
 import { applyAdvisorRecommendation } from "@/lib/ai/apply-advisor-recommendation";
 import {
@@ -255,17 +256,31 @@ import {
   isConversionDirectorRequest,
 } from "@/lib/conversion";
 import {
+  arbitrateReviewRecommendations,
   assessStrategicPriorities,
+  buildExecutionTraceBase,
+  buildReviewPlanSnapshot,
   classifyStrategicRequest,
+  enrichStoredRecommendation,
+  formatApplyAllDispositionReport,
   formatStrategicCompletionReport,
   formatStrategicDirectorReport,
+  formatStrategicallyPrioritizedReview,
+  hasRecentNoGainCompletion,
   isIdempotentCompletion,
+  isReviewPlanStale,
   isStrategicAdvisoryRequest,
   isStrategicCompletionRequest,
+  logReviewPlanDiagnostics,
   logStrategicCompletionDiagnostics,
+  domainsAlignWithObjective,
+  mutationDomainsFromOperations,
+  preApplyDisposition,
+  projectRevisionFromFingerprint,
   strategicTextExposesInternalIds,
   STRATEGIC_COMPLETION_FOLLOW_UPS,
   STRATEGIC_DIRECTOR_FOLLOW_UPS,
+  type RecommendationExecutionTrace,
 } from "@/lib/strategy";
 import {
   filterFollowUpsForOwner,
@@ -458,6 +473,231 @@ function skippedRepeatTransformationResult(input: {
   return result;
 }
 
+/**
+ * Apply All for a strategically arbitrated Review plan.
+ * Accounts for every approved recommendation; never silently substitutes polish.
+ */
+function executeReviewPlanApplyAll(input: {
+  project: BusinessProject;
+  memory: AtlasActionMemory;
+  request: string;
+  snapshot: NonNullable<
+    NonNullable<AtlasActionMemory["activePlan"]>["reviewPlanSnapshot"]
+  >;
+}): AtlasBrainResult {
+  const currentRevision = projectRevisionFromFingerprint(
+    creativeDirectorFingerprint(input.project),
+  );
+  const stale = isReviewPlanStale({
+    snapshot: input.snapshot,
+    currentRevision,
+  });
+  if (stale) {
+    const project = setInteractionState(
+      withMemory(input.project, input.request),
+      clearPendingClarification(input.memory, { reason: "cancelled" }),
+    );
+    if (process.env.NODE_ENV === "development") {
+      logReviewPlanDiagnostics({
+        snapshot: input.snapshot,
+        stalePlanDetected: true,
+      });
+    }
+    return {
+      ok: true,
+      explanation:
+        "The site changed since this review plan was approved. Ask me to Review my website again so I can reassess against the current project before applying anything.",
+      operations: [],
+      changes: [],
+      project,
+      applyStatus: "no_changes",
+      decision: confirmDecision(
+        "Stale review plan",
+        "Project revision diverged from ReviewPlanSnapshot.",
+      ),
+      followUpSuggestions: [
+        "Review my website",
+        "Complete my website",
+        "What should I fix first?",
+      ],
+      atlasMemory: project.atlasMemory,
+      executionPlan: input.memory.activePlan?.executionPlan,
+    };
+  }
+
+  const postCompletionEvidence =
+    input.snapshot.postCompletionEvidence ||
+    hasRecentNoGainCompletion({
+      lastAttempt: input.memory.lastTransformationAttempt,
+    });
+  const highestPriorityDomain = input.snapshot.highestPriorityOpportunityId
+    ? inferDomainFromOpportunityId(input.snapshot.highestPriorityOpportunityId)
+    : null;
+
+  const planRecs = input.memory.activePlan?.recommendations ?? [];
+  const byId = new Map(planRecs.map((r) => [r.id, r]));
+  const orderedIds = [
+    ...input.snapshot.dependencyOrder,
+    ...planRecs
+      .map((r) => r.id)
+      .filter((id) => !input.snapshot.dependencyOrder.includes(id)),
+  ];
+  const ordered = orderedIds
+    .map((id) => byId.get(id))
+    .filter((r): r is NonNullable<typeof r> => Boolean(r));
+
+  let project = input.project;
+  const changes: EditChangeSummary[] = [];
+  const operations: Array<EditOperation | ImageOperation> = [];
+  const traces: RecommendationExecutionTrace[] = [];
+  const appliedIds: string[] = [];
+
+  for (const rec of ordered) {
+    const base = buildExecutionTraceBase(rec);
+    const pre = preApplyDisposition({
+      recommendation: rec,
+      postCompletionEvidence,
+      highestPriorityDomain,
+    });
+    if (pre) {
+      traces.push({
+        ...base,
+        disposition: pre.disposition,
+        reason: pre.reason,
+        actualMutationDomains: [],
+        verificationResult: pre.verificationResult,
+      });
+      continue;
+    }
+
+    const creative = toCreativeRecommendations([rec]);
+    const target = creative[0];
+    if (!target) {
+      traces.push({
+        ...base,
+        disposition: "blocked_unsupported",
+        reason: "Could not map recommendation for execution.",
+        actualMutationDomains: [],
+        verificationResult: "unmapable",
+      });
+      continue;
+    }
+
+    const result = applyCreativeRecommendation({
+      project,
+      recommendation: target,
+    });
+    if (!result.ok) {
+      traces.push({
+        ...base,
+        disposition: "failed_verification",
+        reason: "Application failed.",
+        actualMutationDomains: [],
+        verificationResult: "apply_failed",
+      });
+      continue;
+    }
+
+    if (result.status !== "applied" || result.changes.length === 0) {
+      traces.push({
+        ...base,
+        disposition: "already_satisfied",
+        reason: "Already reflected on the site.",
+        actualMutationDomains: [],
+        verificationResult: "already_satisfied",
+      });
+      appliedIds.push(rec.id);
+      continue;
+    }
+
+    const actualDomains = mutationDomainsFromOperations(target.operations);
+    if (!domainsAlignWithObjective(base.domain, actualDomains)) {
+      // Do not keep mutations that fail domain/objective verification.
+      traces.push({
+        ...base,
+        disposition: "failed_verification",
+        reason:
+          "Mutations did not match the recommendation domain — change was not kept.",
+        actualMutationDomains: actualDomains,
+        verificationResult: "domain_mismatch_rejected",
+      });
+      continue;
+    }
+
+    project = result.project;
+    changes.push(...result.changes);
+    operations.push(...target.operations);
+    appliedIds.push(rec.id);
+    traces.push({
+      ...base,
+      disposition: "applied",
+      actualMutationDomains: actualDomains,
+      verificationResult: "verified",
+      reason: "Improved the site and was kept.",
+    });
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    logReviewPlanDiagnostics({
+      snapshot: input.snapshot,
+      dispositions: traces,
+      stalePlanDetected: false,
+    });
+  }
+
+  const anyApplied = traces.some((t) => t.disposition === "applied");
+  if (anyApplied) {
+    invalidateCritiquePipelineCache(creativeDirectorFingerprint(project));
+  }
+
+  const nextMemory = clearRecommendations(
+    clearPendingClarification(input.memory, { reason: "resolved" }),
+  );
+  project = setInteractionState(withMemory(project, input.request), nextMemory);
+  if (anyApplied) {
+    project = touchActiveTask(project, {
+      kind: "plan_execution",
+      target: { type: "plan" },
+      userGoal: input.request,
+    });
+  }
+
+  return {
+    ok: true,
+    explanation: formatApplyAllDispositionReport(traces),
+    operations: anyApplied ? operations : [],
+    changes: anyApplied ? dedupeChangeLabels(changes) : [],
+    project,
+    applyStatus: anyApplied ? "applied" : "no_changes",
+    decision: confirmDecision(
+      "Apply approved review plan",
+      "Dispositioned every approved recommendation in strategic order.",
+    ),
+    followUpSuggestions: [
+      "Review my website",
+      "Complete my website",
+      "Improve SEO",
+    ],
+    executionPlan: input.memory.activePlan?.executionPlan,
+    atlasMemory: project.atlasMemory,
+  };
+}
+
+function inferDomainFromOpportunityId(id: string): string | null {
+  const map: Record<string, string> = {
+    cta: "cta",
+    contact_flow: "contact_flow",
+    trust: "trust",
+    proof: "trust",
+    spacing_polish: "spacing",
+    visual_polish: "visual_polish",
+    narrative: "narrative",
+    hero_composition: "hero_composition",
+    motion: "motion",
+  };
+  return map[id] ?? id;
+}
+
 function applyActionMemoryRecommendations(input: {
   project: BusinessProject;
   memory: AtlasActionMemory;
@@ -469,8 +709,25 @@ function applyActionMemoryRecommendations(input: {
   // Complete my website never reaches here — handled by Strategic→Transformation handoff.
   const wantsFullPlan = confirmationEarly.kind === "apply_all";
   const activeTxPlan = input.memory.activePlan?.transformationPlan ?? null;
+  const reviewSnapshot = input.memory.activePlan?.reviewPlanSnapshot ?? null;
 
-  // Apply All / Complete → coordinated Transformation Engine when a plan is active.
+  // v1.6.2 — Apply All on a Strategic Review plan: disposition every recommendation.
+  // Do not run a second independent Transformation strategy or cosmetic polish substitute.
+  if (
+    wantsFullPlan &&
+    reviewSnapshot &&
+    !input.recommendationIds?.length &&
+    !looksLikePlanReference(input.request)
+  ) {
+    return executeReviewPlanApplyAll({
+      project: input.project,
+      memory: input.memory,
+      request: input.request,
+      snapshot: reviewSnapshot,
+    });
+  }
+
+  // Apply All → coordinated Transformation Engine when a plan is active (no Review snapshot).
   if (
     wantsFullPlan &&
     activeTxPlan &&
@@ -3930,12 +4187,38 @@ export async function runAtlasBrain(
       project: projectForTurn,
       limit: 1,
     });
-    const supportPlan = formatRecommendationSupportPlan(
-      critiqueResult.recommendations,
+    // v1.6.2 — Strategic Director arbitrates critique recommendations before presentation.
+    // Same project truth → same highest priority as Complete (authorization UX differs).
+    const strategicAssessment = assessStrategicPriorities({
+      project: projectForTurn,
+      requestId: atlasRequestId,
+      logDiagnostics: process.env.NODE_ENV === "development",
+    });
+    const arbitrated = arbitrateReviewRecommendations({
+      assessment: strategicAssessment,
+      recommendations: critiqueResult.recommendations,
+    });
+    const postCompletionEvidence = hasRecentNoGainCompletion({
+      lastAttempt: getActionMemory(projectForTurn).lastTransformationAttempt,
+    });
+    const projectRevision = projectRevisionFromFingerprint(
+      creativeDirectorFingerprint(projectForTurn),
     );
-    const applyable = critiqueResult.recommendations.filter((r) => r.applyable);
+    const reviewPlanSnapshot = buildReviewPlanSnapshot({
+      assessment: strategicAssessment,
+      projectRevision,
+      recommendations: arbitrated,
+      postCompletionEvidence,
+    });
+    const supportPlan = formatRecommendationSupportPlan(arbitrated);
+    const strategicReviewExplanation = formatStrategicallyPrioritizedReview({
+      assessment: strategicAssessment,
+      recommendations: arbitrated,
+      critiqueExplanation: critiqueResult.explanation,
+    });
+    const applyable = arbitrated.filter((r) => r.applyable);
     const actionMemory = storeRecommendations(getActionMemory(projectForTurn), {
-      creative: critiqueResult.recommendations,
+      stored: arbitrated.map(enrichStoredRecommendation),
       creativeReport: {
         overallCompleteness: creative.overallCompleteness,
         maturityLevel: creative.maturityLevel,
@@ -3943,8 +4226,17 @@ export async function runAtlasBrain(
         reviewedAt: creative.reviewedAt,
       },
       executionPlan: decision.executionPlan,
+      // Keep TX plan for Complete continuity, but Apply All uses reviewPlanSnapshot.
       transformationPlan: critiqueResult.strategy?.transformationPlan ?? null,
+      reviewPlanSnapshot,
+      sourceOverride: "design_critique",
     });
+    if (process.env.NODE_ENV === "development") {
+      logReviewPlanDiagnostics({
+        snapshot: reviewPlanSnapshot,
+        requestId: atlasRequestId,
+      });
+    }
     let project = setInteractionState(
       withMemory(projectForTurn, request, decision.memoryPatch),
       actionMemory,
@@ -3966,8 +4258,8 @@ export async function runAtlasBrain(
         return {
           ok: true,
           explanation: [
-            critiqueResult.explanation
-              .replace(/I’m applying the coordinated plan next\.?/i, "")
+            strategicReviewExplanation
+              .replace(/Say Apply all when you’re ready[^\n]*/i, "")
               .trim(),
             batch.explanation,
             supportPlan,
@@ -3992,7 +4284,7 @@ export async function runAtlasBrain(
 
     return {
       ok: true,
-      explanation: [critiqueResult.explanation, "", supportPlan]
+      explanation: [strategicReviewExplanation, "", supportPlan]
         .filter(Boolean)
         .join("\n"),
       operations: [],
