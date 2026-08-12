@@ -71,6 +71,11 @@ export const CANONICAL_DEPENDENCIES: TransformationDependency[] = [
     reason: "Rhythm polish comes after CTA clarity when conversion polish is skipped.",
   },
   {
+    from: "clarify_visual_restraint",
+    to: "improve_rhythm",
+    reason: "Rhythm polish comes after restraint treatments are quieted.",
+  },
+  {
     from: "clarify_services",
     to: "tighten_messaging",
     reason: "Messaging cleanup follows offer clarity.",

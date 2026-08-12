@@ -74,3 +74,21 @@ export {
   isTastePolishRequest,
   tastePolishMentionsInternalIds,
 } from "@/lib/taste/polish-presentation";
+
+export {
+  RESTRAINT_POLISH_VERSION,
+  detectRestraintDefects,
+  planRestraintPolish,
+  executeRestraintPolish,
+  verifyRestraintPolish,
+  needsRestraintPolish,
+  formatRestraintExecutionCopy,
+  projectRevisionToken,
+  logRestraintPolishDiagnostics,
+  type RestraintDefect,
+  type RestraintPolishPlan,
+  type RestraintVerification,
+  type RestraintPolishResult,
+  type RestraintPolishVerdict,
+  type RestraintPolishDiagnostics,
+} from "@/lib/taste/restraint-polish";

@@ -38,9 +38,19 @@ export function scoreTransformationGoal(
         (rec.theme === "flow" &&
           (goal.theme === "flow" || goal.theme === "proof")) ||
         (rec.theme === "imagery" && goal.theme === "proof") ||
-        (rec.theme === "hierarchy" && goal.theme === "hero")
+        (rec.theme === "hierarchy" &&
+          (goal.theme === "hero" || goal.theme === "restraint")) ||
+        (rec.theme === "imagery" && goal.theme === "restraint")
       ) {
         score += 10 + rec.estimatedImpact * 0.15;
+      }
+      if (
+        /restraint|competing|polish|effect/i.test(
+          `${rec.title} ${rec.creativeDirectorExplanation}`,
+        ) &&
+        goal.theme === "restraint"
+      ) {
+        score += 12;
       }
     }
     // Prioritize the weakest observable dimensions over already-strong areas

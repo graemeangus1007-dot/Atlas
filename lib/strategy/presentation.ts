@@ -202,33 +202,36 @@ export function formatStrategicDirectorReport(
   // execute_completion preface — customer language only.
   const lines: string[] = [presentStrategicExecution(assessment)];
 
-  if (assessment.executionSequence.length > 0) {
-    lines.push("", "What I’ll focus on");
-    for (const step of assessment.executionSequence.slice(0, 5)) {
-      const op =
-        assessment.opportunities.find((o) => o.id === step.opportunityId) ??
-        null;
-      const title = presentStrategicOpportunity(
-        op ??
-          ({
-            id: step.opportunityId,
-            title: step.title,
-            explanation: "",
-            leader: step.leader,
-            owner: step.leader,
-            domain: step.opportunityId,
-            sourceScore: 50,
-            businessImpact: 50,
-            expectedImprovement: 10,
-            implementationConfidence: 70,
-            verificationConfidence: 70,
-            blocked: step.blocked,
-            dependsOn: [],
-          } as StrategicAssessment["opportunities"][number]),
-      ).title;
-      const flag = step.blocked ? " — needs real business input first" : "";
-      lines.push(`• ${step.order}. ${title}${flag}`);
-    }
+  const focusItems: string[] = [];
+  for (const step of assessment.executionSequence.slice(0, 5)) {
+    const op =
+      assessment.opportunities.find((o) => o.id === step.opportunityId) ??
+      null;
+    const title = presentStrategicOpportunity(
+      op ??
+        ({
+          id: step.opportunityId,
+          title: step.title,
+          explanation: "",
+          leader: step.leader,
+          owner: step.leader,
+          domain: step.opportunityId,
+          sourceScore: 50,
+          businessImpact: 50,
+          expectedImprovement: 10,
+          implementationConfidence: 70,
+          verificationConfidence: 70,
+          blocked: step.blocked,
+          dependsOn: [],
+        } as StrategicAssessment["opportunities"][number]),
+    ).title.trim();
+    if (!title) continue;
+    const flag = step.blocked ? " — needs real business input first" : "";
+    focusItems.push(`${focusItems.length + 1}. ${title}${flag}`);
+  }
+  // Never render "What I'll focus on" without at least one complete item.
+  if (focusItems.length > 0) {
+    lines.push("", "What I’ll focus on", ...focusItems);
   }
 
   return sanitizeCustomerFacingText(lines.join("\n"));

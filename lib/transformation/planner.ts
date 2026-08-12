@@ -6,6 +6,7 @@
 import type { DesignStrategy } from "@/lib/ai/design-strategy-types";
 import type { DesignStrategyInput } from "@/lib/ai/design-strategy-types";
 import type { CreativeDirectorEvaluation } from "@/lib/creative-director";
+import { needsRestraintPolish } from "@/lib/taste/restraint-polish";
 import { detectTransformationConflicts } from "@/lib/transformation/conflicts";
 import {
   dependenciesForGoals,
@@ -26,6 +27,7 @@ import {
   type TransformationGoal,
   type TransformationPlan,
 } from "@/lib/transformation/types";
+import type { BusinessProject } from "@/types/business-project";
 
 function goal(
   partial: TransformationGoal,
@@ -41,6 +43,7 @@ export function proposeTransformationGoals(input: {
   strategy: DesignStrategy;
   strategyInput: DesignStrategyInput;
   evaluation?: CreativeDirectorEvaluation | null;
+  project?: BusinessProject | null;
 }): TransformationGoal[] {
   const evaluation =
     input.evaluation ?? input.strategy.creativeDirectorEvaluation;
@@ -297,6 +300,36 @@ export function proposeTransformationGoals(input: {
     );
   }
 
+  if (input.project && needsRestraintPolish(input.project)) {
+    // No hard dependencies — restraint polish must be able to close the loop
+    // even when earlier structural goals are already satisfied or unavailable.
+    goals.push(
+      goal({
+        id: "clarify_visual_restraint",
+        objective: "Clarify visual restraint",
+        reason:
+          "Competing hero treatments and stacked effects reduce a premium, focused finish.",
+        priority: "high",
+        phase: "polish",
+        dependencies: [],
+        affectedSections: ["hero", "cta"],
+        expectedImprovement: 10,
+        verificationCriteria: [
+          "Restraint score improves or defects reduce",
+          "Photography preservation does not regress",
+          "Readability does not regress",
+          "Brand palette and hero asset unchanged",
+        ],
+        visitorImpact: 72,
+        visualImpact: 88,
+        risk: "low",
+        effort: "low",
+        requiredAssets: [],
+        theme: "restraint",
+      }),
+    );
+  }
+
   if ((evaluation?.rhythm.score ?? 70) < 70) {
     goals.push(
       goal({
@@ -367,6 +400,7 @@ export function planWebsiteTransformation(input: {
   strategy: DesignStrategy;
   strategyInput: DesignStrategyInput;
   evaluation?: CreativeDirectorEvaluation | null;
+  project?: BusinessProject | null;
   requestId?: string | null;
   logDiagnostics?: boolean;
 }): TransformationPlan {
@@ -382,6 +416,7 @@ export function planWebsiteTransformation(input: {
     strategy: input.strategy,
     strategyInput: input.strategyInput,
     evaluation,
+    project: input.project,
   });
   const prioritized = prioritizeTransformationGoals(proposed, evaluation);
   const dependencies = dependenciesForGoals(prioritized);

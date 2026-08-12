@@ -25,6 +25,7 @@ export type TransformationGoalId =
   | "sequence_proof_before_ask"
   | "clarify_primary_cta"
   | "simplify_conversion"
+  | "clarify_visual_restraint"
   | "improve_rhythm"
   | "tighten_messaging";
 
@@ -65,7 +66,8 @@ export type TransformationGoal = {
     | "conversion"
     | "flow"
     | "rhythm"
-    | "messaging";
+    | "messaging"
+    | "restraint";
 };
 
 export type TransformationPhase = {

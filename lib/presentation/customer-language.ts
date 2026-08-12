@@ -64,10 +64,17 @@ export function sanitizeCustomerFacingText(text: string): string {
   for (const [pattern, replacement] of PHRASE_REPLACEMENTS) {
     out = out.replace(pattern, replacement);
   }
-  // Collapse awkward doubles after replacement.
+  // Collapse awkward doubles after replacement — preserve newlines so lists
+  // like "What I'll focus on\n1. …" are not flattened to "… • 1.".
   out = out
-    .replace(/\s{2,}/g, " ")
-    .replace(/\.\s*\./g, ".")
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/[^\S\n]{2,}/g, " ")
+        .replace(/\.\s*\./g, ".")
+        .trimEnd(),
+    )
+    .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return out;

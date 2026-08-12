@@ -25,6 +25,10 @@ import { runTransformationPreflight } from "@/lib/transformation/preflight";
 import { maybeRefineTransformation } from "@/lib/transformation/refinement";
 import { executeTastePolish } from "@/lib/taste/polish-execute";
 import {
+  executeRestraintPolish,
+  needsRestraintPolish,
+} from "@/lib/taste/restraint-polish";
+import {
   formatTransformationExecutionReport,
   transformationPlanId,
 } from "@/lib/transformation/report";
@@ -307,6 +311,119 @@ export function executeTransformationPlan(
       const highConflict = plan.conflicts.find(
         (c) => c.severity === "high" && c.goalIds.includes(goalId),
       );
+
+      // Visual restraint — guarded execute with restraint-score keep/rollback.
+      // Neutral/no-gain must not fail the whole polish batch.
+      if (goalId === "clarify_visual_restraint") {
+        if (highConflict) {
+          const blocked: TransformationGoalResult = {
+            goalId,
+            objective: goal.objective,
+            classification: "blocked_conflict",
+            status: "blocked",
+            operations: [],
+            affectedSections: goal.affectedSections,
+            verification: { passed: false, scoreContribution: 0, notes: [] },
+            reason:
+              highConflict.explanation ||
+              "This goal conflicts with another part of the transformation plan.",
+            batchId: batch.id,
+          };
+          outcomes.set(goalId, blocked);
+          blockedGoals.push(blocked);
+          continue;
+        }
+        const restraint = executeRestraintPolish({
+          project,
+          requestId: input.requestId,
+          logDiagnostics: input.logDiagnostics,
+        });
+        if (restraint.applied) {
+          project = restraint.project;
+          batchOps.push(...restraint.operations);
+          allOps.push(...restraint.operations);
+          if (restraint.revisionId) revisionsCreated.push(restraint.revisionId);
+          appliedInBatch.push(goalId);
+          operationsByGoal[goalId] = restraint.operations.map((o) => o.operation);
+          const goalResult: TransformationGoalResult = {
+            goalId,
+            objective: goal.objective,
+            classification: "ready",
+            status: "applied",
+            operations: restraint.operations,
+            affectedSections: goal.affectedSections,
+            verification: {
+              passed: true,
+              scoreContribution: goal.expectedImprovement,
+              notes: [
+                `Restraint ${restraint.verification?.scoreBefore} → ${restraint.verification?.scoreAfter}`,
+                ...(restraint.verification?.resolvedDefects ?? []).map(
+                  (d) => `resolved:${d}`,
+                ),
+              ],
+            },
+            reason: restraint.explanation,
+            batchId: batch.id,
+          };
+          outcomes.set(goalId, goalResult);
+          executedGoals.push(goalResult);
+        } else if (
+          restraint.verdict === "already_restrained" ||
+          restraint.verdict === "no_operations"
+        ) {
+          const satisfied: TransformationGoalResult = {
+            goalId,
+            objective: goal.objective,
+            classification: "already_satisfied",
+            status: "already_satisfied",
+            operations: [],
+            affectedSections: goal.affectedSections,
+            verification: { passed: true, scoreContribution: 0, notes: [] },
+            reason: restraint.explanation,
+            batchId: batch.id,
+          };
+          outcomes.set(goalId, satisfied);
+          executedGoals.push(satisfied);
+        } else if (
+          restraint.verdict === "no_gain" ||
+          restraint.verdict === "rolled_back"
+        ) {
+          // Keep previous project (already rolled back inside executeRestraintPolish).
+          const noGain: TransformationGoalResult = {
+            goalId,
+            objective: goal.objective,
+            classification: "ready",
+            status: "already_satisfied",
+            operations: [],
+            affectedSections: goal.affectedSections,
+            verification: {
+              passed: true,
+              scoreContribution: 0,
+              notes: ["Restraint change did not improve enough — kept prior version"],
+            },
+            reason: restraint.explanation,
+            batchId: batch.id,
+          };
+          outcomes.set(goalId, noGain);
+          executedGoals.push(noGain);
+        } else {
+          const blocked: TransformationGoalResult = {
+            goalId,
+            objective: goal.objective,
+            classification: "blocked_unsupported",
+            status: "blocked",
+            operations: [],
+            affectedSections: goal.affectedSections,
+            verification: { passed: false, scoreContribution: 0, notes: [] },
+            reason: restraint.explanation,
+            batchId: batch.id,
+          };
+          outcomes.set(goalId, blocked);
+          blockedGoals.push(blocked);
+        }
+        continue;
+      }
+
       const mapped = mapTransformationGoalToOperations(goal, project, {
         plan,
         conflictBlocked: Boolean(highConflict),
@@ -906,6 +1023,110 @@ export function executeTransformationPlan(
       }
     }
   }
+
+  // v1.6.5 — Close the visual-restraint loop after selective rollback.
+  // In-batch restraint can be discarded when CD batch verdicts are neutral;
+  // re-run a guarded restraint pass that verifies restraint itself.
+  const planWantsRestraint = plan.goals.some(
+    (g) => g.id === "clarify_visual_restraint",
+  );
+  const restraintAlreadyKept = executedGoals.some(
+    (g) => g.goalId === "clarify_visual_restraint" && g.status === "applied",
+  );
+  if (
+    (planWantsRestraint || needsRestraintPolish(project)) &&
+    !restraintAlreadyKept &&
+    !criticalDependencyFailed &&
+    brandIntegrityViolations(brand, project).length === 0
+  ) {
+    const restraint = executeRestraintPolish({
+      project,
+      requestId: input.requestId,
+      logDiagnostics: input.logDiagnostics,
+    });
+    const goalModel = plan.goals.find((g) => g.id === "clarify_visual_restraint");
+    if (restraint.applied) {
+      project = restraint.project;
+      allOps.push(...restraint.operations);
+      if (restraint.revisionId) revisionsCreated.push(restraint.revisionId);
+      const goalResult: TransformationGoalResult = {
+        goalId: "clarify_visual_restraint",
+        objective: goalModel?.objective ?? "Clarify visual restraint",
+        classification: "ready",
+        status: "applied",
+        operations: restraint.operations,
+        affectedSections: goalModel?.affectedSections ?? ["hero", "cta"],
+        verification: {
+          passed: true,
+          scoreContribution: goalModel?.expectedImprovement ?? 10,
+          notes: [
+            `Restraint ${restraint.verification?.scoreBefore} → ${restraint.verification?.scoreAfter}`,
+            ...(restraint.verification?.resolvedDefects ?? []).map(
+              (d) => `resolved:${d}`,
+            ),
+          ],
+        },
+        reason: restraint.explanation,
+        batchId: "polish",
+      };
+      // Replace any prior deferred/failed/no-gain record for this goal.
+      for (const list of [executedGoals, blockedGoals, failedGoals]) {
+        const idx = list.findIndex((g) => g.goalId === "clarify_visual_restraint");
+        if (idx >= 0) list.splice(idx, 1);
+      }
+      outcomes.set("clarify_visual_restraint", goalResult);
+      executedGoals.push(goalResult);
+      operationsByGoal.clarify_visual_restraint = restraint.operations.map(
+        (o) => o.operation,
+      );
+      appliedCount = executedGoals.filter((g) => g.status === "applied").length;
+      if (appliedCount === 0 && restraint.operations.length > 0) {
+        appliedCount = 1;
+      }
+      wholePage = verifyWholePageTransformation({
+        baselineProject,
+        finalProject: project,
+        plan,
+        brand,
+        criticalDependencyFailed: false,
+        appliedGoals: executedGoals
+          .filter((g) => g.status === "applied")
+          .map((g) => plan.goals.find((x) => x.id === g.goalId))
+          .filter((g): g is TransformationGoal => Boolean(g)),
+        blockedGoalIds: blockedGoals.map((g) => g.goalId),
+        batchCheckpoints,
+      });
+    } else if (planWantsRestraint) {
+      const noGain: TransformationGoalResult = {
+        goalId: "clarify_visual_restraint",
+        objective: goalModel?.objective ?? "Clarify visual restraint",
+        classification:
+          restraint.verdict === "blocked"
+            ? "blocked_unsupported"
+            : "already_satisfied",
+        status:
+          restraint.verdict === "blocked" ? "blocked" : "already_satisfied",
+        operations: [],
+        affectedSections: goalModel?.affectedSections ?? ["hero", "cta"],
+        verification: {
+          passed: restraint.verdict !== "blocked",
+          scoreContribution: 0,
+          notes: [restraint.explanation],
+        },
+        reason: restraint.explanation,
+        batchId: "polish",
+      };
+      for (const list of [executedGoals, blockedGoals, failedGoals]) {
+        const idx = list.findIndex((g) => g.goalId === "clarify_visual_restraint");
+        if (idx >= 0) list.splice(idx, 1);
+      }
+      if (noGain.status === "blocked") blockedGoals.push(noGain);
+      else executedGoals.push(noGain);
+      outcomes.set("clarify_visual_restraint", noGain);
+    }
+  }
+
+  appliedCount = executedGoals.filter((g) => g.status === "applied").length;
 
   const onlySatisfied =
     appliedCount === 0 &&

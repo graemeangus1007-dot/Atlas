@@ -90,6 +90,7 @@ export const GOAL_EXPECTED_DIMENSIONS: Record<
   sequence_proof_before_ask: ["narrativeFlow", "conversion"],
   clarify_primary_cta: ["conversion", "firstImpression"],
   simplify_conversion: ["conversion", "firstImpression"],
+  clarify_visual_restraint: ["professionalism", "firstImpression", "visualHierarchy"],
   improve_rhythm: ["visualRhythm", "whitespace", "sectionBalance"],
   tighten_messaging: ["scanability", "firstImpression"],
 };

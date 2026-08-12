@@ -108,6 +108,20 @@ export function verifyGoalAgainstProject(
       }
       break;
     }
+    case "clarify_visual_restraint": {
+      const overlay = project.heroOverlay ?? 50;
+      const blur = project.heroTreatment?.textScrim?.blur ?? 0;
+      const polish = project.creativePolish;
+      const motionStack =
+        Number(Boolean(polish?.motion)) +
+        Number(Boolean(polish?.hoverEffects)) +
+        Number(Boolean(polish?.sectionReveal));
+      if (overlay >= 75 && blur >= 8 && motionStack >= 2) {
+        passed = false;
+        notes.push("Competing hero treatments and effects remain stacked");
+      }
+      break;
+    }
     case "simplify_conversion":
       if (!(project.primaryCta || "").trim()) {
         passed = false;

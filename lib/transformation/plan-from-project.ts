@@ -19,12 +19,13 @@ export function buildTransformationPlanForProject(
   const context = buildDesignCritiqueContext(project);
   const strategyInput = designStrategyInputFromContext(context, request);
   const strategy = buildDesignStrategy(strategyInput);
-  const plan =
-    strategy.transformationPlan ??
-    planWebsiteTransformation({
-      strategy,
-      strategyInput,
-      evaluation: strategy.creativeDirectorEvaluation,
-    });
-  return { plan, strategy };
+  // Always rebuild with the live BusinessProject so polish goals (e.g. visual
+  // restraint) can observe hero overlay/blur/motion — not only strategyInput.
+  const plan = planWebsiteTransformation({
+    strategy,
+    strategyInput,
+    evaluation: strategy.creativeDirectorEvaluation,
+    project,
+  });
+  return { plan, strategy: { ...strategy, transformationPlan: plan } };
 }

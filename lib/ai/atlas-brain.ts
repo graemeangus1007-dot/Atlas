@@ -249,6 +249,17 @@ import {
   tastePolishMentionsInternalIds,
 } from "@/lib/taste";
 import {
+  formatRestraintExecutionCopy,
+  logRestraintPolishDiagnostics,
+  planRestraintPolish,
+  projectRevisionToken,
+  verifyRestraintPolish,
+} from "@/lib/taste/restraint-polish";
+import {
+  presentStrategicOpportunity,
+  sanitizeCustomerFacingText,
+} from "@/lib/presentation/customer-language";
+import {
   CONVERSION_DIRECTOR_FOLLOW_UPS,
   conversionTextExposesInternalIds,
   evaluateConversion,
@@ -283,6 +294,7 @@ import {
   mutationDomainsFromOperations,
   preApplyDisposition,
   projectRevisionFromFingerprint,
+  strategicAssessmentId,
   strategicTextExposesInternalIds,
   STRATEGIC_COMPLETION_FOLLOW_UPS,
   STRATEGIC_DIRECTOR_FOLLOW_UPS,
@@ -3946,6 +3958,96 @@ export async function runAtlasBrain(
       idempotent,
     });
 
+    // v1.6.5 — Post-execution Strategic reassessment must use fresh project truth.
+    const revisionBefore = projectRevisionToken(projectForTurn);
+    const revisionAfter = projectRevisionToken(project);
+    const restraintGoal = tx.executedGoals.find(
+      (g) => g.goalId === "clarify_visual_restraint",
+    );
+    const restraintApplied = restraintGoal?.status === "applied";
+    const restraintPlan = planRestraintPolish({ project: projectForTurn });
+    const restraintVerification =
+      restraintGoal != null
+        ? verifyRestraintPolish({
+            before: projectForTurn,
+            after: project,
+            plan: restraintPlan,
+          })
+        : null;
+
+    // Always reassess from the post-execution project (never cached pre-execution).
+    const strategicAfter = assessStrategicPriorities({ project });
+    if (
+      process.env.NODE_ENV === "development" &&
+      restraintApplied &&
+      revisionAfter === revisionBefore
+    ) {
+      console.warn("[atlas:strategic-director:completion]", {
+        invariant: "restraint_applied_but_revision_unchanged",
+        projectRevisionBefore: revisionBefore,
+        projectRevisionAfter: revisionAfter,
+        strategicAssessmentRevision: strategicAssessmentId(strategicAfter),
+      });
+    }
+
+    if (restraintGoal) {
+      const restraintCopy = formatRestraintExecutionCopy({
+        verification: restraintVerification,
+        verdict: restraintApplied ? "applied" : "no_gain",
+      });
+      explanation = sanitizeCustomerFacingText(
+        [explanation, "", restraintCopy].join("\n"),
+      );
+      if (
+        restraintApplied &&
+        restraintVerification?.materiallyImproved &&
+        restraintVerification.remainingDefects.length > 0
+      ) {
+        const next = strategicAfter.highestPriorityOpportunity;
+        if (next) {
+          const nextFinding = presentStrategicOpportunity(next);
+          explanation = sanitizeCustomerFacingText(
+            [
+              explanation,
+              "",
+              `Visual focus is better, but ${nextFinding.title.toLowerCase()} remains the largest remaining opportunity.`,
+            ].join("\n"),
+          );
+        }
+      }
+      logRestraintPolishDiagnostics(
+        {
+          restraintDefectsBefore: restraintVerification?.defectsBefore ?? [],
+          restraintPlan,
+          restraintOperations: restraintPlan.operations.map((o) => o.operation),
+          actualMutationDomains: mutationDomainsFromOperations(tx.operations),
+          restraintScoreBefore: restraintVerification?.scoreBefore ?? 0,
+          restraintScoreAfter: restraintVerification?.scoreAfter ?? 0,
+          resolvedDefects: restraintVerification?.resolvedDefects ?? [],
+          remainingDefects: restraintVerification?.remainingDefects ?? [],
+          photographyPreservationBefore:
+            restraintVerification?.photographyPreservationBefore ?? 0,
+          photographyPreservationAfter:
+            restraintVerification?.photographyPreservationAfter ?? 0,
+          readabilityBefore: restraintVerification?.readabilityBefore ?? 0,
+          readabilityAfter: restraintVerification?.readabilityAfter ?? 0,
+          projectRevisionBefore: revisionBefore,
+          projectRevisionAfter: revisionAfter,
+          strategicAssessmentRevision: strategicAssessmentId(strategicAfter),
+          keptOperations: restraintApplied
+            ? restraintGoal.operations.map((o) => o.operation)
+            : [],
+          rolledBackOperations: restraintApplied
+            ? []
+            : restraintPlan.operations.map((o) => o.operation),
+          finalStrategicPriority:
+            strategicAfter.highestPriorityOpportunity?.id ?? null,
+          verified: Boolean(restraintVerification?.materiallyImproved),
+        },
+        input.atlasRequestId,
+      );
+    }
+
     // v1.6.3 — Strategic feedback loop after CTA refinement.
     const ctaBefore = (projectForTurn.primaryCta || "").trim();
     const ctaAfter = (project.primaryCta || "").trim();
@@ -3955,7 +4057,6 @@ export async function runAtlasBrain(
         after: project,
         plannedLabel: ctaAfter,
       });
-      const strategicAfter = assessStrategicPriorities({ project });
       logPrimaryCtaDiagnostics({
         before: planPrimaryCtaRefinement({ project: projectForTurn }).assessment,
         after: planPrimaryCtaRefinement({ project }).assessment,

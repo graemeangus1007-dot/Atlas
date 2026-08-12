@@ -20,11 +20,14 @@ import type {
 import {
   planPrimaryCtaRefinement,
 } from "@/lib/conversion/primary-cta";
+import { planRestraintPolish } from "@/lib/taste/restraint-polish";
 import type { BusinessProject } from "@/types/business-project";
 
 const APPROVED_OPS = new Set<EditOperation["operation"]>([
   "applyHeroPattern",
   "setHeroOverlay",
+  "setHeroTreatment",
+  "setButtonStyle",
   "insertSection",
   "moveSection",
   "setGalleryInteraction",
@@ -417,6 +420,39 @@ export function mapTransformationGoalToOperations(
         };
       }
       return { ok: true, status: "ready", operations: filterApproved(ops) };
+    }
+
+    case "clarify_visual_restraint": {
+      const planned = planRestraintPolish({ project });
+      if (planned.alreadyRestrained) {
+        return {
+          ok: true,
+          status: "already_satisfied",
+          operations: [],
+          reason: "Visual treatments are already restrained.",
+        };
+      }
+      if (planned.blockedReason) {
+        return {
+          ok: false,
+          status: "blocked_unsupported",
+          operations: [],
+          reason: planned.blockedReason,
+        };
+      }
+      if (planned.operations.length === 0) {
+        return {
+          ok: true,
+          status: "already_satisfied",
+          operations: [],
+          reason: "No safe restraint mutation was available.",
+        };
+      }
+      return {
+        ok: true,
+        status: "ready",
+        operations: filterApproved(planned.operations),
+      };
     }
 
     case "improve_rhythm": {
