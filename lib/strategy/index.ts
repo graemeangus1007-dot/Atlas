@@ -66,6 +66,18 @@ export {
 } from "@/lib/strategy/handoff";
 
 export {
+  buildCompletionExecutionReceipt,
+  formatCompletionOutcomeCopy,
+  resolvePresentationRenderContract,
+  roundTripProject,
+  assertCompletionReceiptInvariants,
+  logCompletionExecutionReceipt,
+  type CompletionExecutionReceipt,
+  type CompletionExecutionOutcome,
+  type PresentationRenderContract,
+} from "@/lib/strategy/completion-receipt";
+
+export {
   verifyStrategicAssessment,
   logStrategicDiagnostics,
   type StrategicVerificationResult,

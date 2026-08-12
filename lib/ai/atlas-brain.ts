@@ -249,6 +249,11 @@ import {
   tastePolishMentionsInternalIds,
 } from "@/lib/taste";
 import {
+  buildCompletionExecutionReceipt,
+  formatCompletionOutcomeCopy,
+  logCompletionExecutionReceipt,
+} from "@/lib/strategy/completion-receipt";
+import {
   formatRestraintExecutionCopy,
   logRestraintPolishDiagnostics,
   planRestraintPolish,
@@ -4048,6 +4053,86 @@ export async function runAtlasBrain(
       );
     }
 
+    // v1.6.6 — Execution receipt: claim success only when persisted + rendered.
+    const receipt = buildCompletionExecutionReceipt({
+      requestId: input.atlasRequestId,
+      before: projectForTurn,
+      after: project,
+      tx,
+      strategicPriorityBefore:
+        strategic.highestPriorityOpportunity?.title ?? "none",
+      strategicPriorityAfter:
+        strategicAfter.highestPriorityOpportunity?.title ?? null,
+      plannedOperations: [
+        ...restraintPlan.operations,
+        ...tx.operations,
+      ].filter(
+        (op, i, arr) =>
+          arr.findIndex(
+            (o) =>
+              o.operation === op.operation &&
+              JSON.stringify(o) === JSON.stringify(op),
+          ) === i,
+      ),
+    });
+    logCompletionExecutionReceipt(receipt);
+
+    const claimedVisualSuccess =
+      receipt.outcome === "verified_change" ||
+      receipt.outcome === "verified_partial";
+    const visualTargets = new Set([
+      "heroOverlay",
+      "heroTreatment",
+      "creativePolish",
+      "buttonStyle",
+    ]);
+    const visualExecution = receipt.executedOperations.some((o) =>
+      visualTargets.has(o.target),
+    );
+
+    if (restraintGoal || visualExecution) {
+      explanation = sanitizeCustomerFacingText(
+        [
+          strategicPreface,
+          "",
+          formatCompletionOutcomeCopy(receipt),
+          claimedVisualSuccess &&
+          receipt.outcome === "verified_partial" &&
+          strategicAfter.highestPriorityOpportunity
+            ? `\n${presentStrategicOpportunity(strategicAfter.highestPriorityOpportunity).title} remains the largest remaining opportunity.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    }
+
+    // Invisible / unverified visual mutations must not be returned as applied truth.
+    if (
+      (restraintGoal || visualExecution) &&
+      (receipt.outcome === "render_mismatch" ||
+        receipt.outcome === "persistence_failure" ||
+        receipt.outcome === "rolled_back" ||
+        receipt.outcome === "no_op")
+    ) {
+      project = withMemory(
+        setInteractionState(
+          projectForTurn,
+          clearRecommendations(getActionMemory(projectForTurn)),
+        ),
+        request,
+      );
+    }
+
+    const applyStatusFinal =
+      (restraintGoal || visualExecution)
+        ? claimedVisualSuccess
+          ? "applied"
+          : "no_changes"
+        : applied
+          ? "applied"
+          : "no_changes";
+
     // v1.6.3 — Strategic feedback loop after CTA refinement.
     const ctaBefore = (projectForTurn.primaryCta || "").trim();
     const ctaAfter = (project.primaryCta || "").trim();
@@ -4097,16 +4182,17 @@ export async function runAtlasBrain(
     return {
       ok: true,
       explanation,
-      operations: idempotent ? [] : tx.operations,
-      changes: idempotent ? [] : tx.changes,
+      operations:
+        idempotent || applyStatusFinal !== "applied" ? [] : tx.operations,
+      changes: idempotent || applyStatusFinal !== "applied" ? [] : tx.changes,
       project,
-      applyStatus: applied ? "applied" : "no_changes",
+      applyStatus: applyStatusFinal,
       decision: {
         intent: "design_redesign",
         confidence: 0.95,
         selectedAgents: ["creative_director", "editor_agent"],
         needsClarification: false,
-        shouldExecuteEdits: applied,
+        shouldExecuteEdits: applyStatusFinal === "applied",
         executionPlan: completionExecutionPlan,
         explanation:
           "Strategic Director prioritized the work; Transformation Engine executed the coordinated plan.",
@@ -4120,6 +4206,7 @@ export async function runAtlasBrain(
           "execute_completion",
           `leader:${strategic.recommendedLeader}`,
           "transformationHandoff",
+          `completion_outcome:${receipt.outcome}`,
         ],
       },
       followUpSuggestions: followUpsForProject(project, [

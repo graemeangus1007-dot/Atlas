@@ -22,6 +22,8 @@ export type ParsedCritiqueMessage = {
   /** v1.6.3 — items that need real business input. */
   needsInput?: string[];
   improvements: CritiqueImprovementCard[];
+  /** v1.6.6 — Complete focus items (never render heading without items). */
+  focusItems?: string[];
   expectedOutcome: string | null;
   /** Full original body for collapsed “View full critique”. */
   fullText: string;
@@ -32,10 +34,59 @@ export type ParsedCritiqueMessage = {
 };
 
 const SECTION_HEADINGS =
-  /^(Overall direction|Biggest problem|Current impression|Customer|Desired emotion|Design goals|Missing trust signals|Execution plan|Design direction|Strengths|What's working|Highest priority|Next improvements|Needs your input|Top improvements|Expected outcome|Plan:)$/i;
+  /^(Overall direction|Biggest problem|Current impression|Customer|Desired emotion|Design goals|Missing trust signals|Execution plan|Design direction|Strengths|What's working|Highest priority|Next improvements|Needs your input|Top improvements|Expected outcome|What I[’']ll focus on|Plan:)$/i;
 
 /** Collapse plain messages well below a “wall of text” threshold. */
 const LONG_MESSAGE_WORDS = 80;
+
+const FOCUS_HEADING = /^What I[’']ll focus on\s*:?\s*$/i;
+
+/**
+ * Split completion/advisory bodies so focus lists never enter the executive
+ * summary word-cap (production: "What I'll focus on 1.").
+ */
+export function splitFocusSection(text: string): {
+  prose: string;
+  focusItems: string[];
+} {
+  const lines = text.split("\n");
+  const prose: string[] = [];
+  const focusItems: string[] = [];
+  let inFocus = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (FOCUS_HEADING.test(line)) {
+      inFocus = true;
+      continue;
+    }
+    if (inFocus) {
+      if (!line) {
+        if (focusItems.length > 0) inFocus = false;
+        continue;
+      }
+      const numbered = line.match(/^\d+\.\s+(.+)$/);
+      if (numbered && numbered[1]!.trim().length > 0) {
+        focusItems.push(numbered[1]!.trim());
+        continue;
+      }
+      const bullet = line.match(/^[-•]\s+(.+)$/);
+      if (bullet && bullet[1]!.trim().length > 0) {
+        focusItems.push(bullet[1]!.trim());
+        continue;
+      }
+      // Incomplete "1." / "• 1." with no title — skip.
+      if (/^(\d+\.|[•·]\s*\d+\.?)$/.test(line)) continue;
+      inFocus = false;
+      prose.push(raw);
+      continue;
+    }
+    prose.push(raw);
+  }
+  return {
+    prose: prose.join("\n").trim(),
+    focusItems,
+  };
+}
 
 function wordCount(text: string): number {
   const trimmed = text.trim();
@@ -192,17 +243,22 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
   const looksStructured = hasCritiqueShape || headingHits >= 2;
 
   if (!looksStructured) {
+    const { prose, focusItems } = splitFocusSection(fullText);
+    const summarySource = prose || fullText;
+    const wordsProse = wordCount(summarySource);
     const dense =
-      words >= LONG_MESSAGE_WORDS ||
-      (fullText.split("\n").filter((l) => l.trim()).length >= 6 && words >= 40);
+      wordsProse >= LONG_MESSAGE_WORDS ||
+      (summarySource.split("\n").filter((l) => l.trim()).length >= 6 &&
+        wordsProse >= 40);
     return {
       kind: "plain",
-      executiveSummary: toExecutiveSummary(fullText),
+      executiveSummary: toExecutiveSummary(summarySource),
       designDirection: null,
       strengths: [],
       highestPriority: null,
       needsInput: [],
       improvements: [],
+      focusItems,
       expectedOutcome: null,
       fullText,
       shouldCollapseFull: dense,
@@ -255,6 +311,17 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
   const designDirection =
     sections["overall direction"] || sections["design direction"] || null;
   const expectedOutcome = sections["expected outcome"] || null;
+  const focusBlock =
+    sections["what i’ll focus on"] ||
+    sections["what i'll focus on"] ||
+    "";
+  const focusFromSection = parseImprovementBlock(focusBlock)
+    .map((c) => c.title.trim())
+    .filter(Boolean);
+  const focusItems =
+    focusFromSection.length > 0
+      ? focusFromSection
+      : splitFocusSection(fullText).focusItems;
   const summarySource =
     preamble ||
     sections["biggest problem"] ||
@@ -270,6 +337,7 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
     highestPriority,
     needsInput,
     improvements,
+    focusItems,
     expectedOutcome,
     fullText,
     shouldCollapseFull: true,

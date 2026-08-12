@@ -2,7 +2,10 @@
 
 import { useId } from "react";
 import { parseCritiqueAssistantContent } from "@/lib/ai/critique-fallback-presentation";
-import { parseCritiqueMessage } from "@/lib/ai/critique-message-presentation";
+import {
+  parseCritiqueMessage,
+  splitFocusSection,
+} from "@/lib/ai/critique-message-presentation";
 import { stripListMarkers } from "@/lib/presentation/customer-language";
 
 type AtlasCritiqueMessageProps = {
@@ -30,9 +33,13 @@ export default function AtlasCritiqueMessage({
 
   if (critique.kind === "plain") {
     const showCollapse = critique.shouldCollapseFull;
+    const focusItems = (critique.focusItems ?? [])
+      .map((t) => stripListMarkers(t).trim())
+      .filter((t) => t.length > 0);
+    // Never flatten focus lists into the prose body (avoids "focus on 1.").
     const visible = showCollapse
       ? critique.executiveSummary
-      : critique.fullText;
+      : splitFocusSection(critique.fullText).prose || critique.fullText;
 
     return (
       <div
@@ -42,7 +49,21 @@ export default function AtlasCritiqueMessage({
         {parsedFallback.fallbackCard ? (
           <FallbackCard text={parsedFallback.fallbackCard} />
         ) : null}
-        <p className="whitespace-pre-wrap text-sm leading-relaxed">{visible}</p>
+        {visible ? (
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{visible}</p>
+        ) : null}
+        {focusItems.length > 0 ? (
+          <div data-testid="atlas-focus-list">
+            <p className="text-sm font-medium text-foreground">
+              What I’ll focus on
+            </p>
+            <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm leading-relaxed">
+              {focusItems.map((item, i) => (
+                <li key={`${messageId}-focus-${i}`}>{item}</li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
         {showCollapse ? (
           <details className="text-[11px] text-muted">
             <summary

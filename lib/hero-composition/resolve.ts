@@ -67,18 +67,22 @@ function normalizeFit(
 }
 
 /**
- * When a pattern is applied, keep structural fields from the composition but
- * let live presentation / overlay / treatment refine image + contrast
- * (fit/readability must not require a pattern switch).
+ * When a composition is applied (pattern or persisted), keep structural fields
+ * but always let live project presentation / overlay / treatment win.
+ * Restraint and readability edits must not require a patternId to take effect.
  */
 function applyLivePresentationOverlay(
   base: HeroComposition,
   input: HeroCompositionResolveInput,
 ): HeroComposition {
-  if (!base.patternId) return base;
   const presentation = input.heroImagePresentation;
   const treatment = input.heroTreatment;
   const fit = normalizeFit(presentation?.fit);
+  const hasLiveOverlay = typeof input.heroOverlay === "number";
+  const hasLiveTreatment = Boolean(treatment);
+  if (!hasLiveOverlay && !hasLiveTreatment && !presentation) {
+    return base;
+  }
   return {
     ...base,
     image: {
@@ -88,10 +92,9 @@ function applyLivePresentationOverlay(
       focalPoint: presentation?.focalPoint ?? base.image.focalPoint,
     },
     treatment: {
-      overlay:
-        typeof input.heroOverlay === "number"
-          ? input.heroOverlay
-          : base.treatment.overlay,
+      overlay: hasLiveOverlay
+        ? (input.heroOverlay as number)
+        : base.treatment.overlay,
       gradient:
         treatment && "gradient" in treatment
           ? treatment.gradient ?? null

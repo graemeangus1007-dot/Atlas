@@ -150,43 +150,62 @@ export function adaptBrandPresentation(
     goldAccent || pattern === "hero.cinematic_full_width" ? "strong" : "default";
 
   // Treatment ladder: move/localize → scrim → gradient → overlay last.
+  // Explicit composition blur is authoritative — never reintroduce blur ≥6
+  // after restraint polish zeros it (production visual no-op root cause).
   let overlay = Math.min(input.currentOverlay, composition.treatment.overlay);
   let scrimEnabled = Boolean(composition.treatment.textScrim?.enabled);
   let scrimOpacity = composition.treatment.textScrim?.opacity ?? 0.22;
-  let scrimBlur = composition.treatment.textScrim?.blur ?? 6;
-  let gradient = composition.treatment.gradient
+  const storedBlur = composition.treatment.textScrim?.blur;
+  let scrimBlur = typeof storedBlur === "number" ? storedBlur : 0;
+  const storedGradient = composition.treatment.gradient
     ? { ...composition.treatment.gradient }
     : null;
+  let gradient = storedGradient;
+  const restraintQuiet =
+    typeof storedBlur === "number" && storedBlur === 0 && overlay <= 35;
 
   if (lightImage || busy || goldAccent) {
-    // Prefer local contrast over global wash.
     overlay = Math.min(overlay, 25);
     scrimEnabled = true;
     scrimOpacity = Math.max(scrimOpacity, lightImage ? 0.28 : 0.24);
-    scrimBlur = Math.max(scrimBlur, 6);
-    gradient = {
-      direction: "bottom",
-      strength: busy ? 0.42 : 0.36,
-      coverage: busy ? 0.52 : 0.46,
-    };
+    if (restraintQuiet) {
+      scrimBlur = 0;
+      if (!storedGradient) gradient = null;
+    } else if (!gradient) {
+      gradient = {
+        direction: "bottom",
+        strength: busy ? 0.42 : 0.36,
+        coverage: busy ? 0.52 : 0.46,
+      };
+    }
   } else if (darkImage) {
     overlay = Math.min(overlay, 25);
     scrimEnabled = true;
     scrimOpacity = Math.min(Math.max(scrimOpacity, 0.18), 0.28);
-    gradient = gradient ?? {
-      direction: "bottom",
-      strength: 0.32,
-      coverage: 0.45,
-    };
+    if (restraintQuiet) {
+      scrimBlur = 0;
+      if (!storedGradient) gradient = null;
+    } else {
+      gradient = gradient ?? {
+        direction: "bottom",
+        strength: 0.32,
+        coverage: 0.45,
+      };
+    }
   } else if (photoLed) {
     overlay = Math.min(overlay, 25);
     scrimEnabled = true;
     scrimOpacity = Math.max(scrimOpacity, 0.2);
-    gradient = gradient ?? {
-      direction: "bottom",
-      strength: 0.34,
-      coverage: 0.48,
-    };
+    if (restraintQuiet) {
+      scrimBlur = 0;
+      if (!storedGradient) gradient = null;
+    } else {
+      gradient = gradient ?? {
+        direction: "bottom",
+        strength: 0.34,
+        coverage: 0.48,
+      };
+    }
   }
 
   // Crushing overlays are never the first tool.
@@ -230,12 +249,16 @@ export function adaptBrandPresentation(
         : "brand_ink",
       ctaDecision: goldAccent ? "gold_accent_cta" : "brand_accent_cta",
       scrimDecision: scrimEnabled
-        ? lightImage || busy
-          ? "local_scrim_preferred"
-          : "supportive_scrim"
+        ? restraintQuiet
+          ? "local_scrim_no_blur"
+          : lightImage || busy
+            ? "local_scrim_preferred"
+            : "supportive_scrim"
         : "none",
       gradientDecision: gradient
-        ? "localized_lower_third"
+        ? restraintQuiet
+          ? "preserve_composition_gradient"
+          : "localized_lower_third"
         : "none",
       presentationDecision:
         lightImage && goldAccent
