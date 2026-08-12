@@ -13,6 +13,8 @@ type AtlasCritiqueMessageProps = {
   messageId: string;
   onReviewPlan?: () => void;
   onApplyAll?: () => void;
+  /** v1.6.7 — canonical plan must be executable. */
+  canApplyAll?: boolean;
   showPlanActions?: boolean;
 };
 
@@ -25,6 +27,7 @@ export default function AtlasCritiqueMessage({
   messageId,
   onReviewPlan,
   onApplyAll,
+  canApplyAll = false,
   showPlanActions = true,
 }: AtlasCritiqueMessageProps) {
   const parsedFallback = parseCritiqueAssistantContent(content);
@@ -166,7 +169,7 @@ export default function AtlasCritiqueMessage({
         </p>
       ) : null}
 
-      {showPlanActions && (critique.applyAllReady || count > 0) ? (
+      {showPlanActions && critique.applyAllReady && count > 0 ? (
         <div className="flex flex-wrap gap-2">
           {onReviewPlan ? (
             <button
@@ -175,10 +178,10 @@ export default function AtlasCritiqueMessage({
               className="rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               data-testid="atlas-message-review-plan"
             >
-              Review plan
+              {canApplyAll ? "Review plan" : "Refresh plan"}
             </button>
           ) : null}
-          {onApplyAll ? (
+          {canApplyAll && onApplyAll ? (
             <button
               type="button"
               onClick={onApplyAll}

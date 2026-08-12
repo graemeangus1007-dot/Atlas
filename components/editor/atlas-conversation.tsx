@@ -21,7 +21,9 @@ type AtlasConversationProps = {
   progressLabel?: string;
   onScroll?: () => void;
   onReviewPlan: () => void;
-  onApplyAll: () => void;
+  onApplyAll?: () => void;
+  /** v1.6.7 — only pass true when canonical activePlan is executable. */
+  canApplyAll?: boolean;
   onViewChanges: () => void;
   /** Resolve attachment thumbnails from project media (persistent URLs). */
   resolveAttachmentPreviewUrl?: (assetId: string) => string | undefined;
@@ -38,6 +40,7 @@ const AtlasConversation = forwardRef<HTMLDivElement, AtlasConversationProps>(
       onScroll,
       onReviewPlan,
       onApplyAll,
+      canApplyAll = false,
       onViewChanges,
       resolveAttachmentPreviewUrl,
     },
@@ -80,7 +83,8 @@ const AtlasConversation = forwardRef<HTMLDivElement, AtlasConversationProps>(
                   content={message.content}
                   messageId={message.id}
                   onReviewPlan={onReviewPlan}
-                  onApplyAll={onApplyAll}
+                  onApplyAll={canApplyAll ? onApplyAll : undefined}
+                  canApplyAll={canApplyAll}
                 />
               ) : (
                 <div className="space-y-2">

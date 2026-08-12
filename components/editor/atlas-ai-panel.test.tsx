@@ -15,7 +15,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import AtlasAiPanel from "@/components/editor/atlas-ai-panel";
 import { summarizeWebsiteChanges } from "@/components/editor/atlas-change-summary";
 import type { BusinessAdvisorReport } from "@/lib/ai/business-advisor-types";
+import { storeRecommendations } from "@/lib/ai/atlas-action-memory";
 import { MOCK_BUSINESS_PROJECT } from "@/data/mock-project";
+import type { BusinessProject } from "@/types/business-project";
 
 afterEach(() => {
   cleanup();
@@ -96,6 +98,47 @@ function longPlain(words: number): string {
   return Array.from({ length: words }, (_, i) => `word${i}`).join(" ");
 }
 
+/** v1.6.7 — Apply All chrome requires a canonical executable plan. */
+function projectWithExecutablePlan(): BusinessProject {
+  return {
+    ...MOCK_BUSINESS_PROJECT,
+    atlasActionMemory: storeRecommendations(undefined, {
+      stored: [
+        {
+          id: "rec-hero",
+          source: "design_critique",
+          kind: "visual",
+          title: "Hero",
+          explanation: "Stronger headline lifts conversions.",
+          operations: [{ operation: "setCreativePolish", serviceIcons: true }],
+          applyable: true,
+        },
+        {
+          id: "rec-gallery",
+          source: "design_critique",
+          kind: "visual",
+          title: "Gallery",
+          explanation: "Product photos build appetite.",
+          operations: [{ operation: "setCreativePolish", serviceIcons: true }],
+          applyable: true,
+        },
+        {
+          id: "rec-trust",
+          source: "design_critique",
+          kind: "content",
+          title: "Trust",
+          explanation: "Testimonials reduce hesitation.",
+          operations: [
+            { operation: "insertSection", type: "testimonials" },
+          ],
+          applyable: true,
+        },
+      ],
+      sourceOverride: "design_critique",
+    }),
+  };
+}
+
 function renderPanel(
   props: Partial<React.ComponentProps<typeof AtlasAiPanel>> = {},
 ) {
@@ -164,6 +207,7 @@ describe("Sprint 28.4 — panel information architecture", () => {
 
   it("uses a compact active-plan bar with authoritative Apply all", () => {
     renderPanel({
+      project: projectWithExecutablePlan(),
       messages: [
         {
           id: "c1",
@@ -218,7 +262,11 @@ describe("Sprint 28.4 — panel information architecture", () => {
       createdAt: new Date().toISOString(),
     }));
 
-    renderPanel({ messages, onApplyAllCreative: () => {} });
+    renderPanel({
+      project: projectWithExecutablePlan(),
+      messages,
+      onApplyAllCreative: () => {},
+    });
 
     const region = screen.getByTestId("atlas-conversation-region");
     Object.defineProperty(region, "scrollHeight", {
@@ -292,6 +340,7 @@ describe("Sprint 28.4 — panel information architecture", () => {
   it("Apply All exists once in the active plan bar", () => {
     const onApplyAllCreative = vi.fn();
     renderPanel({
+      project: projectWithExecutablePlan(),
       messages: [
         {
           id: "c1",
@@ -311,6 +360,7 @@ describe("Sprint 28.4 — panel information architecture", () => {
   it("individual Apply lives only in Plan view", () => {
     const onSend = vi.fn();
     renderPanel({
+      project: projectWithExecutablePlan(),
       messages: [
         {
           id: "c1",
@@ -470,6 +520,7 @@ describe("Sprint 28.4 — panel information architecture", () => {
 
   it("supports keyboard focus on Apply all and composer", () => {
     renderPanel({
+      project: projectWithExecutablePlan(),
       messages: [
         {
           id: "c1",

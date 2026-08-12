@@ -28,6 +28,11 @@ import { useComposerAttachments } from "@/hooks/use-composer-attachments";
 import { ATLAS_VOICE } from "@/lib/ai/atlas-designer-voice";
 import { parseCritiqueAssistantContent } from "@/lib/ai/critique-fallback-presentation";
 import { parseCritiqueMessage } from "@/lib/ai/critique-message-presentation";
+import {
+  assessApplyAllPlanState,
+  assertApplyAllHasExecutablePlan,
+} from "@/lib/ai/apply-all-continuity";
+import { getActionMemory } from "@/lib/ai/atlas-action-memory";
 
 export type {
   AtlasAiUiStatus,
@@ -39,7 +44,10 @@ const NEAR_BOTTOM_PX = 96;
 
 function resolveActivePlan(
   messages: AtlasAiPanelProps["messages"],
+  executablePlan: boolean,
 ): ActivePlanSnapshot | null {
+  // v1.6.7 — never surface Apply All from message history alone.
+  if (!executablePlan) return null;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
     if (!message || message.role !== "assistant") continue;
@@ -48,7 +56,7 @@ function resolveActivePlan(
     if (parsed.kind === "critique" && parsed.applyAllReady) {
       return {
         improvements: parsed.improvements,
-        applyAllReady: parsed.applyAllReady,
+        applyAllReady: true,
         designDirection: parsed.designDirection,
         executiveSummary: parsed.executiveSummary,
       };
@@ -127,11 +135,17 @@ export default function AtlasAiPanel({
   const hasReview = Boolean(advisorReport || creativeDirectorReport);
   const hasNewReview = hasReview && creativeRecs.length + recommendations.length > 0;
 
-  const activePlan = resolveActivePlan(messages);
+  const memory = getActionMemory(project);
+  const planState = assessApplyAllPlanState({ project });
+  const executablePlan = planState.canApply;
+  assertApplyAllHasExecutablePlan(memory, executablePlan);
+  const activePlan = resolveActivePlan(messages, executablePlan);
 
   const planImprovementCount =
     activePlan?.improvements.length ??
-    (completeWebsitePlan ? creativeRecs.length : 0);
+    (executablePlan
+      ? (memory?.activePlan?.recommendations?.length ?? 0)
+      : 0);
 
   const lastChangesSummary = summarizeWebsiteChanges(lastChanges);
   const appliedBannerCount =
@@ -141,9 +155,9 @@ export default function AtlasAiPanel({
 
   const showPlanBar =
     view === "conversation" &&
+    executablePlan &&
     (planImprovementCount > 0 ||
       Boolean(completeWebsitePlan) ||
-      appliedBannerCount != null ||
       Boolean(applyingRecommendationId));
 
   const followUpKey = followUpSuggestions.join("|");
@@ -456,7 +470,8 @@ export default function AtlasAiPanel({
               lastChangesSummary={lastChangesSummary}
               onScroll={handleConversationScroll}
               onReviewPlan={() => openSecondaryView("plan")}
-              onApplyAll={handleApplyAll}
+              onApplyAll={executablePlan ? handleApplyAll : undefined}
+              canApplyAll={executablePlan}
               onViewChanges={() => openSecondaryView("changes")}
               resolveAttachmentPreviewUrl={(assetId) =>
                 project.mediaLibrary?.find((asset) => asset.id === assetId)

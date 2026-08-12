@@ -872,6 +872,21 @@ export {
 } from "@/lib/ai/interaction-diagnostics";
 export type { InteractionDiagnosticsSnapshot } from "@/lib/ai/interaction-diagnostics";
 export {
+  assessApplyAllPlanState,
+  assertApplyAllHasExecutablePlan,
+  canApplyAll,
+  formatApplyAllContinuityFailure,
+  isApplyAllRequest,
+  logApplyAllContinuityDiagnostics,
+  NO_PLAN_APPLY_ALL_COPY,
+  resolveApplyAllSource,
+  STALE_PLAN_APPLY_ALL_COPY,
+} from "@/lib/ai/apply-all-continuity";
+export type {
+  ApplyAllContinuityDiagnostics,
+  ApplyAllResolutionSource,
+} from "@/lib/ai/apply-all-continuity";
+export {
   ALLOWED_INTERACTION_WRITE_MODULES,
   INTERACTION_ADAPTER_MODULE,
   assertCanonicalSerialization,

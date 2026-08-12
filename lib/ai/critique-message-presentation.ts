@@ -224,7 +224,7 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
   const hasCritiqueShape =
     /\bTop improvements\b/i.test(fullText) ||
     /\bNext improvements\b/i.test(fullText) ||
-    /\bHighest priority\b/i.test(fullText) ||
+    /^Highest priority\s*:?\s*$/im.test(fullText) ||
     /\bWhat's working\b/i.test(fullText) ||
     /\bExpected outcome\b/i.test(fullText) ||
     /\bDesign direction\b/i.test(fullText) ||
@@ -236,11 +236,29 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
     (/^\d+\.\s+/m.test(fullText) && /\bPlan:\b/i.test(fullText)) ||
     (/\bimprovements? ready\b/i.test(fullText) && /\bApply all\b/i.test(fullText));
 
+  // Complete / advisory prose often says "The highest priority is…" — that must
+  // NOT become a Homepage review card with Apply All (v1.6.7).
+  const looksLikeCompletionOrAdvisoryProse =
+    /\bThe highest priority is\b/i.test(fullText) &&
+    !/\b(What's working|Next improvements|Top improvements|Say Apply all)\b/i.test(
+      fullText,
+    );
+
   // Multi-heading structured bodies should never render as a raw wall.
   const headingHits = fullText
     .split("\n")
     .filter((line) => SECTION_HEADINGS.test(line.trim())).length;
-  const looksStructured = hasCritiqueShape || headingHits >= 2;
+  const looksStructured =
+    !looksLikeCompletionOrAdvisoryProse &&
+    (hasCritiqueShape || headingHits >= 2);
+
+  // Apply All chrome only when the message explicitly invites Apply all.
+  const applyAllReadyForUi =
+    applyAllReady &&
+    !looksLikeCompletionOrAdvisoryProse &&
+    /\b(Next improvements|Top improvements|improvements? ready|Say Apply all)\b/i.test(
+      fullText,
+    );
 
   if (!looksStructured) {
     const { prose, focusItems } = splitFocusSection(fullText);
@@ -263,7 +281,7 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
       fullText,
       shouldCollapseFull: dense,
       wordCount: words,
-      applyAllReady,
+      applyAllReady: false,
     };
   }
 
@@ -342,7 +360,7 @@ export function parseCritiqueMessage(content: string): ParsedCritiqueMessage {
     fullText,
     shouldCollapseFull: true,
     wordCount: words,
-    applyAllReady: applyAllReady || improvements.length > 0,
+    applyAllReady: applyAllReadyForUi,
   };
 }
 

@@ -31,6 +31,12 @@ import {
   type ClarificationDestination,
 } from "@/lib/ai/atlas-action-memory";
 import {
+  assessApplyAllPlanState,
+  formatApplyAllContinuityFailure,
+  isApplyAllRequest,
+  logApplyAllContinuityDiagnostics,
+} from "@/lib/ai/apply-all-continuity";
+import {
   buildTransformationPlanForProject,
   executeTransformationPlan,
   transformationRevisionPrompt,
@@ -525,11 +531,26 @@ function executeReviewPlanApplyAll(input: {
         snapshot: input.snapshot,
         stalePlanDetected: true,
       });
+      logApplyAllContinuityDiagnostics({
+        requestId: null,
+        strategicRequestMode: null,
+        activePlanPresent: Boolean(input.memory.activePlan),
+        reviewPlanSnapshotPresent: true,
+        transformationPlanPresent: Boolean(
+          input.memory.activePlan?.transformationPlan?.goals?.length,
+        ),
+        planRevision: input.snapshot.projectRevision,
+        projectRevision: currentRevision,
+        canApplyAll: false,
+        applyAllResolutionSource: "stale_plan",
+        stalePlanDetected: true,
+        executionStarted: false,
+        genericClarificationTriggered: false,
+      });
     }
     return {
       ok: true,
-      explanation:
-        "The site changed since this review plan was approved. Ask me to Review my website again so I can reassess against the current project before applying anything.",
+      explanation: formatApplyAllContinuityFailure({ stale: true }),
       operations: [],
       changes: [],
       project,
@@ -1269,6 +1290,27 @@ async function tryContinueActionMemory(input: {
     return null;
   }
   recordActiveTaskDiagnostics({ activePlanExecuted: true });
+  if (isApplyAllRequest(input.request) && process.env.NODE_ENV === "development") {
+    const planState = assessApplyAllPlanState({ project: input.project });
+    logApplyAllContinuityDiagnostics({
+      requestId: null,
+      strategicRequestMode: null,
+      activePlanPresent: Boolean(memory.activePlan),
+      reviewPlanSnapshotPresent: Boolean(
+        memory.activePlan?.reviewPlanSnapshot,
+      ),
+      transformationPlanPresent: Boolean(
+        memory.activePlan?.transformationPlan?.goals?.length,
+      ),
+      planRevision: planState.planRevision,
+      projectRevision: planState.projectRevision,
+      canApplyAll: planState.canApply,
+      applyAllResolutionSource: planState.source,
+      stalePlanDetected: planState.stale,
+      executionStarted: !planState.stale && planState.canApply,
+      genericClarificationTriggered: false,
+    });
+  }
 
   // Ordinal / named plan references run before clarification chips.
   if (
@@ -4226,15 +4268,85 @@ export async function runAtlasBrain(
     return continued;
   }
 
+  const atlasRequestId =
+    input.atlasRequestId?.trim() || createAiRequestId();
+
+  // v1.6.7 — Apply All with no/stale plan must never hit generic clarification.
+  if (isApplyAllRequest(request)) {
+    const planState = assessApplyAllPlanState({
+      project: projectForTurn,
+      requestId: atlasRequestId,
+    });
+    const memory = getActionMemory(projectForTurn);
+    if (!planState.canApply) {
+      logApplyAllContinuityDiagnostics({
+        requestId: atlasRequestId,
+        strategicRequestMode: null,
+        activePlanPresent: Boolean(memory.activePlan),
+        reviewPlanSnapshotPresent: Boolean(
+          memory.activePlan?.reviewPlanSnapshot,
+        ),
+        transformationPlanPresent: Boolean(
+          memory.activePlan?.transformationPlan?.goals?.length,
+        ),
+        planRevision: planState.planRevision,
+        projectRevision: planState.projectRevision,
+        canApplyAll: false,
+        applyAllResolutionSource: planState.source,
+        stalePlanDetected: planState.stale,
+        executionStarted: false,
+        genericClarificationTriggered: false,
+      });
+      const explanation = formatApplyAllContinuityFailure({
+        stale: planState.stale,
+      });
+      const project = withMemory(projectForTurn, request);
+      return {
+        ok: true,
+        explanation,
+        operations: [],
+        changes: [],
+        project,
+        applyStatus: "no_changes",
+        decision: {
+          intent: "continue_plan",
+          confidence: 0.99,
+          selectedAgents: ["creative_director"],
+          needsClarification: false,
+          shouldExecuteEdits: false,
+          executionPlan: {
+            goal: planState.stale
+              ? "Refresh review plan"
+              : "Prepare review plan",
+            steps: [],
+            estimatedImpact: "low",
+          },
+          explanation,
+          followUpSuggestions: planState.stale
+            ? ["Review my website"]
+            : ["Review my website", "Complete my website"],
+          decisionStage: "action_memory",
+          commandKind: "action_memory",
+          matchedSignals: [
+            "apply_all_continuity",
+            planState.source,
+            planState.stale ? "stale_plan" : "no_plan",
+          ],
+        },
+        followUpSuggestions: planState.stale
+          ? ["Review my website"]
+          : ["Review my website", "Complete my website"],
+        atlasMemory: project.atlasMemory,
+      };
+    }
+  }
+
   let decision = decideAtlasBrain({
     request,
     project: projectForTurn,
     history,
     attachmentContexts: input.attachmentContexts,
   });
-
-  const atlasRequestId =
-    input.atlasRequestId?.trim() || createAiRequestId();
   if (
     decision.selectedPath === "atlas_critique_pipeline" ||
     decision.intent === "design_critique" ||
@@ -4294,6 +4406,70 @@ export async function runAtlasBrain(
   }
 
   if (decision.needsClarification) {
+    // v1.6.7 — Apply All must never surface generic designer clarification chips.
+    if (isApplyAllRequest(request)) {
+      const planState = assessApplyAllPlanState({
+        project: projectForTurn,
+        requestId: atlasRequestId,
+      });
+      const mem = getActionMemory(projectForTurn);
+      logApplyAllContinuityDiagnostics({
+        requestId: atlasRequestId,
+        strategicRequestMode: null,
+        activePlanPresent: Boolean(mem.activePlan),
+        reviewPlanSnapshotPresent: Boolean(
+          mem.activePlan?.reviewPlanSnapshot,
+        ),
+        transformationPlanPresent: Boolean(
+          mem.activePlan?.transformationPlan?.goals?.length,
+        ),
+        planRevision: planState.planRevision,
+        projectRevision: planState.projectRevision,
+        canApplyAll: planState.canApply,
+        applyAllResolutionSource: planState.source,
+        stalePlanDetected: planState.stale,
+        executionStarted: false,
+        genericClarificationTriggered: false,
+      });
+      if (planState.canApply) {
+        const forced = await tryContinueActionMemory({
+          project: projectForTurn,
+          request,
+        });
+        if (forced) return forced;
+      }
+      const explanation = formatApplyAllContinuityFailure({
+        stale: planState.stale,
+      });
+      const project = withMemory(projectForTurn, request);
+      return {
+        ok: true,
+        explanation,
+        operations: [],
+        changes: [],
+        project,
+        applyStatus: "no_changes",
+        decision: {
+          ...decision,
+          needsClarification: false,
+          shouldExecuteEdits: false,
+          explanation,
+          followUpSuggestions: planState.stale
+            ? ["Review my website"]
+            : ["Review my website", "Complete my website"],
+          matchedSignals: [
+            ...(decision.matchedSignals ?? []),
+            "apply_all_continuity",
+            "blocked_generic_clarification",
+          ],
+        },
+        followUpSuggestions: planState.stale
+          ? ["Review my website"]
+          : ["Review my website", "Complete my website"],
+        atlasMemory: project.atlasMemory,
+      };
+    }
+
     const actionMemory = storePendingClarification(
       getActionMemory(projectForTurn),
       {

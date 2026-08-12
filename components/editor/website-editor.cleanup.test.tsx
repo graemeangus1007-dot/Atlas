@@ -158,6 +158,7 @@ describe("Atlas critique progressive disclosure", () => {
         messageId="m1"
         onReviewPlan={() => {}}
         onApplyAll={() => {}}
+        canApplyAll
       />,
     );
     expect(screen.getByTestId("atlas-critique-message")).toBeTruthy();
